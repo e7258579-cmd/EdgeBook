@@ -1,0 +1,2137 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Edgebook</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#ffffff;--bg2:#f5f5f3;--bg3:#eeede9;
+    --text:#1a1a1a;--text2:#666;--text3:#999;
+    --border:#e0dfd8;--border2:#ccc;
+    --green:#1D9E75;--red:#D85A30;--amber:#EF9F27;
+    --radius:10px;--radius-sm:7px;
+  }
+  [data-theme="dark"]{
+    --bg:#141414;--bg2:#1c1c1c;--bg3:#222222;
+    --text:#f0f0ee;--text2:#999999;--text3:#888888;
+    --border:#2a2a2a;--border2:#3a3a3a;
+  }
+  [data-theme="dark"] .trade-table tbody tr td{background:var(--bg)}
+  [data-theme="dark"] .trade-table tbody tr.data-row:hover td{background:var(--bg2)}
+  [data-theme="dark"] .trade-table .col-sym{color:#ccc}
+  :root{
+    /* Responsive sidebar width — single source of truth.
+       All layout consumers (topbar left, main-wrap margin, etc.) read this.
+       clamp(min, preferred, max): shrinks on laptop, stays comfortable on desktop. */
+    --sb-w: clamp(220px, 18vw, 290px);
+    --sb-w-collapsed: 72px;
+  }
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg3);color:var(--text);min-height:100vh;font-size:15px;overflow-y:scroll}
+
+  /* =============================================
+     NEW LAYOUT: Sidebar + Topbar
+  ============================================= */
+  .layout{display:flex;min-height:100vh}
+
+  /* --- Sidebar --- */
+  .sidebar{
+    position:fixed;top:0;left:0;height:100vh;
+    width:var(--sb-w);
+    background:var(--bg);
+    border-right:1px solid var(--border);
+    display:flex;flex-direction:column;align-items:flex-start;
+    padding:.75rem 0;gap:4px;
+    z-index:100;
+    transition:width .22s cubic-bezier(.4,0,.2,1);
+    overflow:hidden;
+  }
+  .sidebar.collapsed{ width:var(--sb-w-collapsed); align-items:center; overflow:hidden; }
+
+  /* Brand row */
+  .sb-brand{
+    display:flex;align-items:center;gap:10px;
+    padding:0 10px;margin-bottom:.75rem;
+    width:100%;flex-shrink:0;
+    min-height:42px;
+  }
+  .sb-logo{
+    width:43px;height:43px;border-radius:11px;
+    background:var(--bg2);color:var(--text2);
+    display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;font-size:16px;font-weight:700;letter-spacing:.05em;
+    transition:opacity .18s, width .22s, margin .22s;
+  }
+  .sb-logo svg{width:43px;height:43px;fill:none;stroke-linecap:round;stroke-linejoin:round}
+  .sidebar.collapsed .sb-logo{opacity:0;width:0;margin:0;overflow:hidden}
+  .sb-brand-text{
+    font-size:20px;font-weight:700;color:var(--text);
+    letter-spacing:.12em;white-space:nowrap;
+    opacity:1;transition:opacity .12s;
+    pointer-events:none;flex:1;
+  }
+  .sidebar.collapsed .sb-brand-text{opacity:0}
+
+  /* Toggle button */
+  .sb-toggle{
+    width:34px;height:34px;border-radius:9px;
+    border:1px solid var(--border);background:var(--bg);
+    cursor:pointer;display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;
+    margin-left:auto;
+    color:var(--text2);
+    transition:background .15s, color .15s;
+  }
+  .sb-toggle:hover{background:var(--bg2);color:var(--text)}
+  .sb-toggle svg{width:16px;height:14px;stroke:currentColor;fill:none;stroke-width:0.9;stroke-linecap:round;stroke-linejoin:round;transition:transform .22s}
+  /* when collapsed: position above nav items, centered */
+  .sidebar.collapsed .sb-brand{padding:0 10px;margin-bottom:0;min-height:0}
+  .sidebar.collapsed .sb-toggle{
+    position:absolute;top:8px;left:50%;transform:translateX(-50%);
+    margin-left:0;
+  }
+  .sidebar.collapsed .sb-toggle svg{transform:rotate(180deg)}
+
+  /* Nav items */
+  .sb-item{
+    display:flex;align-items:center;gap:14px;
+    width:calc(100% - 16px);margin:0 8px;
+    padding:12px 14px;border-radius:9px;
+    cursor:pointer;border:none;background:none;
+    font-family:'CircularXXWeb-Bold',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    color:var(--text2);font-size:14px;font-weight:500;letter-spacing:.01em;
+    transition:background .12s,color .12s;
+    white-space:nowrap;flex-shrink:0;
+  }
+  .sb-item:hover{background:var(--bg2);color:var(--text)}
+  .sb-item.active{background:var(--bg3);color:var(--text)}
+  .sb-item.active svg{stroke:var(--text)}
+  .sb-item svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+  .sb-label{opacity:1;transition:opacity .12s;pointer-events:none;white-space:nowrap}
+  .sidebar.collapsed .sb-label{opacity:0}
+
+  /* Spacer pushes bottom items down */
+  .sb-spacer{flex:1}
+  .sb-divider{width:calc(100% - 16px);height:1px;background:var(--border);margin:4px 8px;flex-shrink:0}
+  .settings-menu-item{display:flex;align-items:center;gap:10px;width:100%;padding:9px 14px;border:none;background:none;cursor:pointer;font-family:inherit;font-size:13px;color:var(--text2);text-align:left;transition:background .12s,color .12s}
+  .settings-menu-item:hover{background:var(--bg2);color:var(--text)}
+  .sb-item.active-live{color:var(--green)}
+  .sb-item.active-live svg{stroke:var(--green)}
+  .sb-item.active-demo{color:var(--amber)}
+  .sb-item.active-demo svg{stroke:var(--amber)}
+  .topbar.demo-mode{border-bottom-color:var(--amber)}
+
+  /* --- Topbar --- */
+  .topbar{
+    position:fixed;top:0;left:var(--sb-w);right:0;height:52px;
+    background:var(--bg);border-bottom:1px solid var(--border);
+    display:flex;align-items:center;justify-content:space-between;
+    padding:0 clamp(.75rem, 1.5vw, 1.25rem);z-index:90;
+    gap:8px;
+    transition:left .22s cubic-bezier(.4,0,.2,1);
+  }
+  .sidebar.collapsed ~ .topbar,
+  .layout.sb-open .topbar{ left:var(--sb-w-collapsed); }
+  /* tb-left: min-width:0 + flex-shrink allows it to yield space to tb-right */
+  .tb-left{display:flex;align-items:center;gap:8px;transition:transform .25s cubic-bezier(.4,0,.2,1);min-width:0;flex-shrink:1}
+  .tb-left.pushed{transform:translateX(8px)}
+  .tb-page-title{
+    font-size:16px;font-weight:700;color:var(--text2);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    letter-spacing:.18em;text-transform:uppercase;
+    white-space:nowrap;overflow:hidden;
+    max-width:0;opacity:0;
+    transform:translateY(10px);
+    transition:max-width .28s cubic-bezier(.4,0,.2,1), opacity .22s, transform .25s cubic-bezier(.4,0,.2,1);
+    margin-right:0;line-height:1;
+  }
+  .tb-page-title.visible{
+    max-width:200px;opacity:1;transform:translateY(0);margin-right:8px;
+  }
+  .tb-date{font-size:13px;font-weight:500;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex-shrink:1}
+  .tb-right{display:flex;align-items:center;gap:clamp(4px,.6vw,8px);flex-shrink:0}
+  .acct-badge{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;font-family:'CircularXXWeb-Bold',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+  .acct-badge.badge-live{background:rgba(29,158,117,.12);color:var(--green)}
+  .acct-badge.badge-demo{background:rgba(239,159,39,.15);color:var(--amber)}
+  .tb-btn{
+    width:34px;height:34px;border-radius:9px;
+    border:1px solid var(--border);background:var(--bg);
+    cursor:pointer;display:flex;align-items:center;justify-content:center;
+    transition:background .15s;
+  }
+  .tb-btn:hover{background:var(--bg2)}
+  .tb-btn svg{width:15px;height:15px;stroke:var(--text2);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  /* Calendar sub-mode buttons */
+  .cal-mode-btn{display:flex;align-items:center;gap:5px;padding:5px 11px;font-size:11px;font-weight:600;border-radius:7px;border:1px solid var(--border2);background:transparent;color:var(--text2);cursor:pointer;font-family:inherit;transition:all .15s}
+  .cal-mode-btn:hover{background:var(--bg2);color:var(--text)}
+  .cal-mode-btn.active{background:var(--text);color:var(--bg)}
+  .cal-mode-btn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+  .cal-mode-label{white-space:nowrap}
+  @media(max-width:1065px){
+    .cal-mode-label{display:none}
+    .cal-mode-btn{padding:5px 8px}
+  }
+  /* Calendar topbar controls */
+  .cal-nav-btn{background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:4px 10px;font-size:15px;cursor:pointer;color:var(--text2);line-height:1;transition:background .15s}
+  .cal-nav-btn:hover:not(:disabled){background:var(--bg2)}
+  .cal-nav-btn:disabled{cursor:default}
+  .cal-today-btn{background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;color:var(--text2);transition:background .15s}
+  .cal-today-btn:hover:not(:disabled){background:var(--bg2)}
+  .cal-today-btn:disabled{cursor:default}
+  /* Grid mode: no vertical scroll, fit viewport exactly */
+  /* Base padding for Calendar tab (Timeline mode). Overridden in grid-active. */
+  .tab-cal-base { padding-top: .5rem; }
+
+  /* ── CALENDAR GRID MODE (calScope === 'multi') ──────────────────────────
+     Strategy: #tab-cal becomes a fixed-height flex column that fills exactly
+     the viewport below the topbar. #cal-grid takes all remaining space via
+     flex:1 and hosts a strict 2×2 CSS grid. Each .multi-month-wrap card is a
+     flex column whose dimensions are set by the grid — not by its content.
+     Calendar content clips (overflow:hidden) instead of stretching the card.
+
+     Key invariants:
+       • --cal-topbar-h  = topbar (52px) + .app padding-top (58px) + cal
+                           page padding-top (.5rem ≈ 8px) + gap below title (0
+                           in grid mode, title is hidden) + bottom gutter (16px)
+         Combined: 52 + 58 + 8 + 16 = 134px  → use 134px
+       • Identical card height = (available-height - gap) / 2
+       • Cards never grow; content scales down via font-size clamp on cells
+  ── ──────────────────────────────────────────────────────────────────── */
+
+  /* Applied by JS: setCalScope('multi') adds this class to #tab-cal */
+  #tab-cal.cal-grid-active {
+    /* topbar 52px + app padding-top 58px + app padding-bottom 24px = 134px */
+    height: calc(100vh - 134px);
+    max-height: calc(100vh - 134px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 0;
+    /* Override .tab-cal-base padding-top — grid needs zero top padding */
+    padding-top: 0 !important;
+  }
+
+  /* #cal-grid: flex child, takes all remaining height, hosts the 2×2 grid */
+  #tab-cal.cal-grid-active #cal-grid {
+    flex: 1;
+    min-height: 0;           /* critical: allows flex child to shrink below content */
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: .875rem;
+    align-items: stretch;
+  }
+
+  /* Card container: fixed by grid, never driven by content */
+  #tab-cal.cal-grid-active .multi-month-wrap {
+    /* Remove content-driven sizing */
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    /* preserve existing card aesthetics */
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: .75rem;
+    transition: box-shadow .18s, border-color .18s;
+    cursor: pointer;
+  }
+  #tab-cal.cal-grid-active .multi-month-wrap:hover {
+    box-shadow: 0 4px 20px rgba(0,0,0,.10);
+    border-color: var(--border2);
+  }
+
+  /* Card header row: fixed height, never shrinks */
+  #tab-cal.cal-grid-active .multi-month-wrap > div:first-child {
+    flex-shrink: 0;
+  }
+
+  /* Day-of-week header row: fixed height */
+  #tab-cal.cal-grid-active .day-grid-header,
+  #tab-cal.cal-grid-active .day-grid-focus-header {
+    flex-shrink: 0;
+  }
+
+  /* The day grid itself: takes remaining card space, rows share it equally */
+  #tab-cal.cal-grid-active .day-grid {
+    flex: 1;
+    min-height: 0;
+    grid-auto-rows: 1fr;   /* equal row heights regardless of row count */
+    overflow: hidden;
+  }
+  #tab-cal.cal-grid-active .day-grid-focus {
+    flex: 1;
+    min-height: 0;
+    grid-auto-rows: 1fr;
+    overflow: hidden;
+  }
+
+  /* Day cells: fill their grid row, never set their own min-height */
+  #tab-cal.cal-grid-active .day-cell,
+  #tab-cal.cal-grid-active .day-cell.week-summary {
+    min-height: 0 !important;
+    overflow: hidden;
+  }
+
+  /* Scale down cell text slightly so content fits the fixed cells */
+  #tab-cal.cal-grid-active .day-cell-num  { font-size: 10px; }
+  #tab-cal.cal-grid-active .day-cell-pnl  { font-size: 11px; }
+  #tab-cal.cal-grid-active .day-cell-count{ font-size: 9px; }
+
+  /* Each month card: uniform flex column (base — outside grid-active too) */
+  .multi-month-wrap {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    cursor: pointer;
+    transition: box-shadow .18s, border-color .18s;
+  }
+  .multi-month-wrap:hover { box-shadow: 0 4px 20px rgba(0,0,0,.10); border-color: var(--border2); }
+
+  /* Month zoom overlay */
+  .cal-zoom-overlay{
+    display:none;position:fixed;inset:0;
+    background:rgba(0,0,0,.55);backdrop-filter:blur(5px);
+    z-index:500;align-items:center;justify-content:center;
+    opacity:0;transition:opacity .22s ease;
+  }
+  .cal-zoom-overlay.open{display:flex;opacity:1}
+  .cal-zoom-box{
+    background:var(--bg);border:1px solid var(--border);
+    border-radius:16px;padding:1.5rem;
+    width:min(98vw,1400px);max-height:96vh;overflow-y:auto;
+    box-shadow:0 24px 60px rgba(0,0,0,.22);
+    transform:scale(.93) translateY(12px);
+    transition:transform .22s cubic-bezier(.4,0,.2,1);
+    direction:ltr;
+  }
+  .cal-zoom-overlay.open .cal-zoom-box{transform:scale(1) translateY(0)}
+  .cal-zoom-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem}
+  .cal-zoom-title{font-size:17px;font-weight:700;color:var(--text);letter-spacing:.04em}
+  .cal-zoom-close{
+    width:32px;height:32px;border-radius:50%;
+    border:1px solid var(--border);background:var(--bg2);
+    cursor:pointer;display:flex;align-items:center;justify-content:center;
+    font-size:18px;color:var(--text2);transition:background .15s;flex-shrink:0;
+  }
+  .cal-zoom-close:hover{background:var(--border)}
+  .cal-zoom-body .day-grid{grid-auto-rows:minmax(68px,auto)}
+  .cal-zoom-body .day-cell{min-height:68px}
+
+  /* Calendar day-panel: selected cell highlight */
+  .day-cell.cal-day-selected {
+    outline: 2px solid var(--text);
+    outline-offset: -2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* --- Main content area --- */
+  .main-wrap{
+    margin-left:var(--sb-w);
+    transition:margin-left .22s cubic-bezier(.4,0,.2,1);
+    min-height:100vh;
+    width:calc(100% - var(--sb-w));
+  }
+  .layout.sb-open .main-wrap{
+    margin-left:var(--sb-w-collapsed);
+    width:calc(100% - var(--sb-w-collapsed));
+  }
+  /* Two-column grid — fills full available width */
+  .app-columns{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) clamp(280px, 22vw, 380px);
+    width:100%;
+    min-height:100vh;
+    align-items:start;
+  }
+  .app{
+    min-width:0;
+    padding:1.5rem clamp(1rem, 2vw, 2rem);
+    padding-top:58px;
+  }
+  .right-panel{
+    border-left:1px solid var(--border);
+    min-height:100vh;
+    padding:1.5rem 1.25rem;
+    padding-top:calc(52px + 1.5rem);
+    background:var(--bg);
+    min-width:0;
+    position:sticky;
+    top:0;
+    height:100vh;
+    overflow-y:auto;
+  }
+  /* Responsive: collapse right panel on narrow screens */
+  @media(max-width:1100px){
+    .app-columns{grid-template-columns:1fr}
+    .right-panel{display:none}
+  }
+
+  /* ── Laptop layout (≤1440px) ─────────────────────────────────────────────
+     Right panel becomes a collapsible drawer anchored below the topbar.
+     Main content expands to fill the full width.
+     Standard desktop (>1440px): zero changes — layout untouched.
+  ──────────────────────────────────────────────────────────────────────── */
+  @media(max-width:1440px){
+    /* Date stays visible — remove the hide rule from v39 */
+    .tb-date{display:block}
+
+    /* Tighten nav items slightly on laptop */
+    .sb-item{padding:10px 12px;font-size:13px}
+
+    /* Main content takes full width — right panel exits the grid */
+    .app-columns{
+      grid-template-columns:1fr;
+      position:relative;
+    }
+
+    /* Right panel: fixed drawer sliding in from the right */
+    .right-panel{
+      display:block !important;          /* override the 1100px hide */
+      position:fixed;
+      top:52px;                          /* flush below topbar */
+      right:0;
+      width:clamp(260px, 24vw, 340px);
+      height:calc(100vh - 52px);
+      overflow-y:auto;
+      background:var(--bg);
+      border-left:1px solid var(--border);
+      box-shadow:-4px 0 18px rgba(0,0,0,.08);
+      z-index:85;                        /* below topbar (90), above content */
+      padding:1.25rem;
+      padding-top:1.25rem;
+      /* Slide out to the right by default (closed) */
+      transform:translateX(100%);
+      transition:transform .25s cubic-bezier(.4,0,.2,1),
+                 box-shadow .25s;
+      /* Override the sticky/height from desktop rules */
+      min-height:unset;
+    }
+    .right-panel.rp-open{
+      transform:translateX(0);
+      box-shadow:-6px 0 28px rgba(0,0,0,.13);
+    }
+
+    /* Toggle button — only visible on laptop */
+    .rp-toggle-btn{
+      display:flex !important;
+    }
+
+    /* Backdrop — tap to close the panel */
+    .rp-backdrop{
+      display:none;
+      position:fixed;inset:0;
+      top:52px;
+      background:rgba(0,0,0,.18);
+      z-index:84;
+      cursor:pointer;
+    }
+    .rp-backdrop.open{display:block}
+  }
+
+  /* On standard desktop — toggle button must be hidden, backdrop never shows */
+  @media(min-width:1441px){
+    .rp-toggle-btn{display:none !important}
+    .rp-backdrop{display:none !important}
+  }
+
+  .app.home-active{height:100vh;overflow:hidden;padding-bottom:1.5rem;display:flex;flex-direction:column}
+
+  /* OLD styles kept for compat */
+  .header-right{text-align:left;font-size:13px;color:var(--text2)}
+  @font-face{
+    font-family:'CircularXXWeb-Bold';
+    src:local('CircularXXWeb-Bold'),local('Circular XX Web Bold'),local('CircularXX-Bold');
+    font-weight:700;font-style:normal;
+  }
+  /* === Stats hero/compact === */
+  .stats-hero{margin-bottom:2rem;display:grid}
+  .hero-pnl-wrap{display:none}
+  .hero-small-grid{display:grid;grid-template-columns:168px 168px;gap:6px;align-items:center;justify-self:start}
+  .stats-compact{display:none !important}
+  .stat-card{background:transparent;border:none;border-radius:0;padding:0;text-align:center;box-shadow:none}
+  .stat-label{font-size:15px;color:var(--text2);margin-bottom:10px;letter-spacing:.04em;font-weight:700;font-family:'CircularXXWeb-Bold',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}  .stat-val{font-size:18px;font-weight:700}
+  .donut-card{padding:0}
+  .donut-wrap{position:relative;width:168px;height:168px;margin:0 auto}
+  .donut-wrap.hero-large{width:240px;height:240px}
+  .donut-wrap.compact-sm{width:58px;height:58px;margin:0 auto 2px}
+  .donut-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;width:60%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+  .donut-center .stat-label{font-size:10px;color:var(--text2);margin-bottom:0;letter-spacing:.02em;font-weight:700;font-family:'CircularXXWeb-Bold',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;line-height:1.2}
+  .donut-center .stat-val{font-size:18px;font-weight:700;white-space:nowrap;color:var(--text2) !important;font-family:'CircularXXWeb-Bold',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+  .donut-center.hero-large-center .stat-label{font-size:13px}
+  .donut-center.hero-large-center .stat-val{font-size:28px}
+  .donut-center.compact-center .stat-label{font-size:7px}
+  .donut-center.compact-center .stat-val{font-size:11px}
+  .pos{color:var(--green)}.neg{color:var(--red)}.neu{color:var(--text)}
+  .tabs{display:flex;gap:4px;margin-bottom:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:3px;border:1px solid var(--border)}
+  .tab{flex:1;padding:8px 12px;font-size:13px;background:none;border:none;cursor:pointer;border-radius:8px;color:var(--text2);transition:all .15s;font-family:inherit}
+  .tab.active{background:var(--bg);color:var(--text);font-weight:600;border:1px solid var(--border2);box-shadow:0 1px 3px rgba(0,0,0,.07)}
+  .section{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:2rem}
+
+  /* Chart expand modal */
+  .chart-modal-overlay{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s ease}
+  .chart-modal-overlay.open{opacity:1;pointer-events:all}
+  .chart-modal-box{background:var(--bg);border:1px solid var(--border);border-radius:16px;padding:1.5rem;width:min(92vw,900px);max-height:85vh;display:flex;flex-direction:column;gap:1rem;transform:scale(.95) translateY(10px);transition:transform .2s ease;box-shadow:0 24px 60px rgba(0,0,0,.22)}
+  .chart-modal-overlay.open .chart-modal-box{transform:scale(1) translateY(0)}
+  .chart-modal-header{display:flex;align-items:center;justify-content:space-between;direction:ltr}
+  .chart-modal-title{font-size:16px;font-weight:700;color:var(--text)}
+  .chart-modal-close{width:32px;height:32px;border-radius:50%;border:1px solid var(--border);background:var(--bg2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--text2);transition:background .15s}
+  .chart-modal-close:hover{background:var(--border)}
+  .chart-modal-body{flex:1;position:relative;min-height:300px}
+  .chart-expand-btn{width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:.55;transition:opacity .15s;flex-shrink:0}
+  .chart-expand-btn:hover{opacity:1}
+  .chart-expand-btn svg{width:14px;height:14px;stroke:var(--text2);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .chart-modal-body canvas{width:100%!important;height:100%!important}
+  .section h2{font-size:15px;font-weight:600;margin-bottom:1rem;color:var(--text)}
+  .form-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .form-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px}
+  .form-row-4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px}
+  .form-full{margin-top:10px}
+  .field label{font-size:12px;color:var(--text2);display:block;margin-bottom:4px;font-weight:500}
+  .field input,.field select,.field textarea{
+    width:100%;padding:8px 11px;border:1px solid var(--border2);border-radius:var(--radius-sm);
+    font-size:13px;background:var(--bg2);color:var(--text);font-family:inherit;
+    transition:border-color .15s;outline:none;
+  }
+  .field input:focus,.field select:focus,.field textarea:focus{border-color:#888;background:var(--bg)}
+  .field textarea{resize:vertical;min-height:72px;line-height:1.5}
+  .mood-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+  .mood-btn{padding:5px 11px;border:1px solid var(--border2);border-radius:20px;background:none;font-size:12px;cursor:pointer;color:var(--text2);transition:all .1s;font-family:inherit}
+  .mood-btn.sel{background:rgba(29,158,117,.15);border-color:var(--green);color:var(--green);font-weight:500}
+  .rating-row{display:flex;gap:4px;margin-top:4px}
+  .star{font-size:22px;cursor:pointer;color:var(--border2);transition:color .1s;user-select:none;line-height:1}
+  .star.on{color:var(--amber)}
+  .btn-save{width:100%;padding:11px;background:var(--text);color:white;border:none;border-radius:var(--radius-sm);font-size:14px;font-weight:600;cursor:pointer;margin-top:14px;transition:opacity .15s;font-family:inherit}
+  .btn-save:hover{opacity:.85}
+  .btn-sm{padding:5px 14px;border:1px solid var(--border2);border-radius:6px;background:none;font-size:13px;color:var(--text2);cursor:pointer;font-family:inherit;transition:all .1s}
+  .btn-sm:hover{background:rgba(216,90,48,.12);border-color:var(--red);color:var(--red)}
+  .btn-detail{padding:4px 10px;border:1px solid var(--border2);border-radius:6px;background:none;font-size:11px;color:var(--text2);cursor:pointer;font-family:inherit}
+  .btn-detail:hover{background:var(--bg2)}
+  .btn-edit{padding:5px 14px;border:1px solid var(--border2);border-radius:6px;background:none;font-size:13px;color:var(--text2);cursor:pointer;font-family:inherit;transition:all .1s}
+  .btn-edit:hover{background:rgba(59,130,246,.12);border-color:#3b82f6;color:#2563eb}
+  .dir-badge{padding:3px 9px;border-radius:12px;font-size:11px;font-weight:600}
+  .long-badge{background:rgba(29,158,117,.15);color:var(--green)}
+  .short-badge{background:rgba(216,90,48,.12);color:var(--red)}
+
+  /* === Trade Table === */
+  .trade-table{width:100%;border-collapse:separate;border-spacing:0;direction:ltr;font-size:13px;table-layout:fixed}
+  .trade-table thead tr th{background:var(--bg2);color:var(--text3);font-size:12px;font-weight:700;letter-spacing:.06em;padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
+  .trade-table thead tr th:nth-child(1){width:110px;min-width:110px;text-align:left}
+  .trade-table tbody tr td:nth-child(1){text-align:left}
+  .trade-table thead tr th:nth-child(2){width:75px;text-align:left}
+  .trade-table thead tr th:nth-child(3){width:80px;text-align:left}
+  .trade-table thead tr th:nth-child(4){width:65px}
+  .trade-table thead tr th:nth-child(5){width:50px}
+  .trade-table thead tr th:nth-child(6){width:110px}
+  .trade-table thead tr th:nth-child(7){width:85px}
+  .trade-table thead tr th:nth-child(8){width:110px}
+  .trade-table thead tr th:nth-child(9){width:65px}
+  .trade-table thead tr th:nth-child(10){width:80px}
+  .trade-table tbody tr td{overflow:hidden;text-overflow:ellipsis;text-align:center}
+  .trade-table tbody tr td:nth-child(2){text-align:left}
+  .trade-table tbody tr td:nth-child(3){text-align:left}
+  .trade-table thead tr th:first-child{border-radius:0}
+  .trade-table thead tr th:last-child{border-radius:0}
+  .trade-table tbody tr td{padding:9px 10px;border-bottom:1px solid var(--border);background:transparent;vertical-align:middle;white-space:nowrap}
+  .trade-table tbody tr td:first-child{border-left:none}
+  .trade-table tbody tr td:last-child{border-right:none}
+  .trade-table tbody tr:last-child td{border-bottom:none}
+  .trade-table tbody tr:last-child td:first-child{border-radius:0}
+  .trade-table tbody tr:last-child td:last-child{border-radius:0}
+  .trade-table tbody tr.data-row:hover td{background:var(--bg2);cursor:pointer}
+  .trade-table .col-sym{font-weight:700;font-size:15px;color:var(--text2);font-family:'CircularXXWeb-Bold',-apple-system,sans-serif;letter-spacing:.04em}
+  .trade-table .col-date{color:var(--text3);font-size:13px}
+  .trade-table .col-pnl{font-weight:700;font-size:15px;font-family:'CircularXXWeb-Bold',-apple-system,sans-serif}
+  .trade-table .col-pnl.pos{color:var(--green)}
+  .trade-table .col-pnl.neg{color:var(--red)}
+  .trade-table .col-num{color:var(--text2);font-size:13px}
+  .trade-table .col-actions{display:flex;gap:4px;justify-content:flex-end}
+  /* expanded detail panel */
+  .trade-expand-row{display:none}
+  .trade-expand-row.open{display:table-row}
+  .trade-expand-row td{background:var(--bg2) !important;border-bottom:1px solid var(--border);padding:10px 14px !important;cursor:default;overflow-x:clip}
+  .expand-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px 16px;font-size:12px}
+  .expand-kv{display:flex;flex-direction:column;gap:2px}
+  .expand-k{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+  .expand-v{font-weight:600;color:var(--text)}
+  .expand-note-box{margin-top:8px;font-size:12px;color:var(--text2);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:.5rem .75rem;line-height:1.5;word-break:break-word;white-space:pre-wrap}
+  .expand-actions-row{display:flex;gap:6px;margin-top:8px}
+  .trade-meta{font-size:11px;color:var(--text2);margin-top:2px}
+  .trade-actions{display:flex;gap:5px}
+  /* === Full Month Day Grid === */
+  .day-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;direction:ltr}
+  .day-grid-header{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-bottom:4px;direction:ltr}
+  .day-grid-header span{text-align:center;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;padding:4px 0}
+  .day-cell{border:1px solid var(--border);border-radius:8px;padding:7px 8px;min-height:68px;display:flex;flex-direction:column;gap:3px;background:var(--bg)}
+  .day-cell.holiday{background:repeating-linear-gradient(135deg,var(--bg2),var(--bg2) 4px,var(--bg) 4px,var(--bg) 10px);cursor:pointer;position:relative}
+  .day-cell.holiday::after{content:'🏖';position:absolute;top:4px;right:5px;font-size:11px}
+  .day-cell.holiday .day-cell-num{opacity:.5}
+  .day-cell.week-summary{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:7px 8px;min-height:68px;display:flex;flex-direction:column;gap:3px;border-left:2px solid var(--border)}
+  .day-cell.week-summary.pos-week{border-left-color:var(--green)}
+  .day-cell.week-summary.neg-week{border-left-color:var(--red)}
+  .week-sum-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3)}
+  .week-sum-pnl{font-size:13px;font-weight:700;font-family:'CircularXXWeb-Bold',-apple-system,sans-serif}
+  .week-sum-count{font-size:10px;color:var(--text3)}
+  .month-sum-pnl{font-size:11px;font-weight:700;margin-top:3px;padding-top:3px;border-top:1px solid var(--border)}
+  .cal-focus-btn-active{background:var(--text)!important;color:var(--bg)!important}
+  /* Multi-mode overrides */
+  .multi-month-wrap{border:none;background:transparent;padding:0}
+  .multi-month-wrap .day-grid{gap:5px}
+  .multi-month-wrap .day-grid-header{gap:5px}
+  .multi-month-wrap .day-grid-focus{gap:5px}
+  .multi-month-wrap .day-grid-focus-header{gap:5px}
+  .multi-year-heading{font-size:20px;font-weight:700;color:var(--text2);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.18em;margin-bottom:.75rem;padding-bottom:.4rem;border-bottom:2px solid var(--border);position:sticky;top:52px;z-index:10;background:transparent;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+  /* multi-cell: identical to normal day-cell */
+  .multi-month-wrap .day-cell{background:var(--bg2);min-height:68px}
+  .multi-month-wrap .day-cell.has-trades{background:var(--bg)}
+  .multi-month-wrap .day-cell.other-month{background:transparent;border-color:transparent;opacity:.0}
+  .day-grid-focus{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;direction:ltr}
+  .day-grid-focus-header{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin-bottom:4px;direction:ltr}
+  .day-cell.today{border-color:var(--text);border-width:2px}
+  .day-cell.other-month{background:var(--bg2);opacity:.4}
+  .day-cell.has-trades{cursor:pointer}
+  .day-cell.has-trades:hover{background:var(--bg2)}
+  .day-cell-num{font-size:12px;font-weight:700;color:var(--text3);line-height:1}
+  .day-cell.today .day-cell-num{color:var(--text);background:var(--text);color:var(--bg);width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px}
+  .day-cell-pnl{font-size:13px;font-weight:700;font-family:'CircularXXWeb-Bold',-apple-system,sans-serif;line-height:1.2}
+  .day-cell-pnl.pos{color:var(--green)}
+  .day-cell-pnl.neg{color:var(--red)}
+  .day-cell-count{font-size:10px;color:var(--text3)}
+  .week-cal{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;direction:ltr;width:100%}
+  .week-cal-cell{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 8px;text-align:center;min-height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
+  .week-cal-cell.today{border-color:var(--text);border-width:2px}
+  .week-cal-cell.empty-day{background:var(--bg2);opacity:.5}
+  .cal-day-name{font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em}
+  .cal-day-num{font-size:15px;font-weight:700;color:var(--text2)}
+  .cal-pnl{font-size:13px;font-weight:700;font-family:'CircularXXWeb-Bold',-apple-system,sans-serif}
+  .cal-pnl.pos{color:var(--green)}
+  .cal-pnl.neg{color:var(--red)}
+  .cal-count{font-size:10px;color:var(--text3)}
+  .cal-no-trade{font-size:11px;color:var(--border2)}
+
+  .month-cal-year{font-size:22px;font-weight:700;color:var(--text);font-family:'CircularXXWeb-Bold',-apple-system,sans-serif;margin-bottom:.6rem;padding-top:1.2rem;border-top:2px solid var(--border)}
+  .month-cal-year:first-child{border-top:none;padding-top:0}
+  .month-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:.25rem;direction:ltr}
+  @media(max-width:600px){.month-grid{grid-template-columns:repeat(2,1fr)}.week-cal{gap:3px}}
+  .month-cell{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 10px;display:flex;flex-direction:column;gap:5px;min-height:76px}
+  .month-cell.no-trades{background:var(--bg2);opacity:.6}
+  .month-cell-name{font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.05em}
+  .month-cell-pnl{font-size:17px;font-weight:700;font-family:'CircularXXWeb-Bold',-apple-system,sans-serif}
+  .month-cell-pnl.pos{color:var(--green)}
+  .month-cell-pnl.neg{color:var(--red)}
+  .month-cell-pnl.zero{color:var(--text3)}
+  .month-cell-count{font-size:11px;color:var(--text3)}
+  .filter-row select,.filter-row input{padding:6px 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:12px;background:var(--bg);color:var(--text);font-family:inherit}
+  .filter-label{font-size:12px;color:var(--text2);font-weight:500}
+  .empty{text-align:center;padding:2.5rem;color:var(--text2);font-size:14px}
+  .img-preview{max-width:100%;max-height:160px;border-radius:var(--radius-sm);margin-top:8px;border:1px solid var(--border);display:block}
+  .img-thumb{max-width:52px;max-height:36px;border-radius:5px;cursor:pointer;border:1px solid var(--border);margin-top:4px}
+  .modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.45);z-index:100;align-items:center;justify-content:center}
+  .modal-overlay.open{display:flex}
+  .modal-box{background:var(--bg);border-radius:var(--radius);padding:1.5rem;max-width:520px;width:90%;max-height:85vh;overflow-y:auto;border:1px solid var(--border);position:relative;box-shadow:0 8px 32px rgba(0,0,0,.15)}
+  .modal-close{position:absolute;top:12px;left:14px;background:none;border:none;font-size:18px;cursor:pointer;color:var(--text2);padding:2px 6px;border-radius:4px}
+  .modal-close:hover{background:var(--bg2)}
+  .modal-box h3{font-size:16px;font-weight:600;margin-bottom:1rem}
+  .detail-row{display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid var(--border)}
+  .detail-row:last-child{border:none}
+  .detail-key{color:var(--text2)}
+  .note-box{background:var(--bg2);border-radius:var(--radius-sm);padding:.75rem;font-size:13px;line-height:1.6;margin-top:.5rem;color:var(--text2);border:1px solid var(--border);word-break:break-word;white-space:pre-wrap}
+  .note-label{margin-top:.85rem;font-size:12px;color:var(--text2);font-weight:600}
+  .day-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+  .day-cell{text-align:center;padding:.6rem .25rem;background:var(--bg2);border-radius:var(--radius-sm);border:1px solid var(--border)}
+  .day-name{font-size:10px;color:var(--text2);margin-bottom:3px}
+  .day-count{font-size:13px;font-weight:600}
+  .day-pnl{font-size:10px;margin-top:1px}
+  canvas{max-width:100%}
+  .export-btn{padding:7px 14px;border:1px solid var(--border2);border-radius:var(--radius-sm);background:var(--bg2);color:var(--text);font-size:12px;cursor:pointer;font-family:inherit;font-weight:500}
+  .export-btn:hover{background:var(--bg3)}
+
+  /* === KPI Cards === */
+  .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .kpi-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:1rem;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center}
+  .kpi-label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;font-weight:500}
+  .kpi-circle{width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;line-height:1.1;flex-direction:column}
+  .kpi-circle.neutral{background:var(--bg2);color:var(--text)}
+  .kpi-circle.positive{background:rgba(29,158,117,.15);color:var(--green);box-shadow:0 0 0 3px rgba(29,158,117,.25)}
+  .kpi-circle.negative{background:rgba(216,90,48,.12);color:var(--red);box-shadow:0 0 0 3px rgba(216,90,48,.2)}
+  .kpi-circle.info{background:rgba(59,130,246,.12);color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.2)}
+  .kpi-sub{font-size:11px;color:var(--text3)}
+  @media(max-width:600px){.kpi-grid{grid-template-columns:repeat(2,1fr)}}
+
+  /* === Import Wizard === */
+  .wiz-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+  .wiz-overlay.open{display:flex}
+  .wiz-box{background:var(--bg);border:1px solid var(--border);border-radius:16px;padding:1.75rem;width:min(94vw,560px);max-height:88vh;overflow-y:auto;box-shadow:0 24px 60px rgba(0,0,0,.2);position:relative;direction:ltr}
+  .wiz-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
+  .wiz-title{font-size:17px;font-weight:700;color:var(--text)}
+  .wiz-close{width:30px;height:30px;border-radius:50%;border:1px solid var(--border);background:var(--bg2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--text2)}
+  .wiz-close:hover{background:var(--border)}
+  .wiz-step{display:none}.wiz-step.active{display:block}
+  .wiz-cards{display:flex;flex-direction:column;gap:10px}
+  .wiz-card{display:flex;align-items:flex-start;gap:14px;padding:14px 16px;border:1.5px solid var(--border);border-radius:12px;cursor:pointer;transition:all .15s;background:var(--bg)}
+  .wiz-card:hover{border-color:#3b82f6;background:rgba(59,130,246,.06)}
+  .wiz-card-icon{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:18px}
+  .wiz-card-body{flex:1}
+  .wiz-card-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:3px}
+  .wiz-card-desc{font-size:12px;color:var(--text2);line-height:1.5}
+  .wiz-back{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;background:none;border:none;font-family:inherit;margin-bottom:1rem;padding:0}
+  .wiz-back:hover{color:var(--text)}
+  .wiz-preview-table{width:100%;border-collapse:collapse;font-size:12px;direction:ltr}
+  .wiz-preview-table th{background:var(--bg2);color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:.05em;padding:6px 10px;border:1px solid var(--border);font-weight:700;white-space:nowrap}
+  .wiz-preview-table td{padding:6px 10px;border:1px solid var(--border);color:var(--text);white-space:nowrap}
+  .wiz-preview-table tr:hover td{background:var(--bg2)}
+  .wiz-map-grid{display:grid;grid-template-columns:1fr 24px 1fr;gap:6px 8px;align-items:center;margin-top:.75rem}
+  .wiz-map-label{font-size:12px;color:var(--text2);font-weight:500;padding:6px 10px;background:var(--bg2);border-radius:6px;border:1px solid var(--border);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .wiz-map-arrow{color:var(--text3);font-size:14px;text-align:center}
+  .wiz-map-select{width:100%;padding:5px 8px;border:1px solid var(--border2);border-radius:6px;font-size:12px;background:var(--bg);color:var(--text);font-family:inherit}
+  .wiz-map-select.matched{border-color:var(--green);background:rgba(29,158,117,.08)}
+  .wiz-section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin:.75rem 0 .25rem}
+  .wiz-import-btn{width:100%;padding:11px;background:var(--text);color:#fff;border:none;border-radius:var(--radius-sm);font-size:14px;font-weight:700;cursor:pointer;margin-top:1rem;font-family:inherit;transition:opacity .15s}
+  .wiz-import-btn:hover{opacity:.85}
+  .wiz-import-btn:disabled{opacity:.4;cursor:default}
+  .wiz-preview-wrap{max-height:200px;overflow:auto;border:1px solid var(--border);border-radius:8px;margin-top:.5rem}
+  .wiz-summary{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-top:.75rem;font-size:13px;display:flex;gap:20px;flex-wrap:wrap}
+  .wiz-summary-kv{display:flex;flex-direction:column;gap:2px}
+  .wiz-summary-k{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+  .wiz-summary-v{font-size:15px;font-weight:700;color:var(--text)}
+  /* === NEW: Import XLS button === */
+  .import-xls-btn{padding:7px 14px;border:1px solid #3b82f6;border-radius:var(--radius-sm);background:rgba(59,130,246,.1);color:#3b82f6;font-size:12px;cursor:pointer;font-family:inherit;font-weight:600}
+  .import-xls-btn:hover{background:rgba(59,130,246,.2)}
+  /* === Cal topbar filter inputs === */
+  .cal-filt-input{
+    padding:4px 8px;font-size:11px;font-weight:600;
+    border:1px solid var(--border);border-radius:6px;
+    background:var(--bg2);color:var(--text);outline:none;
+    font-family:inherit;
+  }
+  .cal-filt-input:focus{ border-color:var(--border2); }
+
+  /* === Global time filter === */
+  .time-filter-bar{display:flex;align-items:center;gap:4px;direction:ltr}
+  .tf-btn{padding:5px 13px;border-radius:20px;border:1.5px solid transparent;background:transparent;font-size:12px;font-weight:600;cursor:pointer;font-family:'CircularXXWeb-Bold',-apple-system,sans-serif;color:var(--text2);transition:all .15s;letter-spacing:.02em}
+  .tf-btn:hover{border-color:var(--border2);color:var(--text)}
+  .tf-btn.active{border-color:var(--text);background:var(--text);color:var(--bg)}
+  .tf-sep{width:1px;height:16px;background:var(--border);margin:0 4px;flex-shrink:0}
+  .tf-gear{width:30px;height:30px;border-radius:8px;border:1.5px solid var(--border);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0}
+  .tf-gear:hover{border-color:var(--border2);background:var(--bg2)}
+  .tf-gear.active{border-color:var(--text);background:var(--text)}
+  .tf-gear.active svg{stroke:var(--bg)}
+  .tf-custom-panel{display:none;align-items:center;gap:8px}
+  .tf-custom-panel.open{display:flex}
+  .tf-custom-panel input[type=date]{padding:4px 8px;border:1.5px solid var(--border2);border-radius:8px;font-size:12px;background:var(--bg2);color:var(--text);font-family:inherit;outline:none}
+  .tf-custom-panel input[type=date]:focus{border-color:var(--text)}
+  .page-title{font-size:26px;font-weight:700;color:var(--text2);line-height:1;letter-spacing:.18em;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-transform:uppercase}
+  .page-title-sm{font-size:14px;font-weight:700;color:var(--text2);line-height:1;letter-spacing:.18em;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-transform:uppercase}
+  .section-title{font-size:15px;font-weight:700;color:var(--text2);font-family:'CircularXXWeb-Bold',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:.02em}
+
+  /* ── Journal Switcher ─────────────────────────────────── */
+  .jrn-sw-btn{
+    padding:7px 16px;border-radius:8px;border:1px solid var(--border2);
+    background:transparent;color:var(--text2);font-size:13px;font-weight:500;
+    cursor:pointer;font-family:inherit;transition:all .15s;
+  }
+  .jrn-sw-btn:hover{background:var(--bg2);color:var(--text)}
+  .jrn-sw-btn.active{background:var(--text);color:var(--bg);border-color:var(--text)}
+
+  /* ── NTD Reason & Outcome buttons ────────────────────── */
+  .jrn-ntd-btn{
+    padding:7px 14px;border-radius:8px;border:1px solid var(--border2);
+    background:transparent;color:var(--text2);font-size:13px;font-weight:500;
+    cursor:pointer;font-family:inherit;transition:all .15s;
+  }
+  .jrn-ntd-btn:hover{background:var(--bg2);color:var(--text)}
+  .jrn-ntd-btn.active{background:var(--bg3);color:var(--text);border-color:var(--border2)}
+
+  .jrn-ntd-outcome-btn{
+    padding:7px 16px;border-radius:8px;border:1.5px solid var(--border2);
+    background:transparent;color:var(--text2);font-size:13px;font-weight:600;
+    cursor:pointer;font-family:inherit;transition:all .15s;
+  }
+  .jrn-ntd-outcome-btn:hover{background:var(--bg2)}
+  .jrn-ntd-outcome-btn.active-good{background:rgba(29,158,117,.1);color:var(--green);border-color:var(--green)}
+  .jrn-ntd-outcome-btn.active-bad{background:rgba(216,90,48,.08);color:var(--red);border-color:var(--red)}
+
+  /* ── Rules checklist items ────────────────────────────── */
+  .jrn-rule-item{
+    display:flex;align-items:center;gap:8px;
+    font-size:12px;color:var(--text2);cursor:pointer;
+    padding:3px 0;
+  }
+  .jrn-rule-item input[type=checkbox]{accent-color:var(--green);width:14px;height:14px;flex-shrink:0;cursor:pointer}
+
+  /* ── Calendar NTD indicators ─────────────────────────── */
+  .day-cell.ntd-good{background:rgba(29,158,117,.06)}
+  .day-cell.ntd-bad{background:rgba(200,80,60,.05)}
+  .day-cell-ntd{font-size:9px;color:var(--text3);margin-top:2px}
+  .all-trades-link{font-size:13px;color:var(--text2);cursor:pointer;font-weight:600;text-decoration:none;border-bottom:1px solid var(--border2);padding-bottom:1px;transition:color .15s}
+  .all-trades-link:hover{color:var(--text)}
+  .add-trade-btn{width:34px;height:34px;border-radius:50%;background:var(--text);color:#fff;border:none;font-size:22px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:300;transition:opacity .15s;padding:0 0 1px 0}
+  .add-trade-btn:hover{opacity:.8}
+  .back-btn{padding:5px 12px;border:1px solid var(--border2);border-radius:var(--radius-sm);background:none;font-size:12px;color:var(--text2);cursor:pointer;font-family:inherit}
+  .back-btn:hover{background:var(--bg2)}
+  .menu-item{display:flex;align-items:center;gap:10px;padding:10px 14px;font-size:13px;color:var(--text);cursor:pointer;transition:background .12s}
+  .menu-item:hover{background:var(--bg2)}
+  .menu-divider{height:1px;background:var(--border);margin:2px 0}
+
+  /* === NEW: Google Sheets === */
+  .gs-btn{padding:7px 14px;border:1px solid var(--green);border-radius:var(--radius-sm);background:rgba(29,158,117,.1);color:var(--green);font-size:12px;cursor:pointer;font-family:inherit;font-weight:600}
+  .gs-btn:hover{background:rgba(29,158,117,.12)}
+  .gs-modal-box{background:var(--bg);border-radius:var(--radius);padding:1.5rem;max-width:480px;width:90%;border:1px solid var(--border);position:relative;box-shadow:0 8px 32px rgba(0,0,0,.15)}
+  .gs-status{font-size:12px;margin-top:6px;padding:7px 10px;border-radius:var(--radius-sm);background:var(--bg2);color:var(--text2);min-height:32px}
+  .gs-status.ok{background:rgba(29,158,117,.12);color:var(--green);border:1px solid rgba(29,158,117,.3)}
+  .gs-status.err{background:rgba(216,90,48,.1);color:var(--red);border:1px solid rgba(216,90,48,.25)}
+  .gs-status.loading{color:var(--text3)}
+
+  /* === NEW: Import result toast === */
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--text);color:#fff;padding:10px 20px;border-radius:var(--radius);font-size:13px;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none}
+  .toast.show{opacity:1}
+
+  @media(max-width:600px){
+    .stats-grid{grid-template-columns:repeat(2,1fr)}
+    .form-grid,.form-row,.form-row-4{grid-template-columns:1fr 1fr}
+    .trade-row{grid-template-columns:auto 1fr;grid-template-rows:auto auto}
+    .trade-pnl,.trade-actions{grid-column:2}
+    .day-grid{grid-template-columns:repeat(7,1fr)}
+    .day-name{font-size:9px}
+  }
+
+  /* ── modeSafety.js animations ────────────────────────────────────────────── */
+  @keyframes msSafetyIn {
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0.94); }
+    to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  }
+  @keyframes msSafetyOut {
+    from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    to   { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+  }
+
+  /* === TradeZero Sync Modal === */
+  .tz-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.5); z-index: 500;
+    align-items: center; justify-content: center;
+    backdrop-filter: blur(4px);
+  }
+  .tz-overlay.open { display: flex; }
+  .tz-box {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 16px; padding: 1.75rem;
+    width: min(94vw, 500px); max-height: 90vh; overflow-y: auto;
+    box-shadow: 0 24px 60px rgba(0,0,0,.2); position: relative;
+    direction: ltr;
+  }
+  .tz-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 1.25rem;
+  }
+  .tz-title {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 17px; font-weight: 700; color: var(--text);
+  }
+  .tz-title-icon {
+    width: 32px; height: 32px; border-radius: 9px;
+    background: rgba(239,159,39,.15); color: var(--amber);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0;
+  }
+  .tz-close {
+    width: 30px; height: 30px; border-radius: 50%;
+    border: 1px solid var(--border); background: var(--bg2);
+    cursor: pointer; display: flex; align-items: center;
+    justify-content: center; font-size: 16px; color: var(--text2);
+  }
+  .tz-close:hover { background: var(--border); }
+  .tz-cred-section {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 12px; padding: 1rem; margin-bottom: 1rem;
+  }
+  .tz-cred-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--text3); margin-bottom: .75rem;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .tz-cred-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .tz-demo-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 9px; border-radius: 20px; font-size: 11px;
+    font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    background: rgba(239,159,39,.15); color: var(--amber);
+    margin-bottom: .75rem;
+  }
+  .tz-field { margin-bottom: .6rem; }
+  .tz-field label {
+    display: block; font-size: 11px; font-weight: 600;
+    color: var(--text3); text-transform: uppercase;
+    letter-spacing: .05em; margin-bottom: 4px;
+  }
+  .tz-field input {
+    width: 100%; padding: 8px 10px;
+    border: 1px solid var(--border2); border-radius: var(--radius-sm);
+    background: var(--bg); color: var(--text); font-size: 13px;
+    font-family: inherit; outline: none; transition: border-color .15s;
+  }
+  .tz-field input:focus { border-color: var(--text2); }
+  .tz-field input[type="password"] { letter-spacing: .08em; }
+  .tz-secret-row { display: flex; gap: 6px; align-items: center; }
+  .tz-secret-row input { flex: 1; }
+  .tz-show-btn {
+    width: 34px; height: 34px; flex-shrink: 0;
+    border: 1px solid var(--border2); border-radius: var(--radius-sm);
+    background: var(--bg); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text3); transition: all .15s; font-size: 14px;
+  }
+  .tz-show-btn:hover { background: var(--bg2); color: var(--text); }
+  .tz-date-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tz-actions { display: flex; gap: 8px; margin-top: 1rem; flex-wrap: wrap; }
+  .tz-fetch-btn {
+    flex: 1; padding: 10px 16px;
+    background: var(--text); color: var(--bg);
+    border: none; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 700; cursor: pointer;
+    font-family: inherit; transition: opacity .15s;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .tz-fetch-btn:hover:not(:disabled) { opacity: .85; }
+  .tz-fetch-btn:disabled { opacity: .4; cursor: default; }
+  .tz-fetch-btn .tz-spinner {
+    width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.25);
+    border-top-color: var(--bg); border-radius: 50%;
+    animation: tz-spin .7s linear infinite; display: none;
+  }
+  .tz-fetch-btn.loading .tz-spinner { display: block; }
+  .tz-fetch-btn.loading .tz-btn-label { display: none; }
+  @keyframes tz-spin { to { transform: rotate(360deg); } }
+  .tz-clear-btn {
+    padding: 10px 14px; border: 1px solid var(--border2);
+    border-radius: var(--radius-sm); background: transparent;
+    color: var(--text2); font-size: 12px; cursor: pointer;
+    font-family: inherit; transition: all .15s; white-space: nowrap;
+  }
+  .tz-clear-btn:hover { border-color: var(--red); color: var(--red); }
+  .tz-status {
+    margin-top: .75rem; padding: 8px 12px; border-radius: var(--radius-sm);
+    font-size: 12px; background: var(--bg2); color: var(--text3);
+    min-height: 34px; line-height: 1.5; transition: all .2s;
+  }
+  .tz-status-loading { color: var(--amber); background: rgba(239,159,39,.1); }
+  .tz-status-ok  { color: var(--green); background: rgba(29,158,117,.1); border: 1px solid rgba(29,158,117,.25); }
+  .tz-status-err { color: var(--red);   background: rgba(216,90,48,.1);  border: 1px solid rgba(216,90,48,.25); }
+  .tz-security-note {
+    margin-top: .75rem; font-size: 11px; color: var(--text3);
+    display: flex; align-items: flex-start; gap: 6px; line-height: 1.5;
+  }
+  .tz-security-note::before { content: '🔒'; flex-shrink: 0; }
+  .tz-docs-link {
+    font-size: 11px; color: var(--text3); text-decoration: none;
+    border-bottom: 1px solid var(--border2); padding-bottom: 1px;
+    transition: color .15s;
+  }
+  .tz-docs-link:hover { color: var(--text); }
+
+</style>
+</head>
+<body>
+<div class="layout" id="layout">
+
+  <!-- SIDEBAR -->
+  <nav class="sidebar" id="sidebar">
+    <!-- Brand -->
+    <div class="sb-brand">
+      <div class="sb-logo" onclick="toggleSidebar()" title="Toggle menu">
+        <svg viewBox="0 0 43 43" width="43" height="43" fill="none">
+          <path d="M5 37 C9 37 12 14 17 14 C22 14 22 28 26 28 C30 28 32 9 38 9"
+                stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          <path d="M17 14 C22 14 22 28 26 28"
+                stroke="#D85A30" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+          <circle cx="38" cy="9" r="2.6" fill="#1D9E75"/>
+        </svg>
+      </div>
+      <span class="sb-brand-text">EDGEBOOK</span>
+      <button class="sb-toggle" onclick="toggleSidebar()" title="Toggle">
+        <svg viewBox="0 0 18 14" fill="none" xmlns="http://www.w3.org/2000/svg" width="18" height="14">
+          <!-- outer rectangle -->
+          <rect x="0.75" y="0.75" width="16.5" height="12.5" rx="2" stroke="currentColor" stroke-width="0.9"/>
+          <!-- vertical divider (sidebar line) -->
+          <line x1="5.5" y1="0.75" x2="5.5" y2="13.25" stroke="currentColor" stroke-width="0.9"/>
+          <!-- content lines -->
+          <line x1="8" y1="4.5" x2="15" y2="4.5" stroke="currentColor" stroke-width="0.9" stroke-linecap="round"/>
+          <line x1="8" y1="7" x2="15" y2="7" stroke="currentColor" stroke-width="0.9" stroke-linecap="round"/>
+          <line x1="8" y1="9.5" x2="15" y2="9.5" stroke="currentColor" stroke-width="0.9" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Nav items -->
+    <button class="sb-item" onclick="openNewTradeModal()">
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      <span class="sb-label">Journal</span>
+    </button>
+    <div class="sb-divider"></div>
+    <button class="sb-item active" id="sb-home" onclick="showPage('home')">
+      <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      <span class="sb-label">Home</span>
+    </button>
+    <button class="sb-item" id="sb-log" onclick="showPage('log')">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      <span class="sb-label">Trades</span>
+    </button>
+    <button class="sb-item" id="sb-cal" onclick="showPage('cal')">
+      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      <span class="sb-label">Calendar</span>
+    </button>
+    <button class="sb-item" id="sb-stats" onclick="showPage('stats')">
+      <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      <span class="sb-label">Statistics</span>
+    </button>
+
+    <button class="sb-item" id="sb-sizing" onclick="showPage('sizing')">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/><path d="M3 9h6M15 9h6M3 15h6M15 15h6M9 3v6M9 15v6M15 3v6M15 15v6"/></svg>
+      <span class="sb-label">EdgeAnalysis</span>
+    </button>
+
+    <!-- EdgeBooster -->
+    <button class="sb-item" id="sb-booster" onclick="openEdgeBooster()">
+      <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      <span class="sb-label">EdgeBooster</span>
+    </button>
+
+    <div class="sb-spacer"></div>
+
+    <!-- Account Switcher -->
+    <button class="sb-item" id="acct-btn-live" onclick="switchAccount('live')">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg>
+      <span class="sb-label">Live</span>
+    </button>
+    <button class="sb-item" id="acct-btn-demo" onclick="switchAccount('demo')">
+      <svg viewBox="0 0 24 24"><path d="M9 3h6v7l3 9H6l3-9V3z"/><line x1="9" y1="3" x2="15" y2="3"/></svg>
+      <span class="sb-label">Demo</span>
+    </button>
+    <div class="sb-divider"></div>
+
+    <!-- Theme toggle -->
+    <button class="sb-item" id="sb-theme" onclick="toggleTheme()">
+      <svg id="theme-icon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <span class="sb-label" id="theme-label">Dark</span>
+    </button>
+    <!-- Import -->
+    <button class="sb-item" onclick="openImportWizard()">
+      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      <span class="sb-label">Import</span>
+    </button>
+    <button class="sb-item" onclick="toggleSettingsPopup(event)">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span class="sb-label">Settings</span>
+    </button>
+  </nav>
+
+  <!-- Settings Popup -->
+  <div id="settings-popup" style="display:none;position:fixed;bottom:70px;left:12px;width:220px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:300;overflow:hidden">
+    <div style="padding:8px 0">
+      <div style="padding:6px 14px 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3)">Settings</div>
+      <button class="settings-menu-item" onclick="openImportWizard();closeSettingsPopup()">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Import
+      </button>
+      <button class="settings-menu-item" onclick="exportCSV();closeSettingsPopup()">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Export
+      </button>
+      <div style="height:1px;background:var(--border);margin:4px 0"></div>
+      <button class="settings-menu-item" onclick="seedTestData();closeSettingsPopup()">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        Generate Test Data
+      </button>
+      <div style="height:1px;background:var(--border);margin:4px 0"></div>
+      <button class="settings-menu-item" onclick="openRulesModal();closeSettingsPopup()">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        Trading Rules
+      </button>
+      <button class="settings-menu-item" onclick="openGsModal();closeSettingsPopup()">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="9" x2="9" y2="21"/></svg>
+        Google Sheets
+      </button>
+    </div>
+  </div>
+
+  <!-- TOPBAR -->
+  <header class="topbar" id="topbar">
+    <div class="tb-left">
+      <span class="tb-page-title" id="tb-page-title"></span>
+      <!-- Global time filter — hidden on Calendar page -->
+      <div id="tb-time-filter" style="display:flex;align-items:center;gap:8px">
+        <button class="tf-btn active" onclick="setTimeFilter('all',this)">AT</button>
+        <button class="tf-btn" onclick="setTimeFilter('week',this)">1W</button>
+        <button class="tf-btn" onclick="setTimeFilter('month',this)">1M</button>
+        <button class="tf-btn" onclick="setTimeFilter('year',this)">1Y</button>
+        <div class="tf-sep"></div>
+        <button class="tf-gear" id="tf-gear-btn" onclick="toggleCustomPanel()" title="Custom range">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="var(--text2)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="7" cy="7" r="2"/>
+            <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.01 10.01l1.06 1.06M10.01 3.99l1.06-1.06M2.93 11.07l1.06-1.06"/>
+          </svg>
+        </button>
+        <div class="tf-custom-panel" id="tf-custom-panel">
+          <input type="date" id="tf-from" onchange="setCustomRange()">
+          <span style="font-size:12px;color:var(--text3)">→</span>
+          <input type="date" id="tf-to" onchange="setCustomRange()">
+        </div>
+      </div>
+      <!-- Calendar filters — shown only on Calendar page -->
+      <div id="tb-cal-filters" style="display:none;align-items:center;gap:8px">
+        <input id="cal-filt-sym" type="text" placeholder="Symbol" oninput="renderCalPage()"
+          class="cal-filt-input" style="width:80px">
+        <select id="cal-filt-year" onchange="onCalYearChange()" class="cal-filt-input" style="cursor:pointer">
+          <option value="">All Years</option>
+        </select>
+        <select id="cal-filt-month" disabled onchange="renderCalPage()" class="cal-filt-input" style="cursor:pointer;opacity:.4">
+          <option value="">All Months</option>
+          <option value="01">January</option>
+          <option value="02">February</option>
+          <option value="03">March</option>
+          <option value="04">April</option>
+          <option value="05">May</option>
+          <option value="06">June</option>
+          <option value="07">July</option>
+          <option value="08">August</option>
+          <option value="09">September</option>
+          <option value="10">October</option>
+          <option value="11">November</option>
+          <option value="12">December</option>
+        </select>
+      </div>
+    </div>
+    <!-- Calendar sub-mode buttons — absolutely positioned above right edge of main panel -->
+    <div id="tb-cal-mode" style="display:none;position:absolute;right:clamp(280px,22vw,380px);top:50%;transform:translateY(-50%);align-items:center;gap:5px;pointer-events:auto">
+      <button id="cal-mode-normal"     class="cal-mode-btn active" onclick="setCalSubMode('normal')">
+        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="16" y1="2" x2="16" y2="6"/></svg>
+        <span class="cal-mode-label">Classic</span>
+      </button>
+      <button id="cal-mode-focus"      class="cal-mode-btn"        onclick="setCalSubMode('focus')">
+        <svg viewBox="0 0 24 24"><line x1="4" y1="6" x2="4" y2="18"/><line x1="8" y1="4" x2="8" y2="18"/><line x1="12" y1="8" x2="12" y2="18"/><line x1="16" y1="5" x2="16" y2="18"/><line x1="20" y1="10" x2="20" y2="18"/><line x1="2" y1="18" x2="22" y2="18"/></svg>
+        <span class="cal-mode-label">Weekly</span>
+      </button>
+      <button id="cal-mode-cumulative" class="cal-mode-btn"        onclick="setCalSubMode('cumulative')">
+        <svg viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+        <span class="cal-mode-label">Cumulative</span>
+      </button>
+    </div>
+    <!-- Log controls: search + bulk-bar — absolutely positioned above right edge of main panel -->
+    <div id="tb-log-controls" style="display:none;position:absolute;right:clamp(280px,22vw,380px);top:50%;transform:translateY(-50%);align-items:center;gap:8px;pointer-events:auto">
+      <input type="text" id="filt-sym" placeholder="Search symbol..." oninput="renderLog()" style="width:160px;background:transparent;padding:6px 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:12px;color:var(--text);font-family:inherit;outline:none">
+      <div id="bulk-bar" style="display:none;align-items:center;gap:8px;flex-shrink:0">
+        <span id="sel-count" style="font-size:12px;color:var(--text3);white-space:nowrap">0 selected</span>
+        <button onclick="deleteSelected()" title="Delete selected" style="display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:10px;border:1.5px solid #D85A30;background:transparent;color:#D85A30;cursor:pointer;transition:all .15s;flex-shrink:0" onmouseover="this.style.background='#D85A30';this.style.color='#fff'" onmouseout="this.style.background='transparent';this.style.color='#D85A30'">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        </button>
+      </div>
+    </div>
+    <!-- Journal mode toggle: Trade Day / No Trade Day — shown only on Journal page -->
+    <div id="tb-journal-mode" style="display:none;position:absolute;right:clamp(280px,22vw,380px);top:50%;transform:translateY(-50%);align-items:center;gap:5px;pointer-events:auto">
+      <button id="jrn-btn-trade" class="cal-mode-btn active" onclick="setJournalMode('trade')">
+        <svg viewBox="0 0 24 24">
+          <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
+          <polyline points="16 7 22 7 22 13"/>
+        </svg>
+        <span class="cal-mode-label">Trade Day</span>
+      </button>
+      <button id="jrn-btn-ntd" class="cal-mode-btn" onclick="setJournalMode('ntd')">
+        <svg viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9"/>
+          <line x1="9" y1="9" x2="15" y2="15"/>
+        </svg>
+        <span class="cal-mode-label">No Trade Day</span>
+      </button>
+    </div>
+    <!-- Sizing view toggle: Charts / Table — shown only on EdgeAnalysis page -->
+    <div id="tb-sizing-toggle" style="display:none;position:absolute;right:clamp(280px,22vw,380px);top:50%;transform:translateY(-50%);align-items:center;gap:6px;pointer-events:auto">
+      <button id="sz-view-btn-charts" class="sz-view-btn active" onclick="window._szOnViewChange('charts')" title="Charts view">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/></svg>
+        Charts
+      </button>
+      <button id="sz-view-btn-table" class="sz-view-btn" onclick="window._szOnViewChange('table')" title="Table view">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="9" x2="9" y2="21"/></svg>
+        Table
+      </button>
+    </div>
+    <div class="tb-right">
+      <div id="acct-badge" class="acct-badge"></div>
+      <span class="tb-date" id="tb-today-date"></span>
+      <!-- Right-panel toggle — visible only on laptop (≤1440px via CSS) -->
+      <button class="tb-btn rp-toggle-btn" id="rp-toggle-btn" onclick="toggleRightPanel()" title="Filters" style="display:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="4" y1="6" x2="11" y2="6"/><line x1="4" y1="12" x2="11" y2="12"/><line x1="4" y1="18" x2="11" y2="18"/>
+          <polyline points="14 9 17 6 20 9"/><polyline points="14 15 17 18 20 15"/>
+        </svg>
+      </button>
+      <input type="file" id="xls-input" accept=".xls,.xlsx,.csv" style="display:none" onchange="handleXlsImport(this)">
+      <input type="file" id="xls-input-daytrade" accept=".xls,.xlsx,.csv" style="display:none" onchange="handleDaytradeImport(this)">
+      <input type="file" id="xls-input-manual" accept=".xls,.xlsx,.csv" style="display:none" onchange="handleManualImport(this)">
+    </div>
+  </header>
+
+  <!-- MAIN -->
+  <div class="main-wrap" id="main-wrap">
+  <div class="app-columns">
+<div class="app home-active">
+
+  <!-- COMPACT STICKY BAR (on scroll) -->
+  <div class="stats-compact" id="stats-compact">
+    <div class="stat-card donut-card">
+      <div class="stat-label" style="font-size:11px;margin-bottom:3px">Profit Factor</div>
+      <div class="donut-wrap compact-sm"><canvas id="d-pf-c" width="58" height="58"></canvas><div class="donut-center compact-center"><span class="stat-val neu" id="s-pf-c" style="font-size:11px">—</span></div></div>
+    </div>
+    <div class="stat-card donut-card">
+      <div class="stat-label" style="font-size:11px;margin-bottom:3px" id="lbl-avg-c">Avg Per Trade</div>
+      <div class="donut-wrap compact-sm"><canvas id="d-avg-c" width="58" height="58"></canvas><div class="donut-center compact-center"><span class="stat-val neu" id="s-avg-c" style="font-size:11px">$0</span></div></div>
+    </div>
+    <div class="stat-card donut-card">
+      <div class="stat-label" style="font-size:11px;margin-bottom:3px" id="lbl-wr-c">Win Rate</div>
+      <div class="donut-wrap compact-sm"><canvas id="d-wr-c" width="58" height="58"></canvas><div class="donut-center compact-center"><span class="stat-val neu" id="s-wr-c" style="font-size:11px">0%</span></div></div>
+    </div>
+    <div class="stat-card donut-card">
+      <div class="stat-label" style="font-size:11px;margin-bottom:3px" id="lbl-pnl-c">P&amp;L</div>
+      <div class="donut-wrap compact-sm"><canvas id="d-pnl-c" width="58" height="58"></canvas><div class="donut-center compact-center"><span class="stat-val neu" id="s-pnl-c" style="font-size:11px">$0</span></div></div>
+    </div>
+  </div>
+
+  <!-- HOME PAGE -->
+  <div id="tab-home" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:0.5rem">
+
+  <!-- HERO STATS + LATEST TRADES: side by side in one card -->
+  <div style="display:flex;align-items:stretch;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;flex-shrink:0">
+
+    <!-- Left: Donuts -->
+    <div class="stats-hero" id="stats-hero" style="margin-bottom:0;padding:1.25rem;flex-shrink:0">
+      <div class="hero-small-grid">
+        <div class="stat-card donut-card">
+          <div class="donut-wrap"><canvas id="d-pnl" width="168" height="168"></canvas><div class="donut-center"><span class="stat-label" id="lbl-pnl">P&amp;L</span><span class="stat-val neu" id="s-pnl">$0</span></div></div>
+        </div>
+        <div class="stat-card donut-card">
+          <div class="donut-wrap"><canvas id="d-wr" width="168" height="168"></canvas><div class="donut-center"><span class="stat-label" id="lbl-wr">Win%</span><span class="stat-val neu" id="s-wr">0%</span></div></div>
+        </div>
+        <div class="stat-card donut-card">
+          <div class="donut-wrap"><canvas id="d-avg" width="168" height="168"></canvas><div class="donut-center"><span class="stat-label" id="lbl-avg">Per Trade</span><span class="stat-val neu" id="s-avg">$0</span></div></div>
+        </div>
+        <div class="stat-card donut-card">
+          <div class="donut-wrap"><canvas id="d-pf" width="168" height="168"></canvas><div class="donut-center"><span class="stat-label">Factor</span><span class="stat-val neu" id="s-pf">—</span></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Separator -->
+    <div style="width:1px;background:var(--border);flex-shrink:0;align-self:stretch"></div>
+
+    <!-- Right: Latest Trades -->
+    <div style="flex:1;min-width:0;padding:1.25rem;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;direction:ltr">
+        <div class="page-title-sm">Latest Trades</div>
+        <a class="all-trades-link" onclick="showPage('log')">All Trades</a>
+      </div>
+      <div id="home-trades-list" style="flex:1;overflow:hidden"></div>
+      <button onclick="openNewTradeModal()" style="margin-top:1rem;width:100%;display:flex;align-items:center;justify-content:center;gap:10px;padding:13px 20px;border-radius:12px;border:1.5px dashed var(--border2);background:transparent;color:var(--text2);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s;letter-spacing:.01em" onmouseover="this.style.borderColor='var(--green)';this.style.color='var(--green)';this.style.background='rgba(29,158,117,.05)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--text2)';this.style.background='transparent'">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        New Trade
+      </button>
+    </div>
+
+  </div><!-- end hero+trades card -->
+
+    <!-- Equity Chart + Last Week: side by side -->
+    <div style="display:flex;align-items:stretch;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;flex:1;min-height:0">
+
+      <!-- Left: Cumulative P&L chart -->
+      <div style="width:55%;flex-shrink:0;padding:1.25rem;display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;direction:ltr">
+          <div class="page-title-sm">Cumulative P&amp;L</div>
+          <a class="all-trades-link" onclick="showPage('stats')">Statistics</a>
+        </div>
+        <div style="flex:1;position:relative;min-height:0">
+          <canvas id="equity-chart" style="width:100%!important;height:100%!important"></canvas>
+        </div>
+      </div>
+
+      <!-- Separator -->
+      <div style="width:1px;background:var(--border);flex-shrink:0;align-self:stretch"></div>
+
+      <!-- Right: Last Week -->
+      <div style="flex:1;min-width:0;padding:1.25rem;display:flex;flex-direction:column;overflow-y:auto">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;direction:ltr">
+          <div class="page-title-sm">Last 5 Days</div>
+          <a class="all-trades-link" onclick="showPage('cal')">Calendar</a>
+        </div>
+        <div id="week-calendar"></div>
+
+        <!-- Divider -->
+        <div style="height:1px;background:var(--border);margin:.75rem 0;flex-shrink:0"></div>
+
+        <!-- Avg Rating KPI -->
+        <div style="display:flex;flex-direction:column;flex:1;direction:ltr">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
+            <div class="page-title-sm">Performance Rating</div>
+          </div>
+          <div style="flex:1;display:flex;align-items:center;justify-content:center">
+            <span id="s-avg-rating" style="font-size:55px;line-height:1;letter-spacing:2px;color:var(--amber)">—</span>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <!-- STATISTICS PAGE -->
+  <div id="tab-stats" style="display:none;direction:ltr">
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;width:100%;margin-bottom:1.5rem;direction:ltr">
+      <div class="page-title" id="stats-page-title">Statistics</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;direction:ltr">
+      <div class="section">
+        <div class="chart-modal-header" style="margin-bottom:.75rem">
+          <h2 class="page-title" style="margin:0">Performance by Hour of Day</h2>
+          <button class="chart-expand-btn" onclick="expandChart('hourly')" title="Expand"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
+        </div>
+        <div style="position:relative;height:220px">
+          <canvas id="hourly-chart"></canvas>
+        </div>
+        <div id="hourly-legend" style="display:flex;gap:16px;justify-content:center;margin-top:10px;flex-wrap:wrap"></div>
+      </div>
+      <div class="section">
+        <div class="chart-modal-header" style="margin-bottom:.75rem">
+          <h2 class="page-title" style="margin:0">Performance by Day of Week</h2>
+          <button class="chart-expand-btn" onclick="expandChart('dayofweek')" title="Expand"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
+        </div>
+        <div id="day-stats"></div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;direction:ltr">
+      <div class="section">
+        <div class="chart-modal-header" style="margin-bottom:.75rem">
+          <h2 class="page-title" style="margin:0">Performance by Mood</h2>
+          <button class="chart-expand-btn" onclick="expandChart('mood')" title="Expand"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
+        </div>
+        <div style="position:relative;height:220px">
+          <canvas id="mood-chart"></canvas>
+        </div>
+        <div id="mood-legend" style="display:flex;gap:8px;justify-content:center;margin-top:10px;flex-wrap:wrap"></div>
+      </div>
+      <div class="section">
+        <div class="chart-modal-header" style="margin-bottom:.75rem">
+          <h2 class="page-title" style="margin:0">Avg Hold Time: Wins vs Losses</h2>
+          <button class="chart-expand-btn" onclick="expandChart('holdtime')" title="Expand"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
+        </div>
+        <div style="position:relative;height:200px">
+          <canvas id="holdtime-chart"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="section" style="margin-bottom:1rem">
+      <div class="chart-modal-header" style="margin-bottom:.75rem">
+        <h2 class="page-title" style="margin:0">Performance by Price Range</h2>
+        <button class="chart-expand-btn" onclick="expandChart('pricerange')" title="Expand"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
+      </div>
+      <div style="position:relative;height:200px">
+        <canvas id="pricerange-chart"></canvas>
+      </div>
+    </div>
+    <div class="section">
+      <div id="stats-detail"></div>
+    </div>
+  </div>
+
+  <!-- CALENDAR PAGE -->
+  <div id="tab-cal" style="display:none;direction:ltr" class="tab-cal-base">
+    <!-- In-page title anchor — scrolls out of view to trigger topbar title (Timeline mode) -->
+    <div class="page-title" id="cal-page-title" style="margin-bottom:.75rem">Calendar</div>
+    <div id="cal-grid"></div>
+    <div style="margin-top:2rem" id="monthly-cal-wrap">
+      <div id="monthly-calendar"></div>
+    </div>
+  </div>
+
+  <!-- SIZING ANALYSIS PAGE -->
+  <div id="tab-sizing" style="display:none;direction:ltr"></div>
+
+  <!-- TRADE LOG PAGE -->
+  <div id="tab-log" style="display:none;direction:ltr">
+
+    <div id="log-back-wrap" style="display:none;margin-bottom:.6rem">
+      <div id="log-back-btn" onclick="goBackFromLog()" style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;opacity:.65;transition:opacity .15s" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='.65'">
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="var(--text2)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4L7 10l6 6"/><path d="M18 4L12 10l6 6" opacity=".35"/></svg>
+        <span id="log-back-label" style="font-size:13px;color:var(--text2);font-weight:500;letter-spacing:-.01em">Statistics</span>
+      </div>
+    </div>
+    <div style="margin-bottom:1.1rem">
+      <div class="page-title" id="log-page-title">Trades</div>
+    </div>
+
+    <div id="trades-list"></div>
+</div>
+
+<!-- NEW TRADE PAGE (replaces modal) -->
+<div id="tab-new" style="display:none;direction:ltr;flex:1;min-height:0;overflow:hidden;flex-direction:column">
+
+  <!-- Topbar: title + save -->
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:.6rem 0 .6rem;border-bottom:1px solid var(--border);flex-shrink:0;margin-bottom:.75rem">
+    <div class="page-title">Journal</div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <button onclick="resetNewTradeForm()" title="Discard" style="width:34px;height:34px;border-radius:9px;border:1px solid var(--border);background:var(--bg);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .12s" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background='var(--bg)'">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--text2)" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+      </button>
+      <button onclick="saveTrade()" title="Submit" style="width:34px;height:34px;border-radius:9px;border:1px solid var(--border);background:var(--bg);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .12s" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background='var(--bg)'">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--text2)" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Trade Details (visible in Trade Day mode) -->
+  <div id="jrn-trade-section" style="display:flex;flex-direction:column;flex:1;min-height:0">
+
+  <!-- ROW 1: Trade Details full width — compact, no grow -->
+  <div class="section" style="margin-bottom:.75rem;flex-shrink:0;background:var(--bg)">
+    <div class="section-title">Trade Details</div>
+
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:.5rem">
+      <div class="field"><label>Symbol</label><input id="f-sym" placeholder="AAPL..."></div>
+      <div class="field"><label>Date</label><input type="date" id="f-date"></div>
+      <div class="field"><label>Direction</label>
+        <select id="f-dir">
+          <option value="long">Long (Buy)</option>
+          <option value="short">Short (Sell)</option>
+        </select>
+      </div>
+      <div class="field"><label>Entry</label><input type="number" id="f-entry" placeholder="0.00" step="0.01" oninput="calcPnl()"></div>
+      <div class="field"><label>Exit</label><input type="number" id="f-exit" placeholder="0.00" step="0.01" oninput="calcPnl()"></div>
+      <div class="field"><label>Shares</label><input type="number" id="f-qty" placeholder="100" oninput="calcPnl()"></div>
+      <div class="field"><label>P&amp;L — Auto</label><input type="number" id="f-pnl" placeholder="—" readonly style="opacity:.6;cursor:default"></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:6px">
+      <div class="field"><label>⏰ Entry Time</label><input type="time" id="f-entry-time" oninput="calcDuration()"></div>
+      <div class="field"><label>⏰ Exit Time</label><input type="time" id="f-exit-time" oninput="calcDuration()"></div>
+      <div class="field"><label>⏱ Duration</label><input type="text" id="f-duration" placeholder="— Auto" readonly style="opacity:.6;cursor:default"></div>
+      <div class="field"><label>Stop Loss</label><input type="number" id="f-sl" placeholder="0.00" step="0.01"></div>
+      <div class="field"><label>Take Profit</label><input type="number" id="f-tp" placeholder="0.00" step="0.01"></div>
+      <div class="field"><label>R:R</label><input type="text" id="f-rr" placeholder="—" readonly style="opacity:.6;cursor:default"></div>
+    </div>
+  </div>
+
+  <!-- ROW 2: Recap (60%) + Psychology (40%) -->
+  <div style="display:grid;grid-template-columns:3fr 2fr;gap:.75rem;flex:1;min-height:0">
+
+    <!-- Recap -->
+    <div class="section" style="margin-bottom:0;display:flex;flex-direction:column;gap:.5rem;min-height:0;background:var(--bg)">
+      <div class="section-title">Recap</div>
+      <div class="field" style="flex:1;display:flex;flex-direction:column;min-height:0">
+        <label>Trade Setup / Reason</label>
+        <textarea id="f-reason" placeholder="What did you see on the chart? What was the setup?" style="flex:1;resize:none;min-height:0"></textarea>
+      </div>
+      <div class="field" style="flex:1;display:flex;flex-direction:column;min-height:0">
+        <label>Thoughts &amp; Feelings</label>
+        <textarea id="f-notes" placeholder="Feelings before/after, trade management, lessons learned..." style="flex:1;resize:none;min-height:0"></textarea>
+      </div>
+    </div>
+
+    <!-- Psychology + Rules + Screenshots -->
+    <div class="section" style="margin-bottom:0;display:flex;flex-direction:column;gap:.75rem;min-height:0;background:var(--bg)">
+      <div class="section-title">Psychology</div>
+
+      <div class="field">
+        <label>Mood</label>
+        <div class="mood-row" style="gap:4px">
+          <button class="mood-btn" onclick="setMood('Focused')">😤 Focused</button>
+          <button class="mood-btn" onclick="setMood('Calm')">😌 Calm</button>
+          <button class="mood-btn" onclick="setMood('Stressed')">😰 Stressed</button>
+          <button class="mood-btn" onclick="setMood('Overconfident')">😎 Overconfident</button>
+          <button class="mood-btn" onclick="setMood('Doubtful')">🤔 Doubtful</button>
+          <button class="mood-btn" onclick="setMood('FOMO')">😱 FOMO</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Rating — Execution Quality</label>
+        <div class="rating-row" id="stars-input">
+          <span class="star" onclick="setRating(1)">★</span>
+          <span class="star" onclick="setRating(2)">★</span>
+          <span class="star" onclick="setRating(3)">★</span>
+          <span class="star" onclick="setRating(4)">★</span>
+          <span class="star" onclick="setRating(5)">★</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>Screenshots <span style="font-weight:400;color:var(--text3)">(up to 3)</span></label>
+        <input type="file" id="f-img" accept="image/*" multiple onchange="handleImgs(this,'new')">
+      </div>
+      <div id="f-img-previews" style="display:flex;flex-wrap:wrap;gap:6px;flex:1;align-content:flex-start;overflow:hidden"></div>
+    </div>
+
+  </div>
+  </div><!-- /#jrn-trade-section -->
+
+  <!-- No Trade Day section (hidden by default) -->
+  <div id="jrn-ntd-section" style="display:none">
+  <div style="display:grid;grid-template-columns:3fr 2fr;gap:.75rem;flex:1;min-height:0">
+
+    <!-- NTD main panel -->
+    <div class="section" style="margin-bottom:0;display:flex;flex-direction:column;gap:1rem;background:var(--bg)">
+      <div class="section-title">No Trade Day</div>
+
+      <div class="field">
+        <label>Date</label>
+        <input type="date" id="jrn-ntd-date" style="max-width:180px">
+      </div>
+
+      <div class="field">
+        <label>Reason</label>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <button id="ntd-btn-technical" class="jrn-ntd-btn" onclick="setNtdReason('technical')">📊 Technical</button>
+          <button id="ntd-btn-mental"    class="jrn-ntd-btn" onclick="setNtdReason('mental')">🧠 Mental</button>
+          <button id="ntd-btn-other"     class="jrn-ntd-btn" onclick="setNtdReason('other')">💬 Other</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Outcome</label>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <button id="ntd-btn-positive" class="jrn-ntd-outcome-btn" onclick="setNtdPositive(true)">✓ Good call</button>
+          <button id="ntd-btn-negative" class="jrn-ntd-outcome-btn" onclick="setNtdPositive(false)">✗ Missed opportunity</button>
+        </div>
+      </div>
+
+      <div class="field" style="flex:1;display:flex;flex-direction:column;min-height:0">
+        <label>Note <span style="font-weight:400;color:var(--text3)">(optional)</span></label>
+        <textarea id="jrn-ntd-note" placeholder="What happened today? Why did you skip?" style="flex:1;resize:none;min-height:80px"></textarea>
+      </div>
+    </div>
+
+    <!-- NTD Psychology (same right panel, shared) -->
+    <div class="section" style="margin-bottom:0;display:flex;flex-direction:column;gap:.75rem;min-height:0;background:var(--bg)">
+      <div class="section-title">Psychology</div>
+
+      <div class="field">
+        <label>Mood</label>
+        <div class="mood-row" style="gap:4px">
+          <button class="mood-btn ntd-mood-btn" onclick="setNtdMood('Focused')">😤 Focused</button>
+          <button class="mood-btn ntd-mood-btn" onclick="setNtdMood('Calm')">😌 Calm</button>
+          <button class="mood-btn ntd-mood-btn" onclick="setNtdMood('Stressed')">😰 Stressed</button>
+          <button class="mood-btn ntd-mood-btn" onclick="setNtdMood('Overconfident')">😎 Overconfident</button>
+          <button class="mood-btn ntd-mood-btn" onclick="setNtdMood('Doubtful')">🤔 Doubtful</button>
+          <button class="mood-btn ntd-mood-btn" onclick="setNtdMood('FOMO')">😱 FOMO</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  </div><!-- /#jrn-ntd-section -->
+
+</div><!-- /#tab-new -->
+
+<!-- TRADE DETAIL MODAL -->
+<div class="modal-overlay" id="modal" onclick="closeModal(event)">
+  <div class="modal-box">
+    <button class="modal-close" onclick="document.getElementById('modal').classList.remove('open')">✕</button>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<!-- GOOGLE SHEETS MODAL -->
+<div class="modal-overlay" id="gs-modal" onclick="if(event.target.id==='gs-modal')closeGsModal()">
+  <div class="gs-modal-box">
+    <button class="modal-close" onclick="closeGsModal()">✕</button>
+    <h3 style="font-size:16px;font-weight:600;margin-bottom:1rem">🔗 Google Sheets Sync</h3>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:1rem;line-height:1.6">
+      To sync your journal to Google Sheets, create an Apps Script Web App in your Google Sheet.
+      <br><br>
+      <b style="color:var(--text)">Setup Instructions:</b>
+      <ol style="margin-right:1rem;margin-top:6px;font-size:12px;line-height:1.8">
+        <li>Open a new Google Sheet</li>
+        <li>Extensions → Apps Script</li>
+        <li>Delete existing code and paste the code from "Copy Script" below</li>
+        <li>Save → Deploy → New deployment → Web app</li>
+        <li>Execute as: <b>Me</b> &nbsp;|&nbsp; Who has access: <b>Anyone</b></li>
+        <li>Click Deploy, approve permissions, and copy the URL</li>
+      </ol>
+    </div>
+    <div class="field" style="margin-bottom:10px">
+      <label>Apps Script Web App URL</label>
+      <input id="gs-url" type="url" placeholder="https://script.google.com/macros/s/.../exec" style="font-size:12px">
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+      <button class="gs-btn" style="flex:1" onclick="gsSyncNow()">⬆ Sync Now</button>
+      <button class="export-btn" onclick="copyGsScript()">📋 Copy Script</button>
+      <button class="export-btn" onclick="closeGsModal()">Close</button>
+    </div>
+    <div class="gs-status" id="gs-status">Not connected</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">URL is saved automatically in your browser</div>
+  </div>
+</div>
+
+<!-- EDIT MODAL removed — edit now uses tab-new form via tradeForm.js openEdit() -->
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="accounts.js"></script>
+<script src="modeSafety.js"></script>
+<script src="app.js"></script>
+<script>
+// ─── THEME INIT — must run before any render to prevent FOUC ────────────────
+(function initTheme() {
+  const saved       = localStorage.getItem('theme');
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const theme       = saved || (prefersDark ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', theme);
+})();
+
+// ─── MODULE INDEX ────────────────────────────────────────────────────────────
+// accounts.js     — account management
+// app.js          — trades[], save(), toast(), timeFilter, refreshAll(), showPage()
+// tradeForm.js    — openEdit(), saveTrade(), form handling
+// tradeList.js    — renderLog(), renderHomeList(), deleteTrade(), escHtml(), zoomImg(),
+//                   closeModal(), openDetail(), drillToLog(), goBackFromLog()
+// calendarPage.js — calendar rendering
+// statsPage.js    — all charts + analytics
+// googleSheets.js — GS sync modal
+// importWizard.js — import wizard
+// ─────────────────────────────────────────────────────────────────────────────
+
+window.addEventListener('scroll', () => {
+  const tbTitle  = document.getElementById('tb-page-title');
+  if (!tbTitle) return;
+
+  const logTab = document.getElementById('tab-log');
+  const calTab = document.getElementById('tab-cal');
+
+  if (logTab && logTab.style.display !== 'none') {
+    const logTitle = document.getElementById('log-page-title');
+    const hidden = !logTitle || logTitle.getBoundingClientRect().bottom < 52;
+    tbTitle.textContent = 'Trades';
+    tbTitle.classList.toggle('visible', hidden);
+    return;
+  }
+
+  if (calTab && calTab.style.display !== 'none') {
+    const calTitle = document.getElementById('cal-page-title');
+    const hidden = !calTitle || calTitle.getBoundingClientRect().bottom < 52;
+    tbTitle.textContent = 'Calendar';
+    tbTitle.classList.toggle('visible', hidden);
+    return;
+  }
+
+  const statsTab = document.getElementById('tab-stats');
+  if (statsTab && statsTab.style.display !== 'none') {
+    const statsTitle = document.getElementById('stats-page-title');
+    const hidden = !statsTitle || statsTitle.getBoundingClientRect().bottom < 52;
+    tbTitle.textContent = 'Statistics';
+    tbTitle.classList.toggle('visible', hidden);
+    return;
+  }
+
+  const sizingTab = document.getElementById('tab-sizing');
+  if (sizingTab && sizingTab.style.display !== 'none') {
+    const sizingTitle = document.getElementById('sizing-page-title');
+    const hidden = !sizingTitle || sizingTitle.getBoundingClientRect().bottom < 52;
+    tbTitle.textContent = 'Trading Analysis';
+    tbTitle.classList.toggle('visible', hidden);
+    return;
+  }
+
+  tbTitle.classList.remove('visible');
+});
+
+// ─── LOG ────────────────────────────────────────────────────
+function clearLogFilters() {
+  document.getElementById('filt-dir').value   = '';
+  document.getElementById('filt-res').value   = '';
+  document.getElementById('filt-price').value = '';
+  document.getElementById('filt-hour').value  = '';
+  document.getElementById('filt-month').value = '';
+  document.getElementById('filt-sym').value   = '';
+  renderLog();
+}
+
+function flashFilter(elId) {
+  const el = document.getElementById(elId);
+  if (!el || !el.value) return;
+  el.style.transition = 'border-color .4s, background .4s';
+  el.style.borderColor = '#D85A30';
+  el.style.background  = 'rgba(216,90,48,.12)';
+  setTimeout(() => {
+    el.style.transition = 'border-color .6s, background .6s';
+    el.style.borderColor = '';
+    el.style.background  = 'var(--bg2)';
+  }, 2000);
+}
+
+function flashActiveFilters() {
+  setTimeout(() => {
+    ['filt-dir','filt-res','filt-price','filt-hour','filt-month'].forEach(flashFilter);
+  }, 80);
+}
+
+
+function showPage(p) {
+  // If navigating away from the new-trade form, release mode buttons
+  const currentPage = ['home','log','cal','stats','new'].find(id => {
+    const el = document.getElementById('tab-' + id);
+    return el && el.style.display !== 'none';
+  });
+  if (currentPage === 'new' && p !== 'new') {
+    if (typeof unlockModeButtons === 'function') unlockModeButtons();
+  }
+  window.scrollTo({ top: 0, behavior: 'instant' });
+  // clear topbar page title immediately on page switch
+  const tbTitle = document.getElementById('tb-page-title');
+  if (tbTitle) tbTitle.classList.remove('visible');
+  // show/hide right panel sections
+  const rpFilters = document.getElementById('right-panel-filters');
+  if (rpFilters) rpFilters.style.display = p === 'log' ? 'block' : 'none';
+  const tbJrnMode = document.getElementById('tb-journal-mode');
+  if (tbJrnMode) tbJrnMode.style.display = p === 'new' ? 'flex' : 'none';
+  const rpRules = document.getElementById('right-panel-rules');
+  if (rpRules) {
+    const showRules = p === 'new' || p === 'home';
+    rpRules.style.display = showRules ? 'block' : 'none';
+    if (showRules && typeof renderRulesChecklist === 'function') renderRulesChecklist();
+  }
+  const rpCalDay = document.getElementById('right-panel-cal-day');
+  if (rpCalDay) { rpCalDay.style.display = p === 'cal' ? 'block' : 'none'; if (p !== 'cal') rpCalDay.innerHTML = ''; }
+  // Hide sizing-cb slot when navigating away; renderSizingPage/_szOnAnalysisModeChange re-shows it
+  const rpSizingCb = document.getElementById('right-panel-sizing-cb');
+  if (rpSizingCb && p !== 'sizing') { rpSizingCb.style.display = 'none'; }
+  // Hide the rp-toggle-btn when navigating away from sizing (log page manages its own visibility)
+  const rpToggleBtn = document.getElementById('rp-toggle-btn');
+  if (rpToggleBtn && p !== 'sizing' && p !== 'log' && p !== 'cal' && p !== 'new' && p !== 'home') rpToggleBtn.style.display = 'none';
+  const pageDisplay = { home: 'flex', log: 'block', cal: 'block', stats: 'block', new: 'flex', sizing: 'block' };
+  ['home','log','cal','stats','new','sizing'].forEach(id => {
+    const el = document.getElementById('tab-'+id);
+    if (el) el.style.display = p===id ? pageDisplay[id] : 'none';
+  });
+  // toggle home-active on .app for no-scroll layout (also for new trade page)
+  const appEl = document.querySelector('.app');
+  if (appEl) appEl.classList.toggle('home-active', p === 'home' || p === 'new');
+  document.getElementById('stats-hero').style.display = p === 'home' ? '' : 'none';
+  if (p==='log') {
+    logBackPage = 'home';
+    const backWrap = document.getElementById('log-back-wrap');
+    if (backWrap) backWrap.style.display = 'none';
+    renderLog();
+    flashActiveFilters();
+  }
+  if (p==='home')  { renderHomeList(); renderStats(); renderWeekCalendar(); }
+  if (p==='cal')   { initCalYearDropdown(); renderCalPage();
+    // Grid mode has overflow:hidden — scroll never fires — set topbar title immediately
+    // History mode is scrollable so the scroll listener handles it naturally
+    const tbTitle = document.getElementById('tb-page-title');
+    if (tbTitle && typeof calScope !== 'undefined' && calScope === 'multi') {
+      tbTitle.textContent = 'Calendar';
+      tbTitle.classList.add('visible');
+    }
+  }
+  // show/hide time filter vs calendar filters in topbar
+  const tbTimeFilter = document.getElementById('tb-time-filter');
+  const tbCalFilters = document.getElementById('tb-cal-filters');
+  const tbCalMode    = document.getElementById('tb-cal-mode');
+  const tbLogControls = document.getElementById('tb-log-controls');
+  const tbSizingToggle = document.getElementById('tb-sizing-toggle');
+  if (tbTimeFilter)    tbTimeFilter.style.display   = p === 'cal' ? 'none' : 'flex';
+  if (tbCalFilters)    tbCalFilters.style.display    = p === 'cal' ? 'flex' : 'none';
+  if (tbCalMode)       tbCalMode.style.display        = p === 'cal' ? 'flex' : 'none';
+  if (tbLogControls)   tbLogControls.style.display    = p === 'log' ? 'flex' : 'none';
+  if (tbSizingToggle)  tbSizingToggle.style.display   = p === 'sizing' ? 'flex' : 'none';
+  // (tb-cal-controls removed — filters live in #cal-filter-bar)
+  if (p==='stats') { renderStats(); }
+  if (p==='sizing') { renderSizingPage(); }
+  if (p==='new' && !document.getElementById('f-sym').value)   { document.getElementById('f-date').value = new Date().toISOString().split('T')[0]; }
+  // sync sidebar active state
+  ['home','log','cal','stats','sizing'].forEach(id => {
+    const btn = document.getElementById('sb-'+id);
+    if(btn) btn.classList.toggle('active', id===p);
+  });
+}
+
+function fmtDate(d) {
+  if (!d) return '';
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const dt = new Date(d + 'T00:00:00');
+  return months[dt.getMonth()] + ' ' + dt.getDate();
+}
+
+// Expose on window so external modules (tradeForm.js, tradeList.js, etc.)
+// and inline onclick="" handlers can resolve these without ReferenceError.
+window.showPage = showPage;
+window.fmtDate  = fmtDate;
+
+
+// ─── CALENDAR STATE + RENDERING → extracted to calendarPage.js ──────────────
+// calYear, calMonth, calScope, calSubMode, calHolidayMode, holidays,
+// getCalMode(), calNav(), setCalScope(), setCalSubMode(), setCalMode(),
+// updateCalModeButtons(), toggleHolidayMode(), toggleHoliday(),
+// renderCalPage(), getISOWeek(), renderMonthlyCalendar()
+
+function safeIdFor(id) {
+  return String(id).replace(/[^a-zA-Z0-9]/g, '_');
+}
+
+function toggleTradeRow(key) {
+  const exp = document.getElementById('exp-'+key);
+  const arr = document.getElementById('arr-'+key);
+  if (!exp) return;
+  const isOpen = exp.classList.contains('open');
+  document.querySelectorAll('.trade-row-expand.open').forEach(el => el.classList.remove('open'));
+  document.querySelectorAll('.trade-arrow.open').forEach(el => el.classList.remove('open'));
+  if (!isOpen) { exp.classList.add('open'); arr.classList.add('open'); }
+}
+
+// openNewTradeModal, closeNewTradeModal, _newTradePrevPage — extracted to tradeForm.js
+
+// updateStats() call moved to bottom bootstrap block (after statsPage.js loads)
+</script>
+<!-- Chart Expand Modal -->
+<div class="chart-modal-overlay" id="chart-modal" onclick="if(event.target.id==='chart-modal')closeChartModal()">
+  <div class="chart-modal-box">
+    <div class="chart-modal-header">
+      <span class="chart-modal-title" id="chart-modal-title"></span>
+      <button class="chart-modal-close" onclick="closeChartModal()">×</button>
+    </div>
+    <div class="chart-modal-body" id="chart-modal-body"></div>
+    <div id="chart-modal-legend" style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap"></div>
+  </div>
+</div>
+
+<!-- Import Wizard Modal -->
+<div class="wiz-overlay" id="import-wizard" onclick="if(event.target.id==='import-wizard')closeImportWizard()">
+  <div class="wiz-box">
+    <div class="wiz-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="wiz-title" id="wiz-title">Import Trades</span>
+        <span id="wiz-acct-badge" style="font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 9px;border-radius:20px;font-family:'CircularXXWeb-Bold',-apple-system,sans-serif"></span>
+      </div>
+      <button class="wiz-close" onclick="closeImportWizard()">×</button>
+    </div>
+
+    <!-- Step 1: Choose format -->
+    <div class="wiz-step active" id="wiz-step-1">
+      <div style="font-size:13px;color:var(--text2);margin-bottom:1rem">Choose your file format:</div>
+      <div class="wiz-cards">
+        <div class="wiz-card" onclick="wizSelectFormat('generic')">
+          <div class="wiz-card-icon" style="background:rgba(59,130,246,.12)">📊</div>
+          <div class="wiz-card-body">
+            <div class="wiz-card-title">Generic Broker Format</div>
+            <div class="wiz-card-desc">Standard format with Buy Open / Sell Close orders. Supports most brokers (TradeStation, TD Ameritrade, etc.)</div>
+          </div>
+        </div>
+        <div class="wiz-card" onclick="wizSelectFormat('daytrade')">
+          <div class="wiz-card-icon" style="background:rgba(29,158,117,.12)">⚡</div>
+          <div class="wiz-card-body">
+            <div class="wiz-card-title">DayTrade Format</div>
+            <div class="wiz-card-desc">Columns: Account, T/D, S/D, Side (B/S), Symbol, Qty, Price, Exec Time, Comm, Net Proceeds…</div>
+          </div>
+        </div>
+        <div class="wiz-card" onclick="wizSelectFormat('manual')">
+          <div class="wiz-card-icon" style="background:rgba(168,85,247,.12)">🔧</div>
+          <div class="wiz-card-body">
+            <div class="wiz-card-title">Custom / Manual Mapping</div>
+            <div class="wiz-card-desc">Any other format — load your file and map columns to journal fields manually.</div>
+          </div>
+        </div>
+        <div class="wiz-card" onclick="closeImportWizard(); openTZSyncModal();">
+          <div class="wiz-card-icon" style="background:rgba(239,159,39,.12)">⚡</div>
+          <div class="wiz-card-body">
+            <div class="wiz-card-title">Sync from TradeZero</div>
+            <div class="wiz-card-desc">Connect directly to your TradeZero Paper account via API — fetch and import trades automatically.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2a: Generic -->
+    <div class="wiz-step" id="wiz-step-generic">
+      <button class="wiz-back" onclick="wizGoStep(1)">← Back</button>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:1rem">Select your XLS / CSV file:</div>
+      <button onclick="document.getElementById('xls-input').click()" style="width:100%;padding:32px;border:2px dashed var(--border2);border-radius:12px;background:var(--bg2);cursor:pointer;font-size:13px;color:var(--text2);font-family:inherit;transition:all .15s" onmouseover="this.style.borderColor='#3b82f6';this.style.color='#2563eb'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--text2)'">
+        📂 Click to choose file
+      </button>
+    </div>
+
+    <!-- Step 2b: DayTrade -->
+    <div class="wiz-step" id="wiz-step-daytrade">
+      <button class="wiz-back" onclick="wizGoStep(1)">← Back</button>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:1rem">Select your DayTrade CSV file:</div>
+      <button onclick="document.getElementById('xls-input-daytrade').click()" style="width:100%;padding:32px;border:2px dashed var(--border2);border-radius:12px;background:var(--bg2);cursor:pointer;font-size:13px;color:var(--text2);font-family:inherit;transition:all .15s" onmouseover="this.style.borderColor='#3b82f6';this.style.color='#2563eb'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--text2)'">
+        📂 Click to choose file
+      </button>
+    </div>
+
+    <!-- Step 2c: Manual -->
+    <div class="wiz-step" id="wiz-step-manual">
+      <button class="wiz-back" onclick="wizGoStep(1)">← Back</button>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:1rem">Select any CSV / XLS file to map manually:</div>
+      <button onclick="document.getElementById('xls-input-manual').click()" style="width:100%;padding:32px;border:2px dashed var(--border2);border-radius:12px;background:var(--bg2);cursor:pointer;font-size:13px;color:var(--text2);font-family:inherit;transition:all .15s" onmouseover="this.style.borderColor='#3b82f6';this.style.color='#2563eb'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--text2)'">
+        📂 Click to choose file
+      </button>
+    </div>
+
+    <!-- Step 3: Manual mapping -->
+    <div class="wiz-step" id="wiz-step-mapping">
+      <button class="wiz-back" onclick="wizGoStep('manual')">← Back</button>
+      <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:.25rem">Map Columns</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:.5rem">Match your file's columns to journal fields. Auto-detected matches are highlighted.</div>
+      <div class="wiz-map-grid" id="wiz-map-grid"></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:.75rem">📋 File preview (first 3 rows):</div>
+      <div class="wiz-preview-wrap"><table class="wiz-preview-table" id="wiz-map-preview"></table></div>
+      <button class="wiz-import-btn" id="wiz-map-import-btn" onclick="wizDoManualImport()">Import Trades</button>
+    </div>
+
+    <!-- Step 4: Preview before import -->
+    <div class="wiz-step" id="wiz-step-preview">
+      <button class="wiz-back" id="wiz-preview-back" onclick="wizGoStep('__back__')">← Back</button>
+      <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:.25rem">Preview</div>
+      <div id="wiz-preview-summary" class="wiz-summary"></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:.75rem">First 5 trades to be imported:</div>
+      <div class="wiz-preview-wrap"><table class="wiz-preview-table" id="wiz-preview-table"></table></div>
+      <button class="wiz-import-btn" id="wiz-confirm-btn" onclick="wizConfirmImport()">✓ Confirm Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- TRADEZERO SYNC MODAL -->
+<div class="tz-overlay" id="tz-sync-modal" onclick="if(event.target.id==='tz-sync-modal')closeTZSyncModal()">
+  <div class="tz-box">
+    <div class="tz-header">
+      <div class="tz-title">
+        <div class="tz-title-icon">⚡</div>
+        TradeZero Sync
+      </div>
+      <button class="tz-close" onclick="closeTZSyncModal()">×</button>
+    </div>
+    <div class="tz-demo-badge">⚠ Demo / Paper Account Only</div>
+    <div class="tz-cred-section">
+      <div class="tz-cred-label">API Credentials</div>
+      <div class="tz-field">
+        <label>Account ID</label>
+        <input type="text" id="tz-account-id" placeholder="e.g. TZ12345678" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="tz-field">
+        <label>API Key (Key ID)</label>
+        <input type="text" id="tz-api-key" placeholder="Paste your Paper API Key here" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="tz-field">
+        <label>API Secret</label>
+        <div class="tz-secret-row">
+          <input type="password" id="tz-api-secret" placeholder="Paste your Paper API Secret here" autocomplete="off" spellcheck="false">
+          <button class="tz-show-btn" title="Show / Hide"
+            onclick="(function(){const i=document.getElementById('tz-api-secret');i.type=i.type==='password'?'text':'password'})()">👁</button>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:.5rem">
+        Don't have API credentials yet?
+        <a class="tz-docs-link" href="https://developer.tradezero.com/docs/documentation/connecting" target="_blank" rel="noopener">
+          TradeZero Portal → API Settings
+        </a>
+      </div>
+    </div>
+    <div class="tz-cred-section" style="margin-bottom:0">
+      <div class="tz-cred-label">Date Range</div>
+      <div class="tz-date-row">
+        <div class="tz-field" style="margin-bottom:0">
+          <label>From</label>
+          <input type="date" id="tz-date-from">
+        </div>
+        <div class="tz-field" style="margin-bottom:0">
+          <label>To</label>
+          <input type="date" id="tz-date-to">
+        </div>
+      </div>
+    </div>
+    <div class="tz-actions">
+      <button class="tz-fetch-btn" id="tz-fetch-btn" onclick="tzSyncFetch()">
+        <div class="tz-spinner"></div>
+        <span class="tz-btn-label">⚡ Fetch Trades</span>
+      </button>
+      <button class="tz-clear-btn" onclick="_tzClearCreds()" title="Remove saved credentials">
+        🗑 Clear Keys
+      </button>
+    </div>
+    <div class="tz-status" id="tz-status">Ready — credentials are saved locally and never leave your browser.</div>
+    <div class="tz-security-note">
+      Credentials are stored only in your browser's localStorage.
+      Requests go directly from your browser to TradeZero's servers — no third party involved.
+    </div>
+  </div>
+</div>
+
+</div><!-- .app -->
+
+  <!-- RIGHT PANEL -->
+  <!-- Backdrop: closes right panel on tap — laptop only, hidden on desktop via CSS -->
+  <div class="rp-backdrop" id="rp-backdrop" onclick="toggleRightPanel()"></div>
+
+  <!-- Calendar month zoom overlay -->
+  <div class="cal-zoom-overlay" id="cal-zoom-overlay" onclick="closeCalZoom(event)">
+    <div class="cal-zoom-box" id="cal-zoom-box">
+      <div class="cal-zoom-header">
+        <span class="cal-zoom-title" id="cal-zoom-title"></span>
+        <button class="cal-zoom-close" onclick="closeCalZoom()">&#x2715;</button>
+      </div>
+      <div class="cal-zoom-body" id="cal-zoom-body"></div>
+    </div>
+  </div>
+
+  <div class="right-panel" id="right-panel">
+
+    <!-- CALENDAR DAY DETAIL (shown only on Calendar page) -->
+    <div id="right-panel-cal-day" style="display:none"></div>
+
+    <!-- FILTERS (shown only on Trades page) -->
+    <div id="right-panel-filters" style="display:none">
+      <div style="font-size:20px;font-weight:700;color:var(--text2);letter-spacing:.01em;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin-bottom:1.25rem">Filters</div>
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">Direction</label>
+          <select onchange="renderLog()" id="filt-dir" style="width:100%;background:var(--bg2);padding:8px 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:13px;color:var(--text);font-family:inherit">
+            <option value="">All Directions</option>
+            <option value="long">Long</option>
+            <option value="short">Short</option>
+          </select>
+        </div>
+
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">Result</label>
+          <select onchange="renderLog()" id="filt-res" style="width:100%;background:var(--bg2);padding:8px 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:13px;color:var(--text);font-family:inherit">
+            <option value="">All Results</option>
+            <option value="win">Winners</option>
+            <option value="loss">Losers</option>
+          </select>
+        </div>
+
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">Price Range</label>
+          <select onchange="renderLog()" id="filt-price" style="width:100%;background:var(--bg2);padding:8px 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:13px;color:var(--text);font-family:inherit">
+            <option value="">All Prices</option>
+            <option value="0-2">&lt;$2</option>
+            <option value="2-5">$2–4.99</option>
+            <option value="5-10">$5–9.99</option>
+            <option value="10-20">$10–19.99</option>
+            <option value="20-30">$20–29.99</option>
+            <option value="30-999999">&gt;$30</option>
+          </select>
+        </div>
+
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">Hour</label>
+          <select onchange="renderLog()" id="filt-hour" style="width:100%;background:var(--bg2);padding:8px 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:13px;color:var(--text);font-family:inherit">
+            <option value="">All Hours</option>
+            <option value="4">04:00</option><option value="5">05:00</option>
+            <option value="6">06:00</option><option value="7">07:00</option>
+            <option value="8">08:00</option><option value="9">09:00</option>
+            <option value="10">10:00</option><option value="11">11:00</option>
+            <option value="12">12:00</option><option value="13">13:00</option>
+            <option value="14">14:00</option><option value="15">15:00</option>
+            <option value="16">16:00</option><option value="17">17:00</option>
+            <option value="18">18:00</option>
+          </select>
+        </div>
+
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">Month</label>
+          <input type="month" id="filt-month" onchange="renderLog()" style="width:100%;background:var(--bg2);padding:8px 10px;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:13px;color:var(--text);font-family:inherit">
+        </div>
+
+        <button onclick="clearLogFilters()" style="margin-top:4px;display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:8px 10px;background:transparent;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:12px;color:var(--text2);cursor:pointer;transition:all .15s;font-family:inherit" onmouseover="this.style.borderColor='var(--text2)';this.style.color='var(--text)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--text2)'">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          Clear Filters
+        </button>
+      </div>
+    </div>
+
+    <!-- RULES CHECKLIST (shown only on Journal page) -->
+    <div id="right-panel-rules" style="display:none">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem">
+        <div style="font-size:20px;font-weight:700;color:var(--text2);letter-spacing:.01em;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">My Rules</div>
+        <button onclick="openRulesModal()" title="Edit Rules"
+          style="width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s;color:var(--text2)"
+          onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background='var(--bg2)'">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+      </div>
+      <div id="right-panel-rules-list" style="display:flex;flex-direction:column;gap:6px"></div>
+      <div id="right-panel-rules-empty" style="display:none;font-size:13px;color:var(--text3);padding:8px 0">
+        No rules yet.<br>
+        <button onclick="openRulesModal()" style="margin-top:8px;padding:6px 14px;border:1px solid var(--border2);border-radius:7px;background:transparent;font-size:12px;color:var(--text2);cursor:pointer;font-family:inherit;transition:all .15s" onmouseover="this.style.borderColor='var(--text2)';this.style.color='var(--text)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--text2)'">+ Add your first rule</button>
+      </div>
+    </div>
+
+    <!-- COMBINED FILTER (shown only on EdgeAnalysis page in combined mode) -->
+    <div id="right-panel-sizing-cb" style="display:none"></div>
+
+  </div><!-- .right-panel -->
+
+  </div><!-- .app-columns -->
+  </div><!-- .main-wrap -->
+</div><!-- .layout -->
+<script src="tradeForm.js"></script>
+<script src="journalPage.js"></script>
+<script src="tradeList.js"></script>
+<script src="calendarPage.js"></script>
+<script src="statsPage.js"></script>
+<script src="sizingPage.js"></script>
+<script src="googleSheets.js"></script>
+<script src="importWizard.js"></script>
+<script src="tradeZeroSync.js"></script>
+<script>
+updateStats();        // KPI donuts — runs unconditionally (not page-specific)
+showPage('home');     // initialises sidebar active state + renders home tab
+
+// ── Sizing page: hook into refreshAll so time-filter changes re-render it ────
+(function patchRefreshAllForSizing() {
+  const _origRefreshAll = window.refreshAll;
+  window.refreshAll = function() {
+    if (typeof _origRefreshAll === 'function') _origRefreshAll.apply(this, arguments);
+    const sz = document.getElementById('tab-sizing');
+    if (sz && sz.style.display !== 'none' && typeof renderSizingPage === 'function') renderSizingPage();
+  };
+})();
+
+// ── Account badge + buttons init ─────────────────────────────────────────────
+(function initAcctUI() {
+  if (typeof updateAcctBadge   === 'function') updateAcctBadge();
+  if (typeof updateAcctButtons === 'function') updateAcctButtons();
+  if (typeof showModeFlash     === 'function') showModeFlash(window.activeAccount || 'live');
+})();
+
+// ── Right panel drawer (laptop only) ────────────────────────────────────────
+// On desktop (>1440px) the panel is always visible in the grid; this is a no-op.
+// On laptop (≤1440px) it slides in/out as a fixed drawer.
+
+// ── EdgeBooster ──────────────────────────────────────────────────────────────
+function openEdgeBooster() {
+  const settings = JSON.parse(localStorage.getItem('edgebook_booster_settings') || '{}');
+  const sizeMap = {
+    compact: { w: 380, h: 560 },
+    default: { w: 440, h: 680 },
+    wide:    { w: 560, h: 780 }
+  };
+  const size = sizeMap[settings.windowSize] || sizeMap['default'];
+  const left = Math.round((window.screen.width  - size.w) / 2);
+  const top  = Math.round((window.screen.height - size.h) / 2);
+  const features = `width=${size.w},height=${size.h},left=${left},top=${top},resizable=yes,scrollbars=no,toolbar=no,menubar=no,location=no,status=no`;
+  window.open('edgeBooster.html', 'EdgeBooster', features);
+}
+// ── End EdgeBooster ───────────────────────────────────────────────────────────
+
+</script>
+</body>
+</html>
