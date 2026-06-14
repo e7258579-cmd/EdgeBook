@@ -66,16 +66,7 @@ function _injectAuthUI() {
     }
     #eb-auth-google-btn:hover { box-shadow: 0 2px 8px rgba(0,0,0,.12); }
     #eb-auth-google-btn svg { width: 20px; height: 20px; }
-    #eb-user-bar {
-      display: flex; align-items: center; gap: 10px;
-      font-size: 13px; color: var(--text2, #666);
-    }
-    #eb-signout-btn {
-      font-size: 12px; padding: 4px 10px;
-      border: 1px solid var(--border2, #ddd);
-      border-radius: 6px; background: transparent;
-      cursor: pointer; color: var(--text2, #666);
-    }
+
   `;
   document.head.appendChild(style);
 
@@ -99,16 +90,17 @@ function _removeAuthOverlay() {
 }
 
 function _injectUserBar() {
-  // Add sign-out button to topbar if it exists
-  const topbar = document.getElementById('topbar');
-  if (!topbar || document.getElementById('eb-user-bar')) return;
-  const bar = document.createElement('div');
-  bar.id = 'eb-user-bar';
-  bar.innerHTML = `
-    <span id="eb-user-name">${_currentUser.displayName || _currentUser.email}</span>
-    <button id="eb-signout-btn" onclick="window.signOut()">יציאה</button>
-  `;
-  topbar.appendChild(bar);
+  // Update sidebar user info
+  const nameEl   = document.getElementById('sb-user-name');
+  const avatarEl = document.getElementById('sb-user-avatar');
+  if (nameEl) {
+    nameEl.textContent = _currentUser.displayName || _currentUser.email || '';
+  }
+  if (avatarEl) {
+    const initials = (_currentUser.displayName || _currentUser.email || '?')
+      .split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+    avatarEl.textContent = initials;
+  }
 }
 
 // ─── AUTH FUNCTIONS ───────────────────────────────────────
