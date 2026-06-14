@@ -52,6 +52,7 @@ let trades = [];  // populated async by accounts.js after Firebase auth
 let timeFilter = { mode: 'all', from: null, to: null };
 
 function getFilteredTrades() {
+  if (!Array.isArray(trades)) return [];
   if (timeFilter.mode === 'all') return trades;
   const now = new Date();
   let from, to;
