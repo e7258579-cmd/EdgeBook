@@ -1580,6 +1580,9 @@
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="accounts.js"></script>
@@ -2086,11 +2089,12 @@ function toggleTradeRow(key) {
 <script src="journalPage.js"></script>
 <script src="tradeList.js"></script>
 <script src="calendarPage.js"></script>
-<script src="StatsPage.js"></script>
+<script src="Statspage.js"></script>
 <script src="sizingPage.js"></script>
 <script src="googleSheets.js"></script>
 <script src="importWizard.js"></script>
 <script src="tradeZeroSync.js"></script>
+
 <script>
 updateStats();        // KPI donuts — runs unconditionally (not page-specific)
 showPage('home');     // initialises sidebar active state + renders home tab
