@@ -44,7 +44,7 @@
 
 // ─── DATA HYDRATION ────────────────────────────────────────
 // accounts.js (loaded before this file) handles migration from legacy key.
-let trades = loadAccountTrades();
+let trades = [];  // populated async by accounts.js after Firebase auth
 // currentMood, currentRating, currentImgs — live in tradeForm.js
 
 // ─── GLOBAL TIME FILTER STATE ──────────────────────────────
