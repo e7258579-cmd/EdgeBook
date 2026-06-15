@@ -51,6 +51,22 @@ let trades = [];  // populated async by accounts.js after Firebase auth
 // Not persisted — intentionally resets to 'all' on every page load.
 let timeFilter = { mode: 'all', from: null, to: null };
 
+// ─── COMMISSION CALCULATOR (single source of truth) ────────
+// Each trade stores t.legs = [{ side:'buy'|'sell', qty:number }, ...]
+// representing every real execution that composes the trade
+// (e.g. 100 buy + 100 buy + 200 sell = 3 legs).
+// Per-leg fee: qty < 200 → $0.99 flat; qty >= 200 → qty * 0.005.
+// pnl is ALWAYS stored gross; net = pnl - calcCommission(t).
+function calcCommission(t) {
+  if (!t || !Array.isArray(t.legs) || !t.legs.length) return 0;
+  return t.legs.reduce((sum, leg) => {
+    const q = Math.abs((leg && leg.qty) || 0);
+    if (!q) return sum;
+    return sum + (q < 200 ? 0.99 : q * 0.005);
+  }, 0);
+}
+window.calcCommission = calcCommission;
+
 function getFilteredTrades() {
   if (!Array.isArray(trades)) return [];
   if (timeFilter.mode === 'all') return trades;

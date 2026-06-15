@@ -53,11 +53,13 @@ const FIELD_ALIASES = {
   notes: ['note','notes','comment','comments'],
 };
 
-// ─── COMMISSION CALCULATOR ───────────────────────────────
-// $0.99 flat for < 200 shares; 0.005 * shares for >= 200
-function calcComm(shares) {
-  shares = Math.abs(shares);
-  return shares < 200 ? 0.99 : parseFloat((0.005 * shares).toFixed(4));
+// ─── LEG SIDE HELPER ──────────────────────────────────────
+// Given a position direction ('long'/'short') and whether the leg is
+// an entry or exit execution, returns the actual broker action ('buy'/'sell')
+// used to build t.legs for calcCommission().
+function dirToSide(dir, isEntry) {
+  if (dir === 'long')  return isEntry ? 'buy'  : 'sell';
+  /* short */          return isEntry ? 'sell' : 'buy';
 }
 
 // ─── WIZARD NAVIGATION ────────────────────────────────────
@@ -187,6 +189,7 @@ function parseOrdersFile(headers, dataRows) {
     let remaining = exitShares;
     let totalEntryValue = 0;
     let totalEntryShares = 0;
+    const entryLegs = []; // real entry executions consumed by this flush
     const firstEntryTime = p.legs[0] ? p.legs[0].time : null;
 
     while (remaining > 0 && p.legs.length > 0) {
@@ -194,6 +197,7 @@ function parseOrdersFile(headers, dataRows) {
       const use = Math.min(remaining, leg.shares);
       totalEntryValue  += use * leg.price;
       totalEntryShares += use;
+      entryLegs.push({ side: dirToSide(p.dir, true), qty: use });
       leg.shares -= use;
       remaining  -= use;
       if (leg.shares <= 0) p.legs.shift();
@@ -204,12 +208,10 @@ function parseOrdersFile(headers, dataRows) {
     const avgEntry = totalEntryValue / totalEntryShares;
     const qty      = totalEntryShares;
     const dir      = p.dir;
-    const entryCommTotal = totalEntryShares < 200 ? 0.99 : parseFloat((0.005 * totalEntryShares).toFixed(4));
-    const exitCommTotal  = calcComm(exitShares);
-    const rawPnl = dir === 'long'
+    // pnl is GROSS — commission is computed later via calcCommission(t) using legs
+    const pnl = dir === 'long'
       ? (exitPrice - avgEntry) * qty
       : (avgEntry - exitPrice) * qty;
-    const pnl = rawPnl - entryCommTotal - exitCommTotal;
 
     const entryTime = firstEntryTime ? firstEntryTime.toTimeString().slice(0,5) : '';
     const exitTime  = exitDt         ? exitDt.toTimeString().slice(0,5)         : '';
@@ -237,6 +239,8 @@ function parseOrdersFile(headers, dataRows) {
       qty,
       pnl: parseFloat(pnl.toFixed(2)),
       sl: 0, tp: 0, rr: 0,
+      // legs: real executions — entry legs (FIFO-consumed) + the exit execution
+      legs: [...entryLegs, { side: dirToSide(p.dir, false), qty: exitShares }],
       entryTime, exitTime, duration,
       reason: '', notes: '', mood: '', rating: 0, img: ''
     });
@@ -339,7 +343,7 @@ function parseDaytradeFormat(headers, dataRows) {
     let remaining = exitQty;
     let totalEntryValue = 0;
     let totalEntryQty   = 0;
-    let totalEntryComm  = 0;
+    const entryLegs = []; // real entry executions consumed (FIFO)
     const firstTime = p.legs[0] ? p.legs[0].time : '';
     const firstDate = p.legs[0] ? p.legs[0].date : null;
 
@@ -348,7 +352,7 @@ function parseDaytradeFormat(headers, dataRows) {
       const use = Math.min(remaining, leg.qty);
       totalEntryValue += use * leg.price;
       totalEntryQty   += use;
-      totalEntryComm  += calcComm(use);
+      entryLegs.push({ side: 'buy', qty: use });
       leg.qty    -= use;
       remaining  -= use;
       if (leg.qty <= 0) p.legs.shift();
@@ -357,8 +361,8 @@ function parseDaytradeFormat(headers, dataRows) {
     if (totalEntryQty === 0) return;
 
     const avgEntry = totalEntryValue / totalEntryQty;
-    const exitCommCalc = calcComm(exitQty);
-    const pnl = parseFloat(((exitPrice - avgEntry) * totalEntryQty - exitCommCalc - totalEntryComm).toFixed(2));
+    // pnl is GROSS — commission is computed later via calcCommission(t) using legs
+    const pnl = parseFloat(((exitPrice - avgEntry) * totalEntryQty).toFixed(2));
 
     let duration = '';
     if (firstTime && exitTime) {
@@ -378,6 +382,8 @@ function parseDaytradeFormat(headers, dataRows) {
       exit: exitPrice,
       qty: totalEntryQty,
       pnl, sl:0, tp:0, rr:0,
+      // legs: real executions — entry buys (FIFO-consumed) + the exit sell
+      legs: [...entryLegs, { side: 'sell', qty: exitQty }],
       entryTime: firstTime, exitTime, duration,
       reason:'', notes:'', mood:'', rating:0, img:''
     });
@@ -641,7 +647,8 @@ function wizDoManualImport() {
     } else if (side === 'S' && opens[key].length > 0) {
       const op = opens[key].shift();
       const usedQty = Math.min(qty, op.qty);
-      const pnl = parseFloat(((price - op.price)*usedQty - comm - op.comm).toFixed(2));
+      // pnl is GROSS — commission is computed later via calcCommission(t) using legs
+      const pnl = parseFloat(((price - op.price) * usedQty).toFixed(2));
       let duration = '';
       if (op.time && time) {
         const [eh,em]=op.time.split(':').map(Number);
@@ -655,6 +662,8 @@ function wizDoManualImport() {
         date: op.date||date||today.toISOString().slice(0,10),
         sym, dir:'long', entry:op.price, exit:price, qty:usedQty,
         pnl, sl:0, tp:0, rr:0,
+        // legs: entry buy + exit sell — used by calcCommission()
+        legs: [{ side:'buy', qty:usedQty }, { side:'sell', qty:usedQty }],
         entryTime:op.time, exitTime:time, duration,
         reason:'', notes:op.notes||notes, mood:'', rating:0, img:''
       });
