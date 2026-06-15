@@ -1,0 +1,1299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>EdgeBooster</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0f0f0f;--bg2:#1a1a1a;--bg3:#222;
+    --text:#f0f0ee;--text2:#999;--text3:#666;
+    --border:#2a2a2a;--border2:#3a3a3a;
+    --green:#1D9E75;--red:#D85A30;--amber:#EF9F27;
+    --radius:10px;--radius-sm:7px;
+  }
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    background:var(--bg);color:var(--text);
+    min-height:100vh;font-size:14px;overflow:hidden;
+  }
+
+  /* ── Header ── */
+  .eb-header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:12px 14px 10px;
+    border-bottom:1px solid var(--border);
+    flex-shrink:0;
+  }
+  .eb-title{
+    display:flex;align-items:center;gap:8px;
+    font-size:15px;font-weight:700;letter-spacing:.08em;
+    color:var(--text);
+  }
+  .eb-title svg{width:18px;height:18px;stroke:var(--amber);fill:var(--amber);flex-shrink:0}
+  .eb-gear{
+    width:30px;height:30px;border-radius:8px;
+    border:1px solid var(--border2);background:transparent;
+    cursor:pointer;display:flex;align-items:center;justify-content:center;
+    color:var(--text2);transition:background .15s,color .15s;
+  }
+  .eb-gear:hover{background:var(--bg2);color:var(--text)}
+  .eb-gear svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+
+  /* ── Input row ── */
+  .eb-input-row{
+    display:flex;gap:8px;padding:12px 14px 8px;
+    flex-shrink:0;
+  }
+  .eb-symbol-input{
+    flex:1;background:var(--bg2);border:1px solid var(--border2);
+    border-radius:var(--radius-sm);padding:9px 12px;
+    font-size:15px;font-weight:700;color:var(--text);
+    font-family:inherit;letter-spacing:.08em;text-transform:uppercase;
+    outline:none;transition:border-color .15s;
+  }
+  .eb-symbol-input::placeholder{color:var(--text3);font-weight:400;letter-spacing:0;text-transform:none}
+  .eb-symbol-input:focus{border-color:var(--border2);box-shadow:0 0 0 2px rgba(255,255,255,.06)}
+  .eb-analyze-btn{
+    padding:9px 16px;border-radius:var(--radius-sm);
+    background:var(--text);color:var(--bg);
+    border:none;cursor:pointer;font-size:13px;font-weight:700;
+    font-family:inherit;letter-spacing:.04em;
+    transition:opacity .15s;flex-shrink:0;
+    display:flex;align-items:center;gap:7px;
+  }
+  .eb-analyze-btn:hover{opacity:.85}
+  .eb-analyze-btn:disabled{opacity:.4;cursor:default}
+  .eb-spinner{
+    width:13px;height:13px;border:2px solid rgba(0,0,0,.2);
+    border-top-color:#000;border-radius:50%;
+    animation:spin .7s linear infinite;display:none;
+  }
+  .eb-analyze-btn.loading .eb-spinner{display:block}
+  .eb-analyze-btn.loading .eb-btn-label{display:none}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* ── Mode toggle (Auto / Manual) ── */
+  .eb-mode-row{
+    padding:0 14px 10px;flex-shrink:0;
+  }
+  .eb-mode-toggle{
+    display:flex;background:var(--bg3);border-radius:8px;padding:3px;gap:3px;
+  }
+  .eb-mode-btn{
+    flex:1;padding:6px 0;border-radius:6px;border:none;
+    font-size:12px;font-weight:700;font-family:inherit;letter-spacing:.05em;
+    cursor:pointer;transition:background .18s,color .18s;
+    background:transparent;color:var(--text3);
+  }
+  .eb-mode-btn.active{
+    background:var(--bg2);color:var(--text);
+    box-shadow:0 1px 3px rgba(0,0,0,.4);
+  }
+  .eb-mode-btn.active.manual-active{
+    color:var(--amber);
+  }
+
+  /* ── Manual checkboxes ── */
+  .eb-crit-checkbox{
+    width:20px;height:20px;border-radius:5px;
+    border:1.5px solid var(--border2);background:var(--bg3);
+    cursor:pointer;flex-shrink:0;
+    display:none;
+    align-items:center;justify-content:center;
+    font-size:13px;transition:background .15s,border-color .15s;
+    user-select:none;
+  }
+  .eb-crit-checkbox:hover{border-color:#555}
+  .eb-crit-checkbox.checked{
+    background:var(--green);border-color:var(--green);
+  }
+  .eb-crit-checkbox.checked::after{content:'✓';color:#fff;font-size:12px;font-weight:700}
+  .eb-mode-manual .eb-crit-checkbox{display:flex}
+  .eb-mode-manual .eb-crit-icon{display:none}
+  .eb-mode-manual .eb-crit-reset{display:none !important}
+  .eb-mode-manual .eb-crit-manual-badge{display:none !important}
+  .eb-mode-manual #eb-analyze-btn{display:none}
+  .eb-mode-manual .eb-empty{display:none !important}
+  .eb-mode-manual #eb-criteria{display:flex !important}
+  .eb-mode-manual #eb-score-wrap{display:block !important}
+
+  /* ── Criteria list ── */
+  .eb-criteria{
+    padding:4px 10px;display:flex;flex-direction:column;gap:4px;
+    flex:1;overflow-y:auto;
+  }
+  .eb-criterion{
+    display:flex;align-items:center;gap:10px;
+    padding:9px 10px;border-radius:var(--radius-sm);
+    background:var(--bg2);border:1px solid var(--border);
+    transition:border-color .15s;
+  }
+  .eb-criterion:hover{border-color:var(--border2)}
+  .eb-crit-icon{
+    font-size:16px;width:22px;text-align:center;flex-shrink:0;
+    line-height:1;
+  }
+  .eb-crit-body{flex:1;min-width:0}
+  .eb-crit-label{
+    font-size:12px;font-weight:600;color:var(--text2);
+    text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;
+  }
+  .eb-crit-value{
+    font-size:13px;font-weight:500;color:var(--text);
+    font-variant-numeric:tabular-nums;
+  }
+  .eb-crit-value.pass{color:var(--green)}
+  .eb-crit-value.fail{color:var(--red)}
+  .eb-crit-value.partial{color:var(--amber)}
+  .eb-crit-value.demo{color:var(--text3);font-style:italic}
+
+  /* ── Score bar ── */
+  .eb-score-wrap{
+    padding:10px 14px 14px;flex-shrink:0;
+    border-top:1px solid var(--border);
+  }
+  .eb-score-header{
+    display:flex;justify-content:space-between;align-items:center;
+    margin-bottom:7px;
+  }
+  .eb-score-label{font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.07em}
+  .eb-score-num{font-size:20px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
+  .eb-score-num span{font-size:13px;color:var(--text3);font-weight:400}
+  .eb-bar-track{
+    height:8px;border-radius:99px;background:var(--bg3);
+    position:relative;overflow:visible;
+  }
+  .eb-bar-fill{
+    height:100%;border-radius:99px;
+    background:linear-gradient(to right,#D85A30,#EF9F27,#1D9E75);
+    transition:width .45s cubic-bezier(.4,0,.2,1);
+    position:relative;
+  }
+  .eb-bar-indicator{
+    position:absolute;right:-5px;top:50%;transform:translateY(-50%);
+    width:14px;height:14px;border-radius:50%;
+    background:#fff;border:2px solid var(--bg);
+    box-shadow:0 1px 4px rgba(0,0,0,.5);
+    transition:right .45s cubic-bezier(.4,0,.2,1);
+  }
+
+  /* ── Manual override ── */
+  .eb-criterion.clickable{cursor:pointer}
+  .eb-criterion.clickable:active{opacity:.8}
+  .eb-crit-manual-badge{
+    font-size:9px;font-weight:700;letter-spacing:.06em;
+    background:var(--bg3);color:var(--text3);
+    border:1px solid var(--border2);border-radius:4px;
+    padding:1px 4px;margin-left:4px;vertical-align:middle;
+  }
+  .eb-crit-reset{
+    font-size:10px;color:var(--text3);background:none;border:none;
+    cursor:pointer;padding:2px 5px;border-radius:4px;
+    font-family:inherit;letter-spacing:.04em;
+    transition:color .12s,background .12s;flex-shrink:0;
+  }
+  .eb-crit-reset:hover{color:var(--text);background:var(--bg3)}
+
+  /* ── Empty state ── */
+  .eb-empty{
+    flex:1;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;
+    gap:8px;color:var(--text3);padding:20px;
+  }
+  .eb-empty svg{width:36px;height:36px;stroke:var(--border2);fill:none;stroke-width:1;stroke-linecap:round;stroke-linejoin:round}
+  .eb-empty-title{font-size:13px;font-weight:600;color:var(--text2)}
+  .eb-empty-title.err-amber{color:var(--amber)}
+  .eb-empty-title.err-red{color:var(--red)}
+  .eb-empty-sub{font-size:12px;text-align:center;line-height:1.5}
+  .eb-empty-sub a{color:var(--amber);text-decoration:underline;cursor:pointer}
+  .eb-retry-btn{
+    margin-top:10px;padding:7px 18px;border-radius:7px;
+    border:1px solid var(--border2);background:var(--bg2);
+    color:var(--text2);font-size:12px;font-weight:600;
+    cursor:pointer;font-family:inherit;letter-spacing:.04em;
+    transition:background .15s,color .15s;
+  }
+  .eb-retry-btn:hover{background:var(--bg3);color:var(--text)}
+  .eb-countdown{
+    font-size:22px;font-weight:700;color:var(--amber);
+    font-variant-numeric:tabular-nums;margin-top:4px;
+  }
+
+  /* ── Settings screen ── */
+  .eb-settings{
+    display:none;flex-direction:column;flex:1;min-height:0;overflow-y:auto;
+    padding:12px 14px 20px;gap:18px;
+  }
+  .eb-settings.active{display:flex}
+  .eb-settings-back{
+    display:flex;align-items:center;gap:6px;
+    font-size:13px;font-weight:600;color:var(--text2);
+    background:none;border:none;cursor:pointer;font-family:inherit;
+    padding:0;margin-bottom:4px;transition:color .12s;
+  }
+  .eb-settings-back:hover{color:var(--text)}
+  .eb-settings-back svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .eb-section-title{
+    font-size:10px;font-weight:700;color:var(--text3);
+    text-transform:uppercase;letter-spacing:.1em;
+    margin-bottom:8px;
+  }
+  .eb-setting-row{
+    display:flex;align-items:center;justify-content:space-between;
+    gap:10px;margin-bottom:8px;
+  }
+  .eb-setting-row:last-child{margin-bottom:0}
+  .eb-setting-label{font-size:13px;color:var(--text2)}
+  .eb-setting-input{
+    background:var(--bg2);border:1px solid var(--border2);
+    border-radius:6px;padding:6px 9px;
+    font-size:13px;color:var(--text);font-family:inherit;
+    outline:none;width:110px;text-align:right;
+    transition:border-color .15s;
+  }
+  .eb-setting-input:focus{border-color:#555}
+  .eb-setting-input.key-input{width:100%;text-align:left;letter-spacing:.04em;font-size:12px}
+  .eb-key-row{display:flex;gap:6px;align-items:center}
+  .eb-test-btn{
+    padding:6px 11px;border-radius:6px;font-size:12px;font-weight:600;
+    background:var(--bg3);border:1px solid var(--border2);
+    color:var(--text2);cursor:pointer;font-family:inherit;
+    white-space:nowrap;transition:background .12s,color .12s;flex-shrink:0;
+  }
+  .eb-test-btn:hover{background:var(--border2);color:var(--text)}
+  .eb-key-status{font-size:11px;margin-top:5px;min-height:14px}
+  .eb-key-status.ok{color:var(--green)}
+  .eb-key-status.err{color:var(--red)}
+  .eb-key-status.testing{color:var(--text3)}
+  .eb-radio-group{display:flex;flex-direction:column;gap:7px}
+  .eb-radio-item{
+    display:flex;align-items:center;gap:9px;cursor:pointer;
+    font-size:13px;color:var(--text2);user-select:none;
+  }
+  .eb-radio-item input[type=radio]{accent-color:var(--green);cursor:pointer}
+  .eb-radio-item .eb-radio-sub{font-size:11px;color:var(--text3);margin-left:auto}
+  .eb-toggle-row{
+    display:flex;align-items:center;gap:9px;cursor:pointer;
+    font-size:13px;color:var(--text2);user-select:none;
+  }
+  .eb-toggle-row input[type=checkbox]{accent-color:var(--green);cursor:pointer;width:13px;height:13px}
+  .eb-setting-unit{font-size:12px;color:var(--text3);flex-shrink:0}
+  .eb-save-btn{
+    width:100%;padding:10px;border-radius:8px;
+    background:var(--green);color:#fff;border:none;
+    font-size:14px;font-weight:700;font-family:inherit;
+    cursor:pointer;letter-spacing:.04em;
+    transition:opacity .15s;margin-top:4px;
+  }
+  .eb-save-btn:hover{opacity:.87}
+  .eb-save-notice{font-size:11px;color:var(--green);text-align:center;min-height:14px;margin-top:4px}
+  .eb-divider{height:1px;background:var(--border);margin:2px 0}
+
+  /* ── News expand ── */
+  .eb-news-toggle{
+    background:none;border:none;cursor:pointer;
+    color:var(--text3);padding:2px 4px;margin-left:2px;
+    display:none;align-items:center;justify-content:center;
+    transition:color .15s,transform .2s;flex-shrink:0;
+    font-size:13px;line-height:1;
+  }
+  .eb-news-toggle:hover{color:var(--text)}
+  .eb-news-toggle.open{transform:rotate(180deg);color:var(--text2)}
+  .eb-news-list{
+    display:none;flex-direction:column;gap:3px;
+    margin-top:6px;padding-top:6px;
+    border-top:1px solid var(--border);
+  }
+  .eb-news-list.open{display:flex}
+  .eb-news-item{
+    font-size:11px;color:var(--text2);line-height:1.4;
+    padding:3px 0;
+    border-bottom:1px solid var(--border);
+  }
+  .eb-news-item:last-child{border-bottom:none;padding-bottom:0}
+  .eb-news-item a{
+    color:var(--text2);text-decoration:none;
+  }
+  .eb-news-item a:hover{color:var(--text);text-decoration:underline}
+
+  /* ── Layout ── */
+  .eb-wrap{display:flex;flex-direction:column;height:100vh}
+  .eb-screen{display:flex;flex-direction:column;flex:1;min-height:0}
+</style>
+</head>
+<body>
+<div class="eb-wrap">
+
+  <!-- HEADER -->
+  <div class="eb-header">
+    <div class="eb-title">
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+      </svg>
+      EDGEBOOSTER
+    </div>
+    <button class="eb-gear" title="Settings" onclick="openSettings()" id="eb-gear-btn">
+      <svg viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- ANALYZER SCREEN -->
+  <div class="eb-screen" id="screen-analyzer">
+
+    <!-- Input -->
+    <div class="eb-input-row">
+      <input class="eb-symbol-input" id="eb-symbol" type="text" placeholder="Symbol (e.g. TSLA)" maxlength="8"
+        onkeydown="if(event.key==='Enter')runAnalyze()" oninput="this.value=this.value.toUpperCase()">
+      <button class="eb-analyze-btn" id="eb-analyze-btn" onclick="runAnalyze()">
+        <div class="eb-spinner"></div>
+        <span class="eb-btn-label">Analyze</span>
+      </button>
+    </div>
+
+    <!-- Mode toggle: Auto / Manual -->
+    <div class="eb-mode-row">
+      <div class="eb-mode-toggle">
+        <button class="eb-mode-btn active" id="mode-btn-auto" onclick="setInputMode('auto')">Auto</button>
+        <button class="eb-mode-btn" id="mode-btn-manual" onclick="setInputMode('manual')">Manual</button>
+      </div>
+    </div>
+
+    <!-- Empty state (default) -->
+    <div class="eb-empty" id="eb-empty">
+      <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      <div class="eb-empty-title" id="eb-empty-title">Ready to Analyze</div>
+      <div class="eb-countdown" id="eb-countdown" style="display:none"></div>
+      <div class="eb-empty-sub" id="eb-empty-sub">Enter a symbol above and press Analyze to check all 6 edge criteria</div>
+      <button class="eb-retry-btn" id="eb-retry-btn" style="display:none" onclick="runAnalyze()">↺ Retry</button>
+    </div>
+
+    <!-- Criteria list (hidden until analyze) -->
+    <div class="eb-criteria" id="eb-criteria" style="display:none">
+
+      <!-- Criterion 1: News -->
+      <div class="eb-criterion" id="crit-1-wrap" style="flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:10px;width:100%">
+          <div class="eb-crit-checkbox" id="chk-1" onclick="onManualCheck(1)"></div>
+          <div class="eb-crit-icon" id="icon-1" onclick="onCritIconClick(1)">📰</div>
+          <div class="eb-crit-body">
+            <div class="eb-crit-label">News Today <span class="eb-crit-manual-badge" id="mbadge-1" style="display:none">M</span></div>
+            <div class="eb-crit-value demo" id="val-1">—</div>
+          </div>
+          <button class="eb-news-toggle" id="news-toggle" title="Show headlines" onclick="toggleNewsExpand()">▼</button>
+          <button class="eb-crit-reset" id="reset-1" style="display:none" onclick="resetCriterion(1)">Reset</button>
+        </div>
+        <div class="eb-news-list" id="eb-news-list"></div>
+      </div>
+
+      <!-- Criterion 2: Price -->
+      <div class="eb-criterion">
+        <div class="eb-crit-checkbox" id="chk-2" onclick="onManualCheck(2)"></div>
+        <div class="eb-crit-icon" id="icon-2" onclick="onCritIconClick(2)">💲</div>
+        <div class="eb-crit-body">
+          <div class="eb-crit-label">Price $2–$20 <span class="eb-crit-manual-badge" id="mbadge-2" style="display:none">M</span></div>
+          <div class="eb-crit-value demo" id="val-2">—</div>
+        </div>
+        <button class="eb-crit-reset" id="reset-2" style="display:none" onclick="resetCriterion(2)">Reset</button>
+      </div>
+
+      <!-- Criterion 3: Change -->
+      <div class="eb-criterion">
+        <div class="eb-crit-checkbox" id="chk-3" onclick="onManualCheck(3)"></div>
+        <div class="eb-crit-icon" id="icon-3" onclick="onCritIconClick(3)">📈</div>
+        <div class="eb-crit-body">
+          <div class="eb-crit-label">Gap / Move 10%+ <span class="eb-crit-manual-badge" id="mbadge-3" style="display:none">M</span></div>
+          <div class="eb-crit-value demo" id="val-3">—</div>
+        </div>
+        <button class="eb-crit-reset" id="reset-3" style="display:none" onclick="resetCriterion(3)">Reset</button>
+      </div>
+
+      <!-- Criterion 4: Volume -->
+      <div class="eb-criterion">
+        <div class="eb-crit-checkbox" id="chk-4" onclick="onManualCheck(4)"></div>
+        <div class="eb-crit-icon" id="icon-4" onclick="onCritIconClick(4)">📊</div>
+        <div class="eb-crit-body">
+          <div class="eb-crit-label">Volume ×5 Avg <span class="eb-crit-manual-badge" id="mbadge-4" style="display:none">M</span></div>
+          <div class="eb-crit-value demo" id="val-4">—</div>
+        </div>
+        <button class="eb-crit-reset" id="reset-4" style="display:none" onclick="resetCriterion(4)">Reset</button>
+      </div>
+
+      <!-- Criterion 5: Low Float -->
+      <div class="eb-criterion">
+        <div class="eb-crit-checkbox" id="chk-5" onclick="onManualCheck(5)"></div>
+        <div class="eb-crit-icon" id="icon-5" onclick="onCritIconClick(5)">🔢</div>
+        <div class="eb-crit-body">
+          <div class="eb-crit-label">Low Float <span class="eb-crit-manual-badge" id="mbadge-5" style="display:none">M</span></div>
+          <div class="eb-crit-value demo" id="val-5">—</div>
+        </div>
+        <button class="eb-crit-reset" id="reset-5" style="display:none" onclick="resetCriterion(5)">Reset</button>
+      </div>
+
+      <!-- Criterion 6: Origin -->
+      <div class="eb-criterion">
+        <div class="eb-crit-checkbox" id="chk-6" onclick="onManualCheck(6)"></div>
+        <div class="eb-crit-icon" id="icon-6" onclick="onCritIconClick(6)">🌐</div>
+        <div class="eb-crit-body">
+          <div class="eb-crit-label">Not China <span class="eb-crit-manual-badge" id="mbadge-6" style="display:none">M</span></div>
+          <div class="eb-crit-value demo" id="val-6">—</div>
+        </div>
+        <button class="eb-crit-reset" id="reset-6" style="display:none" onclick="resetCriterion(6)">Reset</button>
+      </div>
+
+    </div><!-- /eb-criteria -->
+
+    <!-- Score bar -->
+    <div class="eb-score-wrap" id="eb-score-wrap" style="display:none">
+      <div class="eb-score-header">
+        <div class="eb-score-label">Edge Score</div>
+        <div class="eb-score-num" id="eb-score-num">0 <span>/ 6</span></div>
+      </div>
+      <div class="eb-bar-track">
+        <div class="eb-bar-fill" id="eb-bar-fill" style="width:0%">
+          <div class="eb-bar-indicator"></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /screen-analyzer -->
+
+  <!-- SETTINGS SCREEN -->
+  <div class="eb-settings" id="screen-settings">
+
+    <button class="eb-settings-back" onclick="closeSettings()">
+      <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+      Back
+    </button>
+
+    <!-- API -->
+    <div>
+      <div class="eb-section-title">API Key</div>
+      <div class="eb-key-row">
+        <input class="eb-setting-input key-input" type="password" id="s-finnhub-key" placeholder="Finnhub API key...">
+        <button class="eb-test-btn" onclick="testKey()">Test Key</button>
+      </div>
+      <div class="eb-key-status" id="s-key-status"></div>
+    </div>
+
+    <div class="eb-divider"></div>
+
+    <!-- Polygon Key -->
+    <div>
+      <div class="eb-section-title">Polygon API Key <span style="font-size:10px;color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0">(for pre/post market)</span></div>
+      <div class="eb-key-row">
+        <input class="eb-setting-input key-input" type="password" id="s-polygon-key" placeholder="Polygon API key (optional)...">
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:5px;line-height:1.5">
+        Free key at <a href="https://polygon.io" target="_blank" style="color:var(--amber)">polygon.io</a> — needed for pre/post market prices
+      </div>
+    </div>
+
+    <div class="eb-divider"></div>
+
+    <!-- Window Size -->
+    <div>
+      <div class="eb-section-title">Window Size</div>
+      <div class="eb-radio-group">
+        <label class="eb-radio-item">
+          <input type="radio" name="windowSize" value="compact" id="s-sz-compact">
+          Compact
+          <span class="eb-radio-sub">380 × 560</span>
+        </label>
+        <label class="eb-radio-item">
+          <input type="radio" name="windowSize" value="default" id="s-sz-default" checked>
+          Default
+          <span class="eb-radio-sub">440 × 680</span>
+        </label>
+        <label class="eb-radio-item">
+          <input type="radio" name="windowSize" value="wide" id="s-sz-wide">
+          Wide
+          <span class="eb-radio-sub">560 × 780</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="eb-divider"></div>
+
+    <!-- Criteria Thresholds -->
+    <div>
+      <div class="eb-section-title">Criteria Thresholds</div>
+      <div class="eb-setting-row">
+        <span class="eb-setting-label">Price Min</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <input class="eb-setting-input" type="number" id="s-price-min" value="2" min="0" step="0.5" style="width:72px">
+          <span class="eb-setting-unit">$</span>
+        </div>
+      </div>
+      <div class="eb-setting-row">
+        <span class="eb-setting-label">Price Max</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <input class="eb-setting-input" type="number" id="s-price-max" value="20" min="0" step="1" style="width:72px">
+          <span class="eb-setting-unit">$</span>
+        </div>
+      </div>
+      <div class="eb-setting-row">
+        <span class="eb-setting-label">Change Min</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <input class="eb-setting-input" type="number" id="s-change-min" value="10" min="0" step="1" style="width:72px">
+          <span class="eb-setting-unit">%</span>
+        </div>
+      </div>
+      <div class="eb-setting-row">
+        <span class="eb-setting-label">Volume ×</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <input class="eb-setting-input" type="number" id="s-vol-mult" value="5" min="1" step="1" style="width:72px">
+          <span class="eb-setting-unit">× avg</span>
+        </div>
+      </div>
+      <div class="eb-setting-row">
+        <span class="eb-setting-label">Volume Days</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <input class="eb-setting-input" type="number" id="s-vol-days" value="10" min="3" max="30" step="1" style="width:72px">
+          <span class="eb-setting-unit">days</span>
+        </div>
+      </div>
+      <div class="eb-setting-row">
+        <span class="eb-setting-label">Float Max</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <input class="eb-setting-input" type="number" id="s-float-max" value="10" min="1" step="1" style="width:72px">
+          <span class="eb-setting-unit">M shares</span>
+        </div>
+      </div>
+    </div>
+
+
+    <button class="eb-save-btn" onclick="saveSettings()">Save Settings</button>
+    <div class="eb-save-notice" id="s-save-notice"></div>
+
+  </div><!-- /screen-settings -->
+
+</div><!-- /eb-wrap -->
+
+<script>
+// ── Settings ─────────────────────────────────────────────────────────────────
+const DEFAULT_SETTINGS = {
+  finnhubKey: '',
+  polygonKey: '',
+  windowSize: 'default',
+  priceMin: 2,
+  priceMax: 20,
+  changeMin: 10,
+  volumeMultiplier: 5,
+  volumeDays: 10,
+  floatMax: 10
+};
+
+function loadSettings() {
+  try {
+    return Object.assign({}, DEFAULT_SETTINGS,
+      JSON.parse(localStorage.getItem('edgebook_booster_settings') || '{}'));
+  } catch(e) { return Object.assign({}, DEFAULT_SETTINGS); }
+}
+
+function saveSettings() {
+  const s = {
+    finnhubKey:          document.getElementById('s-finnhub-key').value.trim(),
+    polygonKey:          document.getElementById('s-polygon-key').value.trim(),
+    windowSize:          document.querySelector('input[name="windowSize"]:checked')?.value || 'default',
+    priceMin:            parseFloat(document.getElementById('s-price-min').value) || 2,
+    priceMax:            parseFloat(document.getElementById('s-price-max').value) || 20,
+    changeMin:           parseFloat(document.getElementById('s-change-min').value) || 10,
+    volumeMultiplier:    parseFloat(document.getElementById('s-vol-mult').value) || 5,
+    volumeDays:          parseInt(document.getElementById('s-vol-days').value) || 10,
+    floatMax:            parseFloat(document.getElementById('s-float-max').value) || 10,
+  };
+  localStorage.setItem('edgebook_booster_settings', JSON.stringify(s));
+
+  // Resize window immediately if size changed
+  const sizeMap = { compact:{w:380,h:560}, default:{w:440,h:680}, wide:{w:560,h:780} };
+  const sz = sizeMap[s.windowSize] || sizeMap['default'];
+  window.resizeTo(sz.w, sz.h);
+
+  // Show notice
+  const notice = document.getElementById('s-save-notice');
+  notice.textContent = '✓ Saved';
+  setTimeout(() => notice.textContent = '', 2000);
+}
+
+function populateSettingsUI() {
+  const s = loadSettings();
+  document.getElementById('s-finnhub-key').value    = s.finnhubKey || '';
+  document.getElementById('s-polygon-key').value    = s.polygonKey || '';
+  document.getElementById('s-price-min').value      = s.priceMin;
+  document.getElementById('s-price-max').value      = s.priceMax;
+  document.getElementById('s-change-min').value     = s.changeMin;
+  document.getElementById('s-vol-mult').value       = s.volumeMultiplier;
+  document.getElementById('s-vol-days').value       = s.volumeDays;
+  document.getElementById('s-float-max').value      = s.floatMax;
+  const szRadio = document.querySelector('input[name="windowSize"][value="'+s.windowSize+'"]');
+  if (szRadio) szRadio.checked = true;
+  document.getElementById('s-key-status').textContent = '';
+}
+
+function openSettings() {
+  populateSettingsUI();
+  document.getElementById('screen-analyzer').style.display = 'none';
+  document.getElementById('screen-settings').classList.add('active');
+}
+
+function closeSettings() {
+  document.getElementById('screen-settings').classList.remove('active');
+  document.getElementById('screen-analyzer').style.display = 'flex';
+}
+
+async function testKey() {
+  const key = document.getElementById('s-finnhub-key').value.trim();
+  const status = document.getElementById('s-key-status');
+  if (!key) { status.className='eb-key-status err'; status.textContent='Enter a key first'; return; }
+  status.className='eb-key-status testing'; status.textContent='Testing…';
+  try {
+    const res = await fetch('https://finnhub.io/api/v1/stock/profile2?symbol=AAPL&token='+encodeURIComponent(key));
+    if (res.ok) {
+      const d = await res.json();
+      if (d && d.name) { status.className='eb-key-status ok'; status.textContent='✓ Key valid — '+d.name; }
+      else             { status.className='eb-key-status err'; status.textContent='✗ Invalid key'; }
+    } else if (res.status===401||res.status===403) {
+      status.className='eb-key-status err'; status.textContent='✗ Invalid key';
+    } else {
+      status.className='eb-key-status err'; status.textContent='✗ Error '+res.status;
+    }
+  } catch(e) {
+    status.className='eb-key-status err'; status.textContent='✗ Network error';
+  }
+}
+
+// ── Input Mode (auto / manual) ────────────────────────────────────────────────
+let inputMode = 'auto';
+try { inputMode = localStorage.getItem('eb_input_mode') || 'auto'; } catch(e) {}
+
+function setInputMode(mode) {
+  inputMode = mode;
+  try { localStorage.setItem('eb_input_mode', mode); } catch(e) {}
+
+  const wrap = document.getElementById('screen-analyzer');
+  const btnAuto   = document.getElementById('mode-btn-auto');
+  const btnManual = document.getElementById('mode-btn-manual');
+
+  if (mode === 'manual') {
+    wrap.classList.add('eb-mode-manual');
+    btnAuto.classList.remove('active');
+    btnManual.classList.add('active', 'manual-active');
+    // Show criteria & score in manual mode, hide empty state
+    document.getElementById('eb-empty').style.display    = 'none';
+    document.getElementById('eb-criteria').style.display = 'flex';
+    document.getElementById('eb-score-wrap').style.display = 'block';
+    // Reset all checkboxes to unchecked
+    for (let i = 1; i <= 6; i++) {
+      manualChecks[i-1] = false;
+      const chk = document.getElementById('chk-'+i);
+      if (chk) chk.classList.remove('checked');
+      const val = document.getElementById('val-'+i);
+      if (val) { val.textContent = '—'; val.className = 'eb-crit-value demo'; }
+    }
+    recalcScore();
+  } else {
+    wrap.classList.remove('eb-mode-manual');
+    btnManual.classList.remove('active', 'manual-active');
+    btnAuto.classList.add('active');
+    // If no auto results yet, go back to empty state
+    if (autoResults.length === 0) {
+      document.getElementById('eb-criteria').style.display   = 'none';
+      document.getElementById('eb-score-wrap').style.display = 'none';
+      document.getElementById('eb-empty').style.display      = 'flex';
+    }
+  }
+}
+
+// ── Manual Override ───────────────────────────────────────────────────────────
+// manualState[i] = null (auto) | true | false  — used in AUTO mode click-to-override
+const manualState  = [null, null, null, null, null, null];
+// manualChecks[i] = bool — used in MANUAL mode checkboxes
+const manualChecks = [false, false, false, false, false, false];
+
+function onManualCheck(idx) {
+  if (inputMode !== 'manual') return;
+  manualChecks[idx-1] = !manualChecks[idx-1];
+  const chk = document.getElementById('chk-'+idx);
+  if (chk) chk.classList.toggle('checked', manualChecks[idx-1]);
+  recalcScore();
+}
+
+function applyManualOverrideSetting(allowed) {
+  for (let i = 1; i <= 6; i++) {
+    const el = document.getElementById('icon-'+i);
+    if (!el) continue;
+    if (allowed) {
+      el.style.cursor = 'pointer';
+      el.title = 'Click to override';
+    } else {
+      el.style.cursor = 'default';
+      el.title = '';
+    }
+  }
+}
+
+function onCritIconClick(idx) {
+  const s = loadSettings();
+  if (!s.allowManualOverride) return;
+
+  // Get current displayed state
+  const iconEl = document.getElementById('icon-'+(idx));
+  const valEl  = document.getElementById('val-'+idx);
+  const resetBtn = document.getElementById('reset-'+idx);
+
+  // Toggle: if currently auto → force-pass, if pass → force-fail, if fail → auto
+  if (manualState[idx-1] === null) {
+    // was auto — look at current icon to decide toggle direction
+    const currentPass = iconEl.textContent === '✅' || iconEl.textContent === '⚡';
+    manualState[idx-1] = !currentPass; // opposite
+  } else if (manualState[idx-1] === true) {
+    manualState[idx-1] = false;
+  } else {
+    manualState[idx-1] = null; // back to auto
+  }
+
+  renderCriterionManual(idx);
+  recalcScore();
+}
+
+function resetCriterion(idx) {
+  manualState[idx-1] = null;
+  renderCriterionManual(idx);
+  recalcScore();
+}
+
+// Store auto results for reset
+const autoResults = [];
+let _newsHeadlines = []; // stored for expand panel
+
+function toggleNewsExpand() {
+  const list   = document.getElementById('eb-news-list');
+  const toggle = document.getElementById('news-toggle');
+  if (!list) return;
+  const isOpen = list.classList.toggle('open');
+  toggle.classList.toggle('open', isOpen);
+  toggle.title = isOpen ? 'Hide headlines' : 'Show headlines';
+}
+
+function renderCriterionManual(idx) {
+  const iconEl   = document.getElementById('icon-'+idx);
+  const valEl    = document.getElementById('val-'+idx);
+  const resetBtn = document.getElementById('reset-'+idx);
+  const badge    = document.getElementById('mbadge-'+idx);
+  const auto     = autoResults[idx-1];
+  if (!auto) return;
+
+  const state = manualState[idx-1];
+  if (state === null) {
+    // Restore auto
+    iconEl.textContent = auto.partial ? '⚡' : (auto.pass ? '✅' : '❌');
+    valEl.textContent  = auto.value;
+    valEl.className    = 'eb-crit-value ' + (auto.partial ? 'partial' : (auto.pass ? 'pass' : 'fail'));
+    if (badge)    badge.style.display = 'none';
+    if (resetBtn) resetBtn.style.display = 'none';
+  } else {
+    iconEl.textContent = state ? '✅' : '❌';
+    valEl.className    = 'eb-crit-value ' + (state ? 'pass' : 'fail');
+    if (badge)    badge.style.display = 'inline';
+    if (resetBtn) resetBtn.style.display = 'inline';
+  }
+}
+
+function recalcScore() {
+  let score = 0;
+  const total = 6;
+  if (inputMode === 'manual') {
+    score = manualChecks.filter(Boolean).length;
+  } else {
+    for (let i = 0; i < total; i++) {
+      const state = manualState[i];
+      if (state === null) {
+        const a = autoResults[i];
+        if (!a) continue;
+        score += a.partial ? 0.5 : (a.pass ? 1 : 0);
+      } else {
+        score += state ? 1 : 0;
+      }
+    }
+  }
+  const pct = (score / total) * 100;
+  document.getElementById('eb-bar-fill').style.width = pct + '%';
+  document.getElementById('eb-score-num').innerHTML  = score + ' <span>/ ' + total + '</span>';
+}
+
+// ── Demo data ─────────────────────────────────────────────────────────────────
+const DEMO = {
+  TSLA: {
+    criteria: [
+      { pass: true,    value: '5 articles found',         label: 'News Today' },
+      { pass: true,    value: 'Price $8.42',               label: 'Price $2–$20' },
+      { pass: false,   value: 'Change +4.2% (need 10%+)', label: 'Gap / Move 10%+' },
+      { pass: true,    value: 'Volume ×7.3 avg',           label: 'Volume ×5 Avg' },
+      { pass: false,   value: '3240.0M shares (need < 10M)', label: 'Low Float' },
+      { pass: true,    value: 'US — full credit',          label: 'Not China' },
+    ],
+    score: 4
+  },
+  MARA: {
+    criteria: [
+      { pass: true,    value: '2 articles found',              label: 'News Today' },
+      { pass: true,    value: 'Price $14.80',                  label: 'Price $2–$20' },
+      { pass: true,    value: 'Change +12.7%',                 label: 'Gap / Move 10%+' },
+      { pass: true,    value: 'Volume ×9.1 avg',               label: 'Volume ×5 Avg' },
+      { pass: true,    value: '7.2M shares (low float ✓)',     label: 'Low Float' },
+      { pass: false,   value: '⚡ China origin — 0.5 credit', label: 'Not China', partial: true },
+    ],
+    score: 5.5
+  }
+};
+
+const icons = ['📰','💲','📈','📊','🔢','🌐'];
+const passIcon  = '✅';
+const failIcon  = '❌';
+const partIcon  = '⚡';
+
+// ── Error type constants ──────────────────────────────────────────────────────
+const ERR_RATE_LIMIT  = 'rate_limit';
+const ERR_NOT_FOUND   = 'not_found';
+const ERR_NO_KEY      = 'no_key';
+const ERR_NETWORK     = 'network';
+
+let _countdownTimer = null;
+
+function clearCountdown() {
+  if (_countdownTimer) { clearInterval(_countdownTimer); _countdownTimer = null; }
+}
+
+function showAnalyzeError(msg, type) {
+  clearCountdown();
+  const emptyEl    = document.getElementById('eb-empty');
+  const titleEl    = document.getElementById('eb-empty-title');
+  const subEl      = document.getElementById('eb-empty-sub');
+  const countEl    = document.getElementById('eb-countdown');
+  const retryBtn   = document.getElementById('eb-retry-btn');
+
+  emptyEl.style.display = 'flex';
+  document.getElementById('eb-criteria').style.display   = 'none';
+  document.getElementById('eb-score-wrap').style.display = 'none';
+
+  // Reset states
+  titleEl.className  = 'eb-empty-title';
+  countEl.style.display  = 'none';
+  countEl.textContent    = '';
+  retryBtn.style.display = 'none';
+  subEl.innerHTML        = '';
+
+  if (type === ERR_RATE_LIMIT) {
+    titleEl.className    = 'eb-empty-title err-amber';
+    titleEl.textContent  = 'Rate Limit Reached';
+    countEl.style.display = 'block';
+    let secs = 60;
+    countEl.textContent  = secs + 's';
+    _countdownTimer = setInterval(() => {
+      secs--;
+      countEl.textContent = secs + 's';
+      if (secs <= 0) {
+        clearCountdown();
+        countEl.style.display  = 'none';
+        retryBtn.style.display = 'block';
+        subEl.textContent      = 'Ready to retry';
+      }
+    }, 1000);
+    subEl.textContent = 'Finnhub free tier allows 60 calls/min';
+
+  } else if (type === ERR_NOT_FOUND) {
+    titleEl.className   = 'eb-empty-title err-amber';
+    titleEl.textContent = msg; // "Symbol not found: XYZ"
+    subEl.textContent   = 'Check the ticker and try again';
+
+  } else if (type === ERR_NO_KEY) {
+    titleEl.className   = 'eb-empty-title';
+    titleEl.textContent = 'Finnhub API Key Required';
+    subEl.innerHTML     = 'Enter your key in Settings ⚙ &nbsp;|&nbsp; <a href="https://finnhub.io/register" target="_blank">Get a free key →</a>';
+
+  } else if (type === ERR_NETWORK) {
+    titleEl.className   = 'eb-empty-title err-red';
+    titleEl.textContent = 'Connection Error';
+    subEl.textContent   = 'Check your network and try again';
+    retryBtn.style.display = 'block';
+
+  } else {
+    // Generic fallback
+    titleEl.textContent = msg || 'Something went wrong';
+    subEl.textContent   = '';
+  }
+}
+
+async function runAnalyze() {
+  const sym = document.getElementById('eb-symbol').value.trim().toUpperCase();
+  if (!sym) { document.getElementById('eb-symbol').focus(); return; }
+
+  const s = loadSettings();
+
+  // ── Key guard ─────────────────────────────────────────────────────────────
+  if (!s.finnhubKey) {
+    showAnalyzeError('', ERR_NO_KEY);
+    return;
+  }
+
+  clearCountdown();
+  const btn = document.getElementById('eb-analyze-btn');
+  btn.classList.add('loading');
+  btn.disabled = true;
+
+  // Reset manual state
+  for (let i = 0; i < 6; i++) manualState[i] = null;
+
+  const KEY = encodeURIComponent(s.finnhubKey);
+  const BASE = 'https://finnhub.io/api/v1';
+
+  try {
+    // ── All API calls in parallel (Promise.all) ───────────────────────────────
+    const today    = Math.floor(Date.now() / 1000);
+    const daysBack = (s.volumeDays || 10) + 5; // extra buffer for weekends
+    const fromEpoch = today - daysBack * 86400;
+    const todayStr  = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const usePrePost  = true;
+    const polygonKey  = s.polygonKey || '';
+
+    // Phase: use Polygon snapshot for pre/post market price (replaces unreliable Yahoo)
+    const fetchPolygonSnap = (usePrePost && polygonKey)
+      ? fetch('https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/' + sym + '?apiKey=' + polygonKey,
+              { signal: AbortSignal.timeout(5000) }).catch(() => null)
+      : Promise.resolve(null);
+
+    const [profileRes, quoteRes, candleRes, newsRes, polygonSnap] = await Promise.all([
+      fetch(BASE + '/stock/profile2?symbol=' + sym + '&token=' + KEY),
+      fetch(BASE + '/quote?symbol='           + sym + '&token=' + KEY),
+      fetch(BASE + '/stock/candle?symbol=' + sym + '&resolution=D&from=' + fromEpoch + '&to=' + today + '&token=' + KEY),
+      fetch(BASE + '/company-news?symbol=' + sym + '&from=' + todayStr + '&to=' + todayStr + '&token=' + KEY),
+      fetchPolygonSnap,
+    ]);
+
+    // ── Rate-limit check ────────────────────────────────────────────────────
+    if ([profileRes, quoteRes, candleRes, newsRes].some(r => r.status === 429)) {
+      showAnalyzeError('', ERR_RATE_LIMIT);
+      return;
+    }
+
+    const [profile, quote, candle, newsData] = await Promise.all([
+      profileRes.json(),
+      quoteRes.json(),
+      candleRes.json(),
+      newsRes.json(),
+    ]);
+
+    // ── Symbol-not-found guard ───────────────────────────────────────────────
+    if (!profile.ticker && (!quote.c || quote.c === 0)) {
+      showAnalyzeError('Symbol not found: ' + sym, ERR_NOT_FOUND);
+      return;
+    }
+
+    // ── DEBUG: log all raw API values before criteria calculation ────────────
+    const candleDates = (candle.s === 'ok' && Array.isArray(candle.t))
+      ? candle.t.map(t => new Date(t * 1000).toISOString().slice(0, 10))
+      : [];
+    const lastCandleDate = candleDates.length > 0 ? candleDates[candleDates.length - 1] : 'N/A';
+    console.group('[EdgeBooster] Raw API values — ' + sym + ' @ ' + new Date().toISOString());
+    console.log('quote.c (current price):',   quote.c);
+    console.log('quote.pc (prev close):',      quote.pc);
+    console.log('quote.dp (change %):',        quote.dp);
+    console.log('quote.h / quote.l:',          quote.h, '/', quote.l);
+    console.log('candle.s (status):',          candle.s);
+    console.log('candle dates:',               candleDates.join(', ') || 'none');
+    console.log('candle last date:',           lastCandleDate, '| today:', todayStr);
+    console.log('candle last vol:',            candle.v ? candle.v[candle.v.length - 1] : 'N/A');
+    console.log('news count:',                 Array.isArray(newsData) ? newsData.length : 'not array');
+    console.log('profile.country:',            profile.country);
+    console.log('profile.ticker:',             profile.ticker);
+    console.log('usePrePost:',                 usePrePost, '| polygonKey present:', !!polygonKey);
+    console.log('polygonSnap response:',         polygonSnap ? 'HTTP ' + polygonSnap.status : 'null (timeout/disabled)');
+    console.groupEnd();
+
+    // ── Candle date staleness warning ────────────────────────────────────────
+    // Finnhub sometimes returns the previous trading day's candle as "today"
+    const candleDateMismatch = lastCandleDate !== 'N/A' && lastCandleDate !== todayStr;
+    if (candleDateMismatch) {
+      console.warn('[EdgeBooster] ⚠ Volume candle last date (' + lastCandleDate + ') ≠ today (' + todayStr + '). Market may be closed or data delayed.');
+    }
+
+    // ── Criterion 5 — Low Float (profile2.shareOutstanding) ─────────────────
+    const floatMax    = s.floatMax || 10;
+    const floatShares = profile.shareOutstanding || 0; // already in millions
+    const isLowFloat  = floatShares > 0 && floatShares < floatMax;
+    const crit5_lowfloat = {
+      label:   'Low Float',
+      pass:    isLowFloat,
+      partial: false,
+      value:   floatShares > 0
+               ? (isLowFloat
+                   ? floatShares.toFixed(1) + 'M shares (low float ✓)'
+                   : floatShares.toFixed(1) + 'M shares (need < ' + floatMax + 'M)')
+               : 'Float unknown',
+    };
+
+    // ── Criterion 6 — Not China (profile2.country) ──────────────────────────
+    const country  = (profile.country || '').toUpperCase();
+    const isChina  = country === 'CN';
+    const crit6    = {
+      label:   'Not China',
+      pass:    !isChina,
+      partial: isChina,
+      value:   isChina
+               ? '⚡ China origin — 0.5 credit'
+               : (country ? country + ' — full credit' : 'Unknown origin'),
+    };
+    if (isChina) { crit6.pass = false; crit6.partial = true; }
+    else         { crit6.partial = false; }
+
+    // ── Criterion 2 — Price (with Pre/Post from Polygon snapshot if available) ─
+    const price      = quote.c || 0;
+    let displayPrice = price;
+    let priceNote    = '';
+
+    let polygonStatus = 'none'; // 'ok' | 'timeout' | 'error' | 'no_key' | 'none'
+
+    if (polygonSnap && polygonSnap.ok) {
+      try {
+        const snapData  = await polygonSnap.json();
+        const ticker    = snapData?.ticker;
+        const lastTrade = ticker?.lastTrade?.p;   // last trade price (incl. extended hours)
+        const lastQuote = ticker?.lastQuote?.P;   // last ask fallback
+        const extPrice  = lastTrade || lastQuote;
+
+        // Determine ET session safely
+        let etSession = 'regular';
+        try {
+          const etNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+          const etH = etNow.getHours(), etM = etNow.getMinutes();
+          if      (etH < 9 || (etH === 9 && etM < 30)) etSession = 'pre';
+          else if (etH >= 16)                           etSession = 'post';
+        } catch(tzErr) {
+          console.warn('[EdgeBooster] ⚠ ET timezone parse failed:', tzErr);
+          etSession = 'unknown';
+        }
+
+        console.log('[EdgeBooster] Polygon snapshot —',
+          'extPrice:', extPrice, '| regularPrice:', price,
+          '| session:', etSession,
+          '| lastTrade:', lastTrade, '| lastQuote:', lastQuote);
+
+        if (extPrice && extPrice > 0 && extPrice !== price) {
+          displayPrice = extPrice;
+          polygonStatus = 'ok';
+          priceNote = etSession === 'pre'     ? ' (pre-mkt via Polygon ✓)'
+                    : etSession === 'post'    ? ' (post-mkt via Polygon ✓)'
+                    : etSession === 'unknown' ? ' (extended hrs via Polygon ✓)'
+                    :                          ' (real-time via Polygon ✓)';
+        } else if (extPrice === price) {
+          polygonStatus = 'ok';
+          priceNote = ' (Polygon ✓ — same as regular)';
+        } else {
+          polygonStatus = 'error';
+          priceNote = ' (Polygon: no extended price)';
+          console.warn('[EdgeBooster] ⚠ Polygon returned no valid extended price. snapData:', snapData);
+        }
+      } catch(e) {
+        polygonStatus = 'error';
+        priceNote = ' (Polygon parse error)';
+        console.warn('[EdgeBooster] ⚠ Polygon snapshot parse failed:', e);
+      }
+    } else if (polygonSnap === null && usePrePost && polygonKey) {
+      // fetch returned null → AbortSignal timeout fired
+      polygonStatus = 'timeout';
+      priceNote = ' (⚠ Polygon timeout — regular hours only)';
+      console.warn('[EdgeBooster] ⚠ Polygon snapshot timed out after 5s');
+    } else if (polygonSnap && !polygonSnap.ok && usePrePost && polygonKey) {
+      polygonStatus = 'error';
+      priceNote = ' (⚠ Polygon error ' + polygonSnap.status + ' — regular hours only)';
+      console.warn('[EdgeBooster] ⚠ Polygon HTTP error:', polygonSnap.status);
+    } else if (usePrePost && !polygonKey) {
+      polygonStatus = 'no_key';
+      priceNote = ' (add Polygon key for extended hours)';
+    }
+
+    console.log('[EdgeBooster] Polygon status:', polygonStatus, '| displayPrice:', displayPrice, '| priceNote:', priceNote);
+
+    const inRange = displayPrice >= s.priceMin && displayPrice <= s.priceMax;
+    const crit2   = {
+      label:   'Price $' + s.priceMin + '–$' + s.priceMax,
+      pass:    inRange,
+      partial: false,
+      value:   inRange
+               ? 'Price $' + displayPrice.toFixed(2) + priceNote
+               : 'Price $' + displayPrice.toFixed(2) + priceNote + ' (out of range)',
+    };
+
+    // ── Criterion 3 — Gap / Move % ───────────────────────────────────────────
+    const pc        = quote.pc || 0;
+    const changePct = pc > 0 ? ((price - pc) / pc * 100) : 0;
+    const moved     = Math.abs(changePct) >= s.changeMin;
+    const sign      = changePct >= 0 ? '+' : '';
+    const crit3     = {
+      label:   'Gap / Move ' + s.changeMin + '%+',
+      pass:    moved,
+      partial: false,
+      value:   moved
+               ? 'Change ' + sign + changePct.toFixed(1) + '%'
+               : 'Change ' + sign + changePct.toFixed(1) + '% (need ' + s.changeMin + '%+)',
+    };
+
+    // ── Criterion 4 — Volume via candle ──────────────────────────────────────
+    let crit4;
+    if (candle.s === 'ok' && Array.isArray(candle.v) && candle.v.length > 1) {
+      const volumes  = candle.v;
+      const todayVol = volumes[volumes.length - 1];
+      const histVols = volumes.slice(0, -1).slice(-s.volumeDays);
+      const avgVol   = histVols.reduce((a, b) => a + b, 0) / histVols.length;
+      const ratio    = avgVol > 0 ? todayVol / avgVol : 0;
+      const volPass  = ratio >= s.volumeMultiplier;
+      const staleSuffix = candleDateMismatch ? ' ⚠ ' + lastCandleDate : '';
+      crit4 = {
+        label:   'Volume ×' + s.volumeMultiplier + ' Avg',
+        pass:    volPass,
+        partial: false,
+        value:   volPass
+                 ? 'Volume ×' + ratio.toFixed(1) + ' avg' + staleSuffix
+                 : 'Volume ×' + ratio.toFixed(1) + ' avg (need ×' + s.volumeMultiplier + ')' + staleSuffix,
+      };
+    } else {
+      const fb = DEMO[sym] || generateRandom(sym);
+      crit4 = Object.assign({}, fb.criteria[3]);
+      crit4.value = (crit4.value || '') + ' (est.)';
+    }
+
+    // ── Criterion 1 — News via company-news ──────────────────────────────────
+    let crit1;
+    if (Array.isArray(newsData)) {
+      const count   = newsData.length;
+      const hasNews = count > 0;
+      _newsHeadlines = hasNews ? newsData.map(n => ({ headline: n.headline, url: n.url || '' })) : [];
+      crit1 = {
+        label:   'News Today',
+        pass:    hasNews,
+        partial: false,
+        value:   hasNews
+                 ? count + ' article' + (count === 1 ? '' : 's') + ' found'
+                 : 'No news today',
+      };
+    } else {
+      const fb2 = DEMO[sym] || generateRandom(sym);
+      _newsHeadlines = [];
+      crit1 = Object.assign({}, fb2.criteria[0]);
+      crit1.value = (crit1.value || '') + ' (est.)';
+    }
+
+    const criteria = [crit1, crit2, crit3, crit4, crit5_lowfloat, crit6];
+    const score    = criteria.reduce((acc, c) => acc + (c.partial ? 0.5 : (c.pass ? 1 : 0)), 0);
+
+    renderResults({ criteria, score });
+
+  } catch (err) {
+    showAnalyzeError('', ERR_NETWORK);
+    console.error('EdgeBooster API error:', err);
+  } finally {
+    btn.classList.remove('loading');
+    btn.disabled = false;
+  }
+}
+
+function generateRandom(sym) {
+  const s = loadSettings();
+  const floatVal = (Math.random() * 50).toFixed(1);
+  const isLowFloat = parseFloat(floatVal) < (s.floatMax || 10);
+  const criteria = [
+    { pass: Math.random()>.4, value: null, label: 'News Today' },
+    { pass: Math.random()>.3, value: null, label: 'Price $'+s.priceMin+'–$'+s.priceMax },
+    { pass: Math.random()>.5, value: null, label: 'Gap / Move '+s.changeMin+'%+' },
+    { pass: Math.random()>.4, value: null, label: 'Volume ×'+s.volumeMultiplier+' Avg' },
+    { pass: isLowFloat,        value: null, label: 'Low Float' },
+    { pass: Math.random()>.2, value: null, label: 'Not China', partial: Math.random()>.85 },
+  ];
+  const demoVals = [
+    criteria[0].pass ? Math.ceil(Math.random()*6)+' articles found' : 'No news today',
+    criteria[1].pass ? 'Price $'+(Math.random()*(s.priceMax-s.priceMin)+s.priceMin).toFixed(2) : 'Price $'+(Math.random()*80+s.priceMax+1).toFixed(2)+' (out of range)',
+    criteria[2].pass ? 'Change +'+(Math.random()*25+s.changeMin).toFixed(1)+'%' : 'Change +'+(Math.random()*(s.changeMin-1)+1).toFixed(1)+'% (need '+s.changeMin+'%+)',
+    criteria[3].pass ? 'Volume ×'+(Math.random()*12+s.volumeMultiplier).toFixed(1)+' avg' : 'Volume ×'+(Math.random()*(s.volumeMultiplier-1)+0.5).toFixed(1)+' avg (need ×'+s.volumeMultiplier+')',
+    isLowFloat ? floatVal+'M shares (low float ✓)' : floatVal+'M shares (need < '+(s.floatMax||10)+'M)',
+    criteria[5].partial ? '⚡ China origin — 0.5 credit' : (criteria[5].pass ? 'US — full credit' : 'CN — 0 credit'),
+  ];
+  criteria.forEach((c,i) => c.value = demoVals[i]);
+  const score = criteria.reduce((s,c) => s + (c.partial ? 0.5 : (c.pass ? 1 : 0)), 0);
+  return { criteria, score };
+}
+
+function renderResults(data) {
+  document.getElementById('eb-empty').style.display    = 'none';
+  document.getElementById('eb-criteria').style.display = 'flex';
+  document.getElementById('eb-score-wrap').style.display = 'block';
+
+  const s = loadSettings();
+
+  // Reset news expand state on new analyze
+  const newsList   = document.getElementById('eb-news-list');
+  const newsToggle = document.getElementById('news-toggle');
+  if (newsList)   { newsList.classList.remove('open'); newsList.innerHTML = ''; }
+  if (newsToggle) { newsToggle.classList.remove('open'); newsToggle.style.display = 'none'; newsToggle.title = 'Show headlines'; }
+
+  data.criteria.forEach((c, i) => {
+    const idx = i + 1;
+    autoResults[i] = c; // store for manual reset
+
+    const iconEl  = document.getElementById('icon-'+idx);
+    const valEl   = document.getElementById('val-'+idx);
+    const resetBtn = document.getElementById('reset-'+idx);
+    const badge    = document.getElementById('mbadge-'+idx);
+
+    iconEl.textContent = c.partial ? partIcon : (c.pass ? passIcon : failIcon);
+    valEl.textContent  = c.value;
+    valEl.className    = 'eb-crit-value ' + (c.partial ? 'partial' : (c.pass ? 'pass' : 'fail'));
+
+    // Manual override setup
+    if (s.allowManualOverride) {
+      iconEl.style.cursor = 'pointer';
+      iconEl.title = 'Click to override';
+    } else {
+      iconEl.style.cursor = 'default';
+      iconEl.title = '';
+    }
+
+    if (badge)    badge.style.display = 'none';
+    if (resetBtn) resetBtn.style.display = 'none';
+
+    // News expand arrow — only for criterion 1 in auto mode
+    if (idx === 1 && inputMode === 'auto' && _newsHeadlines.length > 0) {
+      if (newsToggle) newsToggle.style.display = 'flex';
+      if (newsList) {
+        newsList.innerHTML = _newsHeadlines.map(n => {
+          const title = n.headline || '';
+          const url   = n.url || '';
+          const inner = url
+            ? `<a href="${url}" target="_blank" rel="noopener">${title}</a>`
+            : title;
+          return `<div class="eb-news-item">${inner}</div>`;
+        }).join('');
+      }
+    }
+  });
+
+  // Score bar
+  const total = 6;
+  const pct = (data.score / total) * 100;
+  document.getElementById('eb-bar-fill').style.width = pct + '%';
+  document.getElementById('eb-score-num').innerHTML  = data.score + ' <span>/ ' + total + '</span>';
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+(function init() {
+  const s = loadSettings();
+  // Restore input mode
+  const savedMode = (() => { try { return localStorage.getItem('eb_input_mode') || 'auto'; } catch(e) { return 'auto'; } })();
+  setInputMode(savedMode);
+})();
+</script>
+</body>
+</html>
