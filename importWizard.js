@@ -167,60 +167,109 @@ function parseOrdersFile(headers, dataRows) {
     return ta - tb;
   });
 
-  // Queue opens per symbol and match with closes
-  const opens = {}; // sym -> [{price, shares, time, dir}]
+  // ── Position accumulator: handle partial fills and multi-leg entries/exits ──
+  // pos[sym] = { dir, legs:[{price,shares,time}], totalShares, firstTime, lastTime }
+  const pos = {};
   const result = [];
+
+  function flushPosition(sym, exitPrice, exitShares, exitDt) {
+    const p = pos[sym];
+    if (!p || p.totalShares <= 0) return;
+
+    // Consume exitShares from the position legs (FIFO)
+    let remaining = exitShares;
+    let totalEntryValue = 0;
+    let totalEntryShares = 0;
+    const firstEntryTime = p.legs[0] ? p.legs[0].time : null;
+
+    while (remaining > 0 && p.legs.length > 0) {
+      const leg = p.legs[0];
+      const use = Math.min(remaining, leg.shares);
+      totalEntryValue  += use * leg.price;
+      totalEntryShares += use;
+      leg.shares -= use;
+      remaining  -= use;
+      if (leg.shares <= 0) p.legs.shift();
+    }
+
+    if (totalEntryShares === 0) return;
+
+    const avgEntry = totalEntryValue / totalEntryShares;
+    const qty      = totalEntryShares;
+    const dir      = p.dir;
+    const pnl      = dir === 'long'
+      ? (exitPrice - avgEntry) * qty
+      : (avgEntry - exitPrice) * qty;
+
+    const entryTime = firstEntryTime ? firstEntryTime.toTimeString().slice(0,5) : '';
+    const exitTime  = exitDt         ? exitDt.toTimeString().slice(0,5)         : '';
+    let duration = '';
+    if (entryTime && exitTime) {
+      const [eh,em] = entryTime.split(':').map(Number);
+      const [xh,xm] = exitTime.split(':').map(Number);
+      let mins = (xh*60+xm)-(eh*60+em); if (mins<0) mins+=1440;
+      const h=Math.floor(mins/60), m=mins%60;
+      duration = h > 0 ? `${h}h ${m}m` : `${m}m`;
+    }
+
+    const dateStr = exitDt
+      ? (exitDt._localDateStr || exitDt.toISOString().slice(0,10))
+      : (firstEntryTime
+          ? (firstEntryTime._localDateStr || firstEntryTime.toISOString().slice(0,10))
+          : today.toISOString().slice(0,10));
+
+    result.push({
+      id: Date.now() + Math.floor(Math.random() * 10000),
+      date: dateStr,
+      sym, dir,
+      entry: parseFloat(avgEntry.toFixed(4)),
+      exit:  exitPrice,
+      qty,
+      pnl: parseFloat(pnl.toFixed(2)),
+      sl: 0, tp: 0, rr: 0,
+      entryTime, exitTime, duration,
+      reason: '', notes: '', mood: '', rating: 0, img: ''
+    });
+
+    p.totalShares -= totalEntryShares;
+    if (p.totalShares <= 0) delete pos[sym];
+  }
 
   for (const r of filled) {
     const sym = String(r[iSym]||'').trim().toUpperCase();
     if (!sym) continue;
-    const price = parseFloat(String(r[iPrice]||'').replace(/,/g,'')) || 0;
-    const shares = parseInt(String(r[iShares]||'').replace(/,/g,'')) || 0;
-    if (!price) continue;
+    const price  = parseFloat(String(r[iPrice]||'').replace(/,/g,'')) || 0;
+    const shares = parseInt(String(r[iShares]||'').replace(/,/g,''))  || 0;
+    if (!price || !shares) continue;
 
     const action = String(iAction >= 0 ? (r[iAction]||'') : '').trim().toLowerCase();
-    const oc     = String(iOC >= 0 ? (r[iOC]||'') : '').trim().toLowerCase();
+    const oc     = String(iOC >= 0     ? (r[iOC]||'')     : '').trim().toLowerCase();
     const dt     = iTime >= 0 ? parseDateTime(r[iTime]) : null;
 
-    const isOpen  = oc === 'open'  || (!oc && (action.includes('buy') && !action.includes('close')) );
-    const isClose = oc === 'close' || (!oc && (action.includes('sell') && !action.includes('open')));
-    const isShortEntry = action.includes('sell short') || action.includes('short') && isOpen;
-    const isShortExit  = (action === 'buy' || action.includes('buy to cover')) && isClose;
-    const isLongEntry  = (action === 'buy' || action.includes('buy')) && isOpen && !isShortExit;
-    const isLongExit   = (action === 'sell' || action.includes('sell')) && isClose && !isShortEntry;
+    const isShortEntry = action.includes('sell short') || (action.includes('short') && oc === 'open');
+    const isShortExit  = action.includes('buy to cover') || (action.includes('buy') && oc === 'close');
+    const isLongEntry  = !isShortEntry && !isShortExit &&
+                         (action.includes('buy')) &&
+                         (oc === 'open' || !oc);
+    const isLongExit   = !isShortEntry && !isShortExit &&
+                         (action.includes('sell')) &&
+                         (oc === 'close' || !oc);
 
-    if (!opens[sym]) opens[sym] = [];
+    if (isLongEntry || isShortEntry) {
+      const dir = isShortEntry ? 'short' : 'long';
+      if (!pos[sym]) {
+        pos[sym] = { dir, legs: [], totalShares: 0 };
+      }
+      // If direction flipped, flush existing position first
+      if (pos[sym].dir !== dir && pos[sym].totalShares > 0) {
+        flushPosition(sym, price, pos[sym].totalShares, dt);
+      }
+      pos[sym].legs.push({ price, shares, time: dt });
+      pos[sym].totalShares += shares;
 
-    if (isShortEntry || isLongEntry) {
-      opens[sym].push({
-        price, shares, time: dt,
-        dir: isShortEntry ? 'short' : 'long'
-      });
-    } else if (isShortExit || isLongExit) {
-      if (opens[sym].length > 0) {
-        const op = opens[sym].shift();
-        const dir = op.dir;
-        const qty = Math.min(shares, op.shares);
-        const pnl = dir === 'long' ? (price - op.price) * qty : (op.price - price) * qty;
-        const entryTime = op.time ? op.time.toTimeString().slice(0,5) : '';
-        const exitTime  = dt      ? dt.toTimeString().slice(0,5)      : '';
-        let duration = '';
-        if (entryTime && exitTime) {
-          const [eh,em] = entryTime.split(':').map(Number);
-          const [xh,xm] = exitTime.split(':').map(Number);
-          let mins = (xh*60+xm)-(eh*60+em); if (mins<0) mins+=1440;
-          const h=Math.floor(mins/60), m=mins%60;
-          duration = h > 0 ? `${h}h ${m}m` : `${m}m`;
-        }
-        result.push({
-          id: Date.now() + Math.floor(Math.random() * 10000),
-          date: dt ? (dt._localDateStr || dt.toISOString().slice(0,10)) : (op.time ? (op.time._localDateStr || op.time.toISOString().slice(0,10)) : today.toISOString().slice(0,10)),
-          sym, dir, entry: op.price, exit: price, qty,
-          pnl: parseFloat(pnl.toFixed(2)),
-          sl: 0, tp: 0, rr: 0,
-          entryTime, exitTime, duration,
-          reason: '', notes: '', mood: '', rating: 0, img: ''
-        });
+    } else if (isLongExit || isShortExit) {
+      if (pos[sym] && pos[sym].totalShares > 0) {
+        flushPosition(sym, price, shares, dt);
       }
     }
   }
@@ -269,8 +318,62 @@ function parseDaytradeFormat(headers, dataRows) {
     return ta.localeCompare(tb);
   });
 
-  const opens = {};
+  // ── Position accumulator: supports multiple buys before sell and vice versa ──
+  const pos = {}; // key=date|sym -> { dir, legs:[{price,qty,time,date,comm}], totalQty }
   const result = [];
+
+  function flushDaytrade(key, exitPrice, exitQty, exitTime, exitDate, exitComm) {
+    const p = pos[key];
+    if (!p || p.totalQty <= 0) return;
+
+    let remaining = exitQty;
+    let totalEntryValue = 0;
+    let totalEntryQty   = 0;
+    let totalEntryComm  = 0;
+    const firstTime = p.legs[0] ? p.legs[0].time : '';
+    const firstDate = p.legs[0] ? p.legs[0].date : null;
+
+    while (remaining > 0 && p.legs.length > 0) {
+      const leg = p.legs[0];
+      const use = Math.min(remaining, leg.qty);
+      totalEntryValue += use * leg.price;
+      totalEntryQty   += use;
+      totalEntryComm  += (use / leg.qty) * leg.comm;
+      leg.qty    -= use;
+      remaining  -= use;
+      if (leg.qty <= 0) p.legs.shift();
+    }
+
+    if (totalEntryQty === 0) return;
+
+    const avgEntry = totalEntryValue / totalEntryQty;
+    const pnl = parseFloat(((exitPrice - avgEntry) * totalEntryQty - exitComm - totalEntryComm).toFixed(2));
+
+    let duration = '';
+    if (firstTime && exitTime) {
+      const [eh,em] = firstTime.split(':').map(Number);
+      const [xh,xm] = exitTime.split(':').map(Number);
+      let mins = (xh*60+xm)-(eh*60+em); if (mins<0) mins+=1440;
+      const hh=Math.floor(mins/60), mm=mins%60;
+      duration = hh > 0 ? `${hh}h ${mm}m` : `${mm}m`;
+    }
+
+    result.push({
+      id: Date.now() + Math.floor(Math.random()*100000),
+      date: firstDate || exitDate || today.toISOString().slice(0,10),
+      sym: key.split('|')[1],
+      dir: 'long',
+      entry: parseFloat(avgEntry.toFixed(4)),
+      exit: exitPrice,
+      qty: totalEntryQty,
+      pnl, sl:0, tp:0, rr:0,
+      entryTime: firstTime, exitTime, duration,
+      reason:'', notes:'', mood:'', rating:0, img:''
+    });
+
+    p.totalQty -= totalEntryQty;
+    if (p.totalQty <= 0) delete pos[key];
+  }
 
   for (const r of rows) {
     const sym   = String(r[iSym]||'').trim().toUpperCase();
@@ -282,31 +385,16 @@ function parseDaytradeFormat(headers, dataRows) {
     const comm  = iComm >= 0 ? parseFloat(String(r[iComm]||'')) || 0 : 0;
     if (!sym || !price || !qty) continue;
 
-    const key = (date||'') + '|' + sym;
-    if (!opens[key]) opens[key] = [];
+    const key = (date||'nodate') + '|' + sym;
 
     if (side === 'B') {
-      opens[key].push({ price, qty, time, date, comm });
-    } else if (side === 'S' && opens[key].length > 0) {
-      const op = opens[key].shift();
-      const usedQty = Math.min(qty, op.qty);
-      const pnl = parseFloat(((price - op.price) * usedQty - comm - op.comm).toFixed(2));
-      const entryTime = op.time, exitTime = time;
-      let duration = '';
-      if (entryTime && exitTime) {
-        const [eh,em] = entryTime.split(':').map(Number);
-        const [xh,xm] = exitTime.split(':').map(Number);
-        let mins = (xh*60+xm)-(eh*60+em); if (mins<0) mins+=1440;
-        const hh=Math.floor(mins/60), mm=mins%60;
-        duration = hh > 0 ? `${hh}h ${mm}m` : `${mm}m`;
+      if (!pos[key]) pos[key] = { dir: 'long', legs: [], totalQty: 0 };
+      pos[key].legs.push({ price, qty, time, date, comm });
+      pos[key].totalQty += qty;
+    } else if (side === 'S') {
+      if (pos[key] && pos[key].totalQty > 0) {
+        flushDaytrade(key, price, qty, time, date, comm);
       }
-      result.push({
-        id: Date.now() + Math.floor(Math.random()*100000),
-        date: op.date || date || today.toISOString().slice(0,10),
-        sym, dir: 'long', entry: op.price, exit: price, qty: usedQty,
-        pnl, sl:0, tp:0, rr:0, entryTime, exitTime, duration,
-        reason:'', notes:'', mood:'', rating:0, img:''
-      });
     }
   }
   return result.reverse();
