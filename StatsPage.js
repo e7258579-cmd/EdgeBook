@@ -34,13 +34,7 @@ let chartInstance = null;
 
 // ─── STATS ─────────────────────────────────────────────────
 const donutInstances = {};
-function calcCommission(t) {
-  // Each trade = 2 actions (open + close)
-  const qty = Math.abs(t.qty || 0);
-  if (!qty) return 0;
-  const perAction = qty < 200 ? 0.99 : qty * 0.005;
-  return perAction * 2;
-}
+// calcCommission(t) is defined in app.js (global) — uses t.legs for accuracy.
 
 function drawDonut(id, posVal, negVal, posColor, negColor, commVal, hoverLabels) {
   const canvas = document.getElementById(id);
@@ -1649,4 +1643,4 @@ window.updateStats     = updateStats;
 window.renderStats     = renderStats;
 window.expandChart     = expandChart;
 window.closeChartModal = closeChartModal;
-window.calcCommission  = calcCommission;
+// window.calcCommission is set in app.js

@@ -141,6 +141,12 @@ function _doSaveTrade(editingIdOverride) {
     sym, dir, entry, exit, qty,
     pnl: parseFloat(pnl.toFixed(2)),
     sl, tp, rr,
+    // legs: the two real executions that compose this trade
+    // (open + close), each at the full qty. Used by calcCommission().
+    legs: (qty > 0) ? [
+      { side: dir === 'long' ? 'buy'  : 'sell', qty },
+      { side: dir === 'long' ? 'sell' : 'buy',  qty }
+    ] : [],
     entryTime: document.getElementById('f-entry-time').value,
     exitTime:  document.getElementById('f-exit-time').value,
     duration:  document.getElementById('f-duration').value,
