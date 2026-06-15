@@ -53,6 +53,13 @@ const FIELD_ALIASES = {
   notes: ['note','notes','comment','comments'],
 };
 
+// ─── COMMISSION CALCULATOR ───────────────────────────────
+// $0.99 flat for < 200 shares; 0.005 * shares for >= 200
+function calcComm(shares) {
+  shares = Math.abs(shares);
+  return shares < 200 ? 0.99 : parseFloat((0.005 * shares).toFixed(4));
+}
+
 // ─── WIZARD NAVIGATION ────────────────────────────────────
 function openImportWizard() {
   wizGoStep(1);
@@ -197,9 +204,12 @@ function parseOrdersFile(headers, dataRows) {
     const avgEntry = totalEntryValue / totalEntryShares;
     const qty      = totalEntryShares;
     const dir      = p.dir;
-    const pnl      = dir === 'long'
+    const entryCommTotal = totalEntryShares < 200 ? 0.99 : parseFloat((0.005 * totalEntryShares).toFixed(4));
+    const exitCommTotal  = calcComm(exitShares);
+    const rawPnl = dir === 'long'
       ? (exitPrice - avgEntry) * qty
       : (avgEntry - exitPrice) * qty;
+    const pnl = rawPnl - entryCommTotal - exitCommTotal;
 
     const entryTime = firstEntryTime ? firstEntryTime.toTimeString().slice(0,5) : '';
     const exitTime  = exitDt         ? exitDt.toTimeString().slice(0,5)         : '';
@@ -322,7 +332,7 @@ function parseDaytradeFormat(headers, dataRows) {
   const pos = {}; // key=date|sym -> { dir, legs:[{price,qty,time,date,comm}], totalQty }
   const result = [];
 
-  function flushDaytrade(key, exitPrice, exitQty, exitTime, exitDate, exitComm) {
+  function flushDaytrade(key, exitPrice, exitQty, exitTime, exitDate) {
     const p = pos[key];
     if (!p || p.totalQty <= 0) return;
 
@@ -338,7 +348,7 @@ function parseDaytradeFormat(headers, dataRows) {
       const use = Math.min(remaining, leg.qty);
       totalEntryValue += use * leg.price;
       totalEntryQty   += use;
-      totalEntryComm  += (use / leg.qty) * leg.comm;
+      totalEntryComm  += calcComm(use);
       leg.qty    -= use;
       remaining  -= use;
       if (leg.qty <= 0) p.legs.shift();
@@ -347,7 +357,8 @@ function parseDaytradeFormat(headers, dataRows) {
     if (totalEntryQty === 0) return;
 
     const avgEntry = totalEntryValue / totalEntryQty;
-    const pnl = parseFloat(((exitPrice - avgEntry) * totalEntryQty - exitComm - totalEntryComm).toFixed(2));
+    const exitCommCalc = calcComm(exitQty);
+    const pnl = parseFloat(((exitPrice - avgEntry) * totalEntryQty - exitCommCalc - totalEntryComm).toFixed(2));
 
     let duration = '';
     if (firstTime && exitTime) {
@@ -393,7 +404,7 @@ function parseDaytradeFormat(headers, dataRows) {
       pos[key].totalQty += qty;
     } else if (side === 'S') {
       if (pos[key] && pos[key].totalQty > 0) {
-        flushDaytrade(key, price, qty, time, date, comm);
+        flushDaytrade(key, price, qty, time, date);
       }
     }
   }
