@@ -130,8 +130,16 @@ window.signIn  = signIn;
 window.signOut = signOut;
 
 // ─── FIRESTORE HELPERS ────────────────────────────────────
-function _tradesDoc(acct) {
-  // Each user gets their own document: users/{uid}/accounts/{acct}
+function _tradesCol() {
+  // New structure: users/{uid}/trades — each trade is its own document
+  return _db
+    .collection('users')
+    .doc(_currentUser.uid)
+    .collection('trades');
+}
+
+function _oldAccountsDoc(acct) {
+  // Legacy path — used only by migration
   return _db
     .collection('users')
     .doc(_currentUser.uid)
@@ -143,8 +151,13 @@ function _tradesDoc(acct) {
 async function loadAccountTrades() {
   if (!_currentUser) return [];
   try {
-    const snap = await _tradesDoc(activeAccount).get();
-    return snap.exists ? (snap.data().trades || []) : [];
+    const snap = await _tradesCol()
+      .where('account', '==', activeAccount)
+      .get();
+    if (snap.empty) return [];
+    return snap.docs
+      .map(doc => doc.data())
+      .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   } catch(e) {
     console.error('loadAccountTrades error:', e);
     return [];
@@ -154,7 +167,25 @@ async function loadAccountTrades() {
 async function saveAccountTrades(tradesArr) {
   if (!_currentUser) return;
   try {
-    await _tradesDoc(activeAccount).set({ trades: tradesArr });
+    const col = _tradesCol();
+
+    // Delete all existing docs for this account
+    const existing = await col.where('account', '==', activeAccount).get();
+    const batch = _db.batch();
+    existing.docs.forEach(doc => batch.delete(doc.ref));
+    await batch.commit();
+
+    // Write each trade as its own document in chunks of 500 (Firestore batch limit)
+    const toWrite = tradesArr.map(t => ({ ...t, account: activeAccount }));
+    for (let i = 0; i < toWrite.length; i += 500) {
+      const chunk = toWrite.slice(i, i + 500);
+      const writeBatch = _db.batch();
+      chunk.forEach(trade => {
+        const ref = col.doc(String(trade.id));
+        writeBatch.set(ref, trade);
+      });
+      await writeBatch.commit();
+    }
   } catch(e) {
     console.error('saveAccountTrades error:', e);
     throw e;
@@ -174,31 +205,59 @@ async function switchAccount(acct) {
   if (typeof updateAcctBadge   === 'function') updateAcctBadge();
 }
 
-// ─── MIGRATION: localStorage → Firestore (runs once per account) ──
+// ─── MIGRATION: old structure → new per-document structure ──
 async function _migrateIfNeeded() {
   for (const acct of ['live', 'demo']) {
-    const snap = await _db
-      .collection('users').doc(_currentUser.uid)
-      .collection('accounts').doc(acct).get();
-    if (snap.exists) continue; // already migrated
+    // Check if any trades already exist in the new structure for this account
+    const newSnap = await _tradesCol()
+      .where('account', '==', acct)
+      .limit(1)
+      .get();
+    if (!newSnap.empty) continue; // already migrated
 
-    // Try legacy localStorage keys
-    const legacyKeys = [`trades_${acct}`, 'tradeJournal_v2'];
-    for (const key of legacyKeys) {
-      const raw = localStorage.getItem(key);
-      if (raw) {
-        try {
-          const arr = JSON.parse(raw);
-          if (arr.length > 0) {
-            await _db.collection('users').doc(_currentUser.uid)
-              .collection('accounts').doc(acct)
-              .set({ trades: arr });
-            console.log(`Migrated ${arr.length} trades from localStorage[${key}] → Firestore[${acct}]`);
-            break;
-          }
-        } catch(e) {}
+    let tradesToMigrate = [];
+
+    // 1. Try old Firestore structure: users/{uid}/accounts/{acct}
+    const oldSnap = await _oldAccountsDoc(acct).get();
+    if (oldSnap.exists) {
+      const arr = oldSnap.data().trades || [];
+      if (arr.length > 0) {
+        tradesToMigrate = arr;
+        console.log(`Migrating ${arr.length} trades from Firestore[accounts/${acct}] → trades collection`);
       }
     }
+
+    // 2. Fallback: try legacy localStorage keys
+    if (tradesToMigrate.length === 0) {
+      for (const key of [`trades_${acct}`, 'tradeJournal_v2']) {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          try {
+            const arr = JSON.parse(raw);
+            if (arr.length > 0) {
+              tradesToMigrate = arr;
+              console.log(`Migrating ${arr.length} trades from localStorage[${key}] → trades collection`);
+              break;
+            }
+          } catch(e) {}
+        }
+      }
+    }
+
+    if (tradesToMigrate.length === 0) continue;
+
+    // Write each trade as its own document, tagged with account
+    const col = _tradesCol();
+    for (let i = 0; i < tradesToMigrate.length; i += 500) {
+      const chunk = tradesToMigrate.slice(i, i + 500);
+      const batch = _db.batch();
+      chunk.forEach(trade => {
+        const ref = col.doc(String(trade.id));
+        batch.set(ref, { ...trade, account: acct });
+      });
+      await batch.commit();
+    }
+    console.log(`Migration complete for account: ${acct}`);
   }
 }
 
