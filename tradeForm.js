@@ -124,7 +124,7 @@ function saveTrade() {
   }
 }
 
-function _doSaveTrade(editingIdOverride) {
+async function _doSaveTrade(editingIdOverride) {
   const resolvedEditingId = (editingIdOverride !== undefined) ? editingIdOverride : _editingTradeId;
   const sym   = document.getElementById('f-sym').value.trim().toUpperCase();
   const entry = parseFloat(document.getElementById('f-entry').value) || 0;
@@ -135,38 +135,70 @@ function _doSaveTrade(editingIdOverride) {
   const sl    = parseFloat(document.getElementById('f-sl').value) || 0;
   const tp    = parseFloat(document.getElementById('f-tp').value) || 0;
   const rr    = (sl && tp && entry && entry !== sl) ? parseFloat((Math.abs(tp - entry) / Math.abs(entry - sl)).toFixed(2)) : 0;
-  const trade = {
-    id: Date.now(),
-    date: document.getElementById('f-date').value,
-    sym, dir, entry, exit, qty,
-    pnl: parseFloat(pnl.toFixed(2)),
-    sl, tp, rr,
-    // legs: the two real executions that compose this trade
-    // (open + close), each at the full qty. Used by calcCommission().
-    legs: (qty > 0) ? [
-      { side: dir === 'long' ? 'buy'  : 'sell', qty },
-      { side: dir === 'long' ? 'sell' : 'buy',  qty }
-    ] : [],
-    entryTime: document.getElementById('f-entry-time').value,
-    exitTime:  document.getElementById('f-exit-time').value,
-    duration:  document.getElementById('f-duration').value,
-    reason:    document.getElementById('f-reason').value,
-    notes:     document.getElementById('f-notes').value,
-    mood: currentMood, rating: currentRating, imgs: [...currentImgs], img: currentImgs[0] || ''
-  };
+
   if (resolvedEditingId !== null) {
+    // ── EDIT: preserve the original id ──────────────────────
     const idx = trades.findIndex(t => String(t.id) === String(resolvedEditingId));
-    if (idx >= 0) trades[idx] = { ...trades[idx], ...trade, id: trades[idx].id };
+    const originalId = idx >= 0 ? trades[idx].id : resolvedEditingId;
+    const trade = {
+      id: originalId,
+      date: document.getElementById('f-date').value,
+      sym, dir, entry, exit, qty,
+      pnl: parseFloat(pnl.toFixed(2)),
+      sl, tp, rr,
+      legs: (qty > 0) ? [
+        { side: dir === 'long' ? 'buy'  : 'sell', qty },
+        { side: dir === 'long' ? 'sell' : 'buy',  qty }
+      ] : [],
+      entryTime: document.getElementById('f-entry-time').value,
+      exitTime:  document.getElementById('f-exit-time').value,
+      duration:  document.getElementById('f-duration').value,
+      reason:    document.getElementById('f-reason').value,
+      notes:     document.getElementById('f-notes').value,
+      mood: currentMood, rating: currentRating, imgs: [...currentImgs], img: currentImgs[0] || ''
+    };
+    if (idx >= 0) trades[idx] = { ...trades[idx], ...trade };
     _editingTradeId = null;
-    save();
+    try {
+      await saveOneTrade(trade);   // write only this document
+    } catch(e) {
+      console.error('_doSaveTrade (edit) error:', e);
+      toast('⚠ שגיאה בשמירה');
+      return;
+    }
     closeNewTradeModal();
     renderLog();
     renderHomeList();
     if (typeof unlockModeButtons === 'function') unlockModeButtons();
     toast('✓ Trade updated!');
+
   } else {
+    // ── NEW TRADE ────────────────────────────────────────────
+    const trade = {
+      id: Date.now(),
+      date: document.getElementById('f-date').value,
+      sym, dir, entry, exit, qty,
+      pnl: parseFloat(pnl.toFixed(2)),
+      sl, tp, rr,
+      legs: (qty > 0) ? [
+        { side: dir === 'long' ? 'buy'  : 'sell', qty },
+        { side: dir === 'long' ? 'sell' : 'buy',  qty }
+      ] : [],
+      entryTime: document.getElementById('f-entry-time').value,
+      exitTime:  document.getElementById('f-exit-time').value,
+      duration:  document.getElementById('f-duration').value,
+      reason:    document.getElementById('f-reason').value,
+      notes:     document.getElementById('f-notes').value,
+      mood: currentMood, rating: currentRating, imgs: [...currentImgs], img: currentImgs[0] || ''
+    };
     trades.unshift(trade);
-    save();
+    try {
+      await saveOneTrade(trade);   // write only this document
+    } catch(e) {
+      console.error('_doSaveTrade (new) error:', e);
+      toast('⚠ שגיאה בשמירה');
+      return;
+    }
     closeNewTradeModal();
     renderHomeList();
     if (typeof unlockModeButtons === 'function') unlockModeButtons();

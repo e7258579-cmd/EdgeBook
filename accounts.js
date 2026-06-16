@@ -192,6 +192,29 @@ async function saveAccountTrades(tradesArr) {
   }
 }
 
+// ─── SINGLE-DOCUMENT HELPERS (used by tradeForm.js) ──────
+async function saveOneTrade(trade) {
+  if (!_currentUser) return;
+  try {
+    await _tradesCol()
+      .doc(String(trade.id))
+      .set({ ...trade, account: activeAccount });
+  } catch(e) {
+    console.error('saveOneTrade error:', e);
+    throw e;
+  }
+}
+
+async function deleteOneTrade(tradeId) {
+  if (!_currentUser) return;
+  try {
+    await _tradesCol().doc(String(tradeId)).delete();
+  } catch(e) {
+    console.error('deleteOneTrade error:', e);
+    throw e;
+  }
+}
+
 // ─── ACCOUNT SWITCH ───────────────────────────────────────
 async function switchAccount(acct) {
   if (acct !== 'demo' && acct !== 'live') return;
@@ -302,6 +325,8 @@ Object.defineProperty(window, 'activeAccount', {
 });
 window.loadAccountTrades = loadAccountTrades;
 window.saveAccountTrades = saveAccountTrades;
+window.saveOneTrade      = saveOneTrade;
+window.deleteOneTrade    = deleteOneTrade;
 window.switchAccount     = switchAccount;
 
 // ─── UI UPDATERS ─────────────────────────────────────────
