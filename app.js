@@ -201,12 +201,15 @@ function toggleSidebar() {
 })();
 
 // ─── PERSISTENCE ──────────────────────────────────────────
-function save() {
+async function save() {
   try {
-    saveAccountTrades(trades);
+    await saveAccountTrades(trades);
   } catch(e) {
     if (e.name === 'QuotaExceededError' || e.code === 22) {
       toast('⚠️ Storage full — images may not be saved. Try smaller images.');
+    } else {
+      console.error('save() error:', e);
+      toast('⚠️ שגיאה בשמירה — בדוק את החיבור לאינטרנט.');
     }
   }
   updateStats();
