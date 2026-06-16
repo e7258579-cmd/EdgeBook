@@ -74,7 +74,7 @@ function renderLog() {
   const thead = `<thead><tr>
     <th style="width:32px"><input type="checkbox" id="select-all-cb-inner" onchange="toggleSelectAll(this)" style="width:15px;height:15px;cursor:pointer;accent-color:var(--text)"></th>
     <th class="col-date-hd">Date</th><th>Symbol</th><th>Dir</th>
-    <th>Trades</th><th>Total P&amp;L Gross</th><th>Total Fees</th><th>Total P&amp;L Net</th><th>P&amp;L %</th><th></th>
+    <th>Trades</th><th>Total P&amp;L Gross</th><th>Total Fees</th><th>Total P&amp;L Net</th><th>P&amp;L % (Net)</th><th></th>
   </tr></thead>`;
 
   let html = '';
@@ -106,7 +106,7 @@ function renderLog() {
       const wr = ts.length ? Math.round(wins/ts.length*100) : 0;
       const pnlCls = totalPnl>0?'pos':totalPnl<0?'neg':'';
       const pnlSign = totalPnl>0?'+':totalPnl<0?'-':'';
-      const pctVals = ts.filter(t=>t.entry&&t.qty).map(t=>t.pnl/(t.entry*t.qty)*100);
+      const pctVals = ts.filter(t=>t.entry&&t.qty).map(t=>(t.pnl-(typeof calcCommission==='function'?calcCommission(t):0))/(t.entry*t.qty)*100); // net %
       const avgPct = pctVals.length ? pctVals.reduce((a,b)=>a+b,0)/pctVals.length : null;
       const pctStr = avgPct!==null ? (avgPct>=0?'+':'')+avgPct.toFixed(2)+'%' : '—';
       const allDirs = ts.every(t=>t.dir==='long')?'long':ts.every(t=>t.dir==='short')?'short':'mixed';
@@ -135,7 +135,7 @@ function renderLog() {
           <td><span class="col-pnl ${pnlCls}">${pnlSign}$${Math.abs(totalPnl).toLocaleString('en-US',{maximumFractionDigits:0})}</span></td>
           <td><span class="col-pnl ${feesCls}" style="font-size:13px">-$${totalFees.toFixed(2)}</span></td>
           <td><span class="col-pnl ${netCls}">${netSign}$${Math.abs(netPnl).toLocaleString('en-US',{maximumFractionDigits:2})}</span></td>
-          <td><span class="col-pnl ${pnlCls}" style="font-size:12px">${pctStr}</span></td>
+          <td><span class="col-pnl ${avgPct>0?'pos':avgPct<0?'neg':''}" style="font-size:12px">${pctStr}</span></td>
           <td><div class="col-actions">
             <button class="btn-sm" data-ids="${tradeIds}" onclick="event.stopPropagation();deleteGroup(this.dataset.ids)">Delete</button>
           </div></td>
@@ -317,7 +317,7 @@ function renderHomeList() {
     const wr = ts.length ? Math.round(wins/ts.length*100) : 0;
     const pnlCls = totalPnl>0?'pos':totalPnl<0?'neg':'';
     const pnlSign = totalPnl>0?'+':totalPnl<0?'-':'';
-    const pctVals = ts.filter(t=>t.entry&&t.qty).map(t=>t.pnl/(t.entry*t.qty)*100);
+    const pctVals = ts.filter(t=>t.entry&&t.qty).map(t=>(t.pnl-(typeof calcCommission==='function'?calcCommission(t):0))/(t.entry*t.qty)*100); // net %
     const avgPct = pctVals.length ? pctVals.reduce((a,b)=>a+b,0)/pctVals.length : null;
     const pctStr = avgPct!==null ? (avgPct>=0?'+':'')+avgPct.toFixed(2)+'%' : '—';
     const allDirs = ts.every(t=>t.dir==='long')?'long':ts.every(t=>t.dir==='short')?'short':'mixed';
@@ -333,7 +333,7 @@ function renderHomeList() {
         <td>${dirBadge}</td>
         <td class="col-num">${ts.length}</td>
         <td><span class="col-pnl ${pnlCls}">${pnlSign}$${Math.abs(totalPnl).toLocaleString('en-US',{maximumFractionDigits:0})}</span></td>
-        <td><span class="col-pnl ${pnlCls}" style="font-size:12px">${pctStr}</span></td>
+        <td><span class="col-pnl ${avgPct>0?'pos':avgPct<0?'neg':''}" style="font-size:12px">${pctStr}</span></td>
         <td class="col-num">${ts.length>1?`<span style="color:${wr>=50?'var(--green)':'var(--red)'}">${wr}%</span>`:'—'}</td>
       </tr>
       <tr class="trade-expand-row" id="expand-${gid}">
@@ -345,7 +345,7 @@ function renderHomeList() {
     <table class="trade-table">
       <thead><tr>
         <th class="col-date-hd">Date</th><th>Symbol</th><th>Dir</th>
-        <th>Trades</th><th>P&amp;L (Net) $</th><th>P&amp;L %</th><th>Win Rate</th>
+        <th>Trades</th><th>P&amp;L (Net) $</th><th>P&amp;L % (Net)</th><th>Win Rate</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;

@@ -1524,8 +1524,8 @@ function _szClassifyRiskBudget(filteredTrades, equityMap, riskPct) {
     : null;
 
   // Estimated impact: compare violation P&L vs compliant avg/trade
-  const compPnl  = compliant.reduce((s, t) => s + (t.pnl || 0), 0);
-  const violPnl  = violation.reduce((s, t) => s + (t.pnl || 0), 0);
+  const compPnl  = compliant.reduce((s, t) => s + (t.pnl || 0) - (typeof calcCommission === 'function' ? calcCommission(t) : 0), 0); // net
+  const violPnl  = violation.reduce((s, t) => s + (t.pnl || 0) - (typeof calcCommission === 'function' ? calcCommission(t) : 0), 0); // net
   const compAvg  = nComp > 0 ? compPnl / nComp : 0;
   const estimatedImpact = nViol > 0 ? violPnl - (compAvg * nViol) : 0;
 
@@ -1630,9 +1630,9 @@ function _szRenderRiskBudgetInsights(elId, insights, kpis) {
         <div class="sz-insight-sub">most constrained trade</div>
       </div>
       <div class="sz-insight-item">
-        <div class="sz-kpi-label">Est. Impact of Oversizing</div>
+        <div class="sz-kpi-label">Est. Impact of Oversizing (Net)</div>
         <div class="sz-insight-val" style="color:${impactCls}">${sign(insights.estimatedImpact)}${fmtD(insights.estimatedImpact)}</div>
-        <div class="sz-insight-sub">violation P&L vs compliant avg/trade</div>
+        <div class="sz-insight-sub">violation P&L vs compliant avg/trade (net of fees)</div>
       </div>
     </div>
   `;
@@ -2034,7 +2034,7 @@ function _szEnrichTrade(t, equityMap, mode, streakMap, overtradingMap, maxLossMa
   const entry     = t.entry || 0;
   const fees      = typeof calcCommission === 'function' ? calcCommission(t) : 0;
   const net       = (t.pnl || 0) - fees;
-  const pnlPct    = (entry && qty) ? (t.pnl / (entry * qty)) * 100 : null;
+  const pnlPct    = (entry && qty) ? (net / (entry * qty)) * 100 : null; // net-based %, consistent with calendarPage.js
   const exposurePct = equity > 0 ? (posSize / equity) * 100 : null;
 
   let budgetStopDist = null, allowedRisk = null, riskPerShare = null;
@@ -2158,7 +2158,7 @@ function _szBuildTable(rows, mode, containerId) {
     { id: 'equity',    label: 'Equity $ (Net)',   td: r => `<td class="td-num td-dim">${r.equity ? '$'+Math.round(r.equity).toLocaleString('en-US') : '—'}</td>` },
     { id: 'pnl',       label: 'P&L Gross',  td: r => { const v = r.t.pnl||0; const c = v>0?'td-pos':v<0?'td-neg':''; const s = v>=0?'+':'-'; return `<td class="td-num ${c}">${s}$${Math.abs(v).toFixed(2)}</td>`; } },
     { id: 'net',       label: 'P&L Net',    td: r => { const v = r.net; const c = v>0?'td-pos':v<0?'td-neg':''; const s = v>=0?'+':'-'; return `<td class="td-num ${c}">${s}$${Math.abs(v).toFixed(2)}</td>`; } },
-    { id: 'pnlPct',    label: 'P&L %',      td: r => { if (r.pnlPct===null) return '<td class="td-dim">—</td>'; const c = r.pnlPct>=0?'td-pos':'td-neg'; return `<td class="td-num ${c}">${r.pnlPct>=0?'+':''}${r.pnlPct.toFixed(2)}%</td>`; } },
+    { id: 'pnlPct',    label: 'P&L % (Net)',      td: r => { if (r.pnlPct===null) return '<td class="td-dim">—</td>'; const c = r.pnlPct>=0?'td-pos':'td-neg'; return `<td class="td-num ${c}">${r.pnlPct>=0?'+':''}${r.pnlPct.toFixed(2)}%</td>`; } },
   ];
 
   const exposureCols = [
@@ -2273,7 +2273,7 @@ function _szTblSummaryBar(filteredTrades, equityMap) {
     ? equityMap.get(String([...filteredTrades].sort((a,b)=>a.date.localeCompare(b.date))[0].id)) || 0
     : 0;
   const total  = filteredTrades.length;
-  const pnl    = filteredTrades.reduce((s, t) => s + (t.pnl||0), 0);
+  const pnl    = filteredTrades.reduce((s, t) => s + (t.pnl||0) - (typeof calcCommission === 'function' ? calcCommission(t) : 0), 0); // net
   const wins   = filteredTrades.filter(t => t.pnl > 0).length;
   const wr     = total ? Math.round(wins / total * 100) : 0;
   const avg    = total ? pnl / total : 0;
@@ -2313,9 +2313,9 @@ function _szTblSummaryBar(filteredTrades, equityMap) {
       <div class="sz-kpi"><div class="sz-kpi-label">Starting Equity</div><div class="sz-kpi-val td-neu">${first ? fmtAcct(first) : '—'}</div></div>
       <div class="sz-kpi"><div class="sz-kpi-label">Total Trades</div><div class="sz-kpi-val td-neu">${total}</div></div>
       ${extraKPIs}
-      <div class="sz-kpi"><div class="sz-kpi-label">Total P&amp;L</div><div class="sz-kpi-val ${pnlCls}">${fmt(pnl)}</div></div>
+      <div class="sz-kpi"><div class="sz-kpi-label">Total P&amp;L (Net)</div><div class="sz-kpi-val ${pnlCls}">${fmt(pnl)}</div></div>
       <div class="sz-kpi"><div class="sz-kpi-label">Win Rate</div><div class="sz-kpi-val ${wr>=50?'td-pos':'td-neg'}">${wr}%</div></div>
-      <div class="sz-kpi"><div class="sz-kpi-label">Avg / Trade</div><div class="sz-kpi-val ${avg>=0?'td-pos':'td-neg'}">${fmt(avg)}</div></div>
+      <div class="sz-kpi"><div class="sz-kpi-label">Avg / Trade (Net)</div><div class="sz-kpi-val ${avg>=0?'td-pos':'td-neg'}">${fmt(avg)}</div></div>
     </div>`;
 }
 
