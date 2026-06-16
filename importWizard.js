@@ -87,7 +87,7 @@ function wizGoStep(step) {
   if (el) el.classList.add('active');
   document.getElementById('wiz-title').textContent =
     step === 1         ? 'Import Trades'         :
-    step === 'generic' ? 'Generic Broker Format'  :
+    step === 'generic' ? 'ZeroPro xlsx File'       :
     step === 'daytrade'? 'DayTrade Format'         :
     step === 'manual'  ? 'Custom Mapping'          :
     step === 'mapping' ? 'Map Columns'             :
