@@ -152,7 +152,7 @@ function renderCalPage() {
 
   // Title
   titleEl.className = 'page-title';
-  titleEl.textContent = 'Calendar';
+  titleEl.innerHTML = 'Calendar <span style="font-size:11px;font-weight:400;color:var(--text3);letter-spacing:0">(P&amp;L shown is Net, after fees)</span>';
   titleEl.style.visibility = 'visible';
   titleEl.style.marginBottom = '';
   titleEl.style.height = '';
@@ -399,7 +399,7 @@ function openCalZoom(yr, mo) {
   const bodyEl  = document.getElementById('cal-zoom-body');
   if (!overlay || !titleEl || !bodyEl) return;
 
-  titleEl.textContent = monthNames[mo] + ' ' + yr;
+  titleEl.innerHTML = monthNames[mo] + ' ' + yr + ' <span style="font-size:11px;font-weight:400;color:var(--text3)">(Net)</span>';
 
   // Build dayMap from all trades
   const dayMap = {};
@@ -701,7 +701,7 @@ function renderCalDayPanel(dateStr) {
   panel.innerHTML = `
     <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:1rem;gap:6px;flex-wrap:wrap">
       <div style="font-size:14px;font-weight:500;color:var(--text2);letter-spacing:.01em;font-family:'CircularXXWeb-Bold',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">${label}</div>
-      <div style="font-size:10px;color:var(--text3)">${dayTrades.length} trade${dayTrades.length !== 1 ? 's' : ''} · <span class="${pnlCls(totalNetPnl)}">${fmtPnl(totalNetPnl)}</span></div>
+      <div style="font-size:10px;color:var(--text3)">${dayTrades.length} trade${dayTrades.length !== 1 ? 's' : ''} · <span class="${pnlCls(totalNetPnl)}">${fmtPnl(totalNetPnl)}</span> net</div>
     </div>
     <div style="display:flex;gap:10px;margin-bottom:1.1rem">
       <div style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;text-align:center">

@@ -82,7 +82,7 @@ function renderLog() {
   years.forEach((year, yi) => {
     const yearGroups = byYear[year];
     const yearTrades = yearGroups.flatMap(g => g.trades);
-    const yearPnl = yearTrades.reduce((s,x)=>s+x.pnl,0);
+    const yearPnl = yearTrades.reduce((s,x)=>s+x.pnl-(typeof calcCommission === 'function' ? calcCommission(x) : 0),0); // net
     const yearPnlCls = yearPnl>0?'var(--green)':yearPnl<0?'var(--red)':'var(--text3)';
 
     html += `<div style="${yi>0?'margin-top:1.75rem':''}">
@@ -91,7 +91,7 @@ function renderLog() {
           <span style="font-size:20px;font-weight:700;color:var(--text2);letter-spacing:.18em;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">${year}</span>
           <span style="display:flex;align-items:baseline;gap:14px">
             <span style="font-size:11px;color:var(--text3)">${yearTrades.length} trade${yearTrades.length!==1?'s':''}</span>
-            <span style="font-size:12px;font-weight:600;color:${yearPnlCls}">${yearPnl>0?'+':yearPnl<0?'-':''}$${Math.abs(yearPnl).toLocaleString('en-US',{maximumFractionDigits:0})}</span>
+            <span style="font-size:12px;font-weight:600;color:${yearPnlCls}" title="Net of fees">${yearPnl>0?'+':yearPnl<0?'-':''}$${Math.abs(yearPnl).toLocaleString('en-US',{maximumFractionDigits:0})} <span style="font-size:9px;color:var(--text3);font-weight:400">net</span></span>
           </span>
         </div>
       </div>
@@ -312,7 +312,7 @@ function renderHomeList() {
   const rows = groups.map(g => {
     const ts = g.trades;
     const gid = ('home_' + g.date + '_' + g.sym).replace(/[^a-zA-Z0-9]/g,'_');
-    const totalPnl = ts.reduce((s,t)=>s+t.pnl,0);
+    const totalPnl = ts.reduce((s,t)=>s+t.pnl-(typeof calcCommission === 'function' ? calcCommission(t) : 0),0); // net
     const wins = ts.filter(t=>t.pnl>0).length;
     const wr = ts.length ? Math.round(wins/ts.length*100) : 0;
     const pnlCls = totalPnl>0?'pos':totalPnl<0?'neg':'';
@@ -345,7 +345,7 @@ function renderHomeList() {
     <table class="trade-table">
       <thead><tr>
         <th class="col-date-hd">Date</th><th>Symbol</th><th>Dir</th>
-        <th>Trades</th><th>P&amp;L $</th><th>P&amp;L %</th><th>Win Rate</th>
+        <th>Trades</th><th>P&amp;L (Net) $</th><th>P&amp;L %</th><th>Win Rate</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
@@ -408,7 +408,9 @@ function openDetail(id) {
     <div class="detail-row"><span class="detail-key">Stop Loss</span><span>${t.sl ? '$'+Number(t.sl).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</span></div>
     <div class="detail-row"><span class="detail-key">Take Profit</span><span>${t.tp ? '$'+Number(t.tp).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</span></div>
     <div class="detail-row"><span class="detail-key">R:R</span><span>${t.rr||'—'}</span></div>
-    <div class="detail-row"><span class="detail-key">P&L</span><span class="${t.pnl>0?'pos':t.pnl<0?'neg':''}" style="font-weight:600">${fmtFull(t.pnl)}</span></div>
+    <div class="detail-row"><span class="detail-key">P&L Gross</span><span class="${t.pnl>0?'pos':t.pnl<0?'neg':''}" style="font-weight:600">${fmtFull(t.pnl)}</span></div>
+    <div class="detail-row"><span class="detail-key">Fees</span><span class="neg" style="font-weight:600">-$${(typeof calcCommission === 'function' ? calcCommission(t) : 0).toFixed(2)}</span></div>
+    <div class="detail-row"><span class="detail-key">P&L Net</span><span class="${(t.pnl-(typeof calcCommission === 'function' ? calcCommission(t) : 0))>0?'pos':(t.pnl-(typeof calcCommission === 'function' ? calcCommission(t) : 0))<0?'neg':''}" style="font-weight:600">${fmtFull(t.pnl-(typeof calcCommission === 'function' ? calcCommission(t) : 0))}</span></div>
     <div class="detail-row"><span class="detail-key">Mood</span><span>${t.mood||'—'}</span></div>
     <div class="detail-row"><span class="detail-key">Rating</span><span style="color:var(--amber)">${t.rating?'★'.repeat(t.rating)+'☆'.repeat(5-t.rating):'—'}</span></div>
     ${t.reason?'<div class="note-label">Setup / Reason</div><div class="note-box">'+escHtml(t.reason)+'</div>':''}

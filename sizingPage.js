@@ -56,11 +56,11 @@ function _posSize(t) {
 function _buildEquityCurve(tradeSubset) {
   const sorted = [...tradeSubset].sort((a, b) => a.date.localeCompare(b.date));
 
-  // Aggregate by day
+  // Aggregate by day (NET — consistent with renderEquityChart in StatsPage.js)
   const dayMap = {};
   sorted.forEach(t => {
     if (!dayMap[t.date]) dayMap[t.date] = { pnl: 0, wins: 0, losses: 0, count: 0 };
-    dayMap[t.date].pnl    += t.pnl;
+    dayMap[t.date].pnl    += (t.pnl - (typeof calcCommission === 'function' ? calcCommission(t) : 0));
     dayMap[t.date].count  += 1;
     if (t.pnl > 0) dayMap[t.date].wins++;
     else if (t.pnl < 0) dayMap[t.date].losses++;
@@ -243,7 +243,7 @@ function _drawSizingChart(canvasId, tooltipElId, tradeSubset, instanceRef) {
               <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:7px;font-family:${siteFont}">${dStr}</div>
               <div style="display:flex;flex-direction:column;gap:5px">
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:20px">
-                  <span style="font-size:12px;color:var(--text2);font-family:${siteFont}">Day P&L</span>
+                  <span style="font-size:12px;color:var(--text2);font-family:${siteFont}">Day P&L (Net)</span>
                   <span style="font-size:14px;font-weight:700;color:${pnlCls};font-family:${siteFont}">${fmt(dayPnl)}</span>
                 </div>
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:20px">
@@ -293,7 +293,7 @@ function _drawSizingChart(canvasId, tooltipElId, tradeSubset, instanceRef) {
 // ─── Summary stats bar for each bucket ───────────────────────────────────────
 function _bucketStats(trades) {
   if (!trades.length) return { n: 0, pnl: 0, wr: 0, avg: 0 };
-  const pnl  = trades.reduce((a, t) => a + t.pnl, 0);
+  const pnl  = trades.reduce((a, t) => a + t.pnl - (typeof calcCommission === 'function' ? calcCommission(t) : 0), 0); // net
   const wins = trades.filter(t => t.pnl > 0).length;
   const wr   = Math.round(wins / trades.length * 100);
   const avg  = pnl / trades.length;
@@ -899,7 +899,7 @@ function _sizingPageHTML(accountSize, threshold, exposurePct, baselineDate, risk
         <!-- All-trades comparison chart -->
         <div class="sz-card" style="margin-top:20px">
           <div class="sz-card-head">
-            <div class="sz-card-title">All Trades — Full Equity Curve</div>
+            <div class="sz-card-title">All Trades — Full Equity Curve (Net)</div>
             <div class="sz-card-badge" style="background:rgba(100,149,237,.13);color:#6495ed;border:1px solid rgba(100,149,237,.25)">Reference</div>
           </div>
           <div class="sz-kpi-row" id="sz-kpi-all">
@@ -1113,7 +1113,7 @@ function _renderKPIBar(elId, stats) {
       <div class="sz-kpi-val neu">${stats.n}</div>
     </div>
     <div class="sz-kpi">
-      <div class="sz-kpi-label">Total P&amp;L</div>
+      <div class="sz-kpi-label">Total P&amp;L (Net)</div>
       <div class="sz-kpi-val ${pnlCls}">${fmt(stats.pnl)}</div>
     </div>
     <div class="sz-kpi">
@@ -1121,7 +1121,7 @@ function _renderKPIBar(elId, stats) {
       <div class="sz-kpi-val ${wrCls}">${stats.wr}%</div>
     </div>
     <div class="sz-kpi">
-      <div class="sz-kpi-label">Avg / Trade</div>
+      <div class="sz-kpi-label">Avg / Trade (Net)</div>
       <div class="sz-kpi-val ${avgCls}">${fmt(stats.avg)}</div>
     </div>
   `;
@@ -1217,7 +1217,7 @@ function _szBuildEquityMap(startingEquity, baselineDate) {
 
   allTrades.forEach(t => {
     map.set(String(t.id), equity);       // equity BEFORE this trade
-    equity += (t.pnl || 0);             // update equity AFTER trade
+    equity += (t.pnl || 0) - (typeof calcCommission === 'function' ? calcCommission(t) : 0); // update equity AFTER trade (net of fees)
   });
 
   return map;
@@ -1418,7 +1418,7 @@ function _szClassifyCombined(filteredTrades, equityMap, filters) {
 
   const total      = filteredTrades.length;
   const dirtyTrades = dirty.map(d => d.trade);
-  const sumPnl     = arr => arr.reduce((s, t) => s + (t.pnl || 0), 0);
+  const sumPnl     = arr => arr.reduce((s, t) => s + (t.pnl || 0) - (typeof calcCommission === 'function' ? calcCommission(t) : 0), 0); // net
   const wins       = arr => arr.filter(t => t.pnl > 0).length;
   const avgFn      = arr => arr.length ? sumPnl(arr) / arr.length : 0;
   const wrFn       = arr => arr.length ? Math.round(wins(arr) / arr.length * 100) : 0;
@@ -1658,11 +1658,11 @@ function _szRenderCombinedKPIs(elId, kpis) {
     <div class="sz-kpi"><div class="sz-kpi-label">Filtered Out</div><div class="sz-kpi-val ${kpis.nDirty > 0 ? 'neg' : 'pos'}">${kpis.nDirty}</div></div>
     <div class="sz-kpi"><div class="sz-kpi-label">Clean %</div><div class="sz-kpi-val ${kpis.cleanPct >= 70 ? 'pos' : 'neg'}">${kpis.cleanPct}%</div></div>
     <div class="sz-kpi" style="border-left:1px solid var(--border);padding-left:16px">
-      <div class="sz-kpi-label">Clean P&amp;L</div>
+      <div class="sz-kpi-label">Clean P&amp;L (Net)</div>
       <div class="sz-kpi-val ${pnlCls(kpis.cleanPnl)}">${fmt(kpis.cleanPnl)}</div>
     </div>
-    <div class="sz-kpi"><div class="sz-kpi-label">All P&amp;L</div><div class="sz-kpi-val ${pnlCls(kpis.allPnl)}">${fmt(kpis.allPnl)}</div></div>
-    <div class="sz-kpi"><div class="sz-kpi-label">P&amp;L Delta</div><div class="sz-kpi-val ${deltaCls(kpis.pnlDelta)}">${fmt(kpis.pnlDelta)}</div></div>
+    <div class="sz-kpi"><div class="sz-kpi-label">All P&amp;L (Net)</div><div class="sz-kpi-val ${pnlCls(kpis.allPnl)}">${fmt(kpis.allPnl)}</div></div>
+    <div class="sz-kpi"><div class="sz-kpi-label">P&amp;L Delta (Net)</div><div class="sz-kpi-val ${deltaCls(kpis.pnlDelta)}">${fmt(kpis.pnlDelta)}</div></div>
     <div class="sz-kpi" style="border-left:1px solid var(--border);padding-left:16px">
       <div class="sz-kpi-label">Clean Win Rate</div>
       <div class="sz-kpi-val ${wrCls(kpis.cleanWR)}">${kpis.cleanWR}%</div>
@@ -2155,7 +2155,7 @@ function _szBuildTable(rows, mode, containerId) {
     { id: 'exit',      label: 'Exit $',     td: r => `<td class="td-num">${r.t.exit  ? '$'+Number(r.t.exit).toFixed(2)  : '—'}</td>` },
     { id: 'qty',       label: 'Qty',        td: r => `<td class="td-num">${r.t.qty ? r.t.qty.toLocaleString() : '—'}</td>` },
     { id: 'posSize',   label: 'Pos Size $', td: r => `<td class="td-num">${r.posSize ? '$'+Math.round(r.posSize).toLocaleString('en-US') : '—'}</td>` },
-    { id: 'equity',    label: 'Equity $',   td: r => `<td class="td-num td-dim">${r.equity ? '$'+Math.round(r.equity).toLocaleString('en-US') : '—'}</td>` },
+    { id: 'equity',    label: 'Equity $ (Net)',   td: r => `<td class="td-num td-dim">${r.equity ? '$'+Math.round(r.equity).toLocaleString('en-US') : '—'}</td>` },
     { id: 'pnl',       label: 'P&L Gross',  td: r => { const v = r.t.pnl||0; const c = v>0?'td-pos':v<0?'td-neg':''; const s = v>=0?'+':'-'; return `<td class="td-num ${c}">${s}$${Math.abs(v).toFixed(2)}</td>`; } },
     { id: 'net',       label: 'P&L Net',    td: r => { const v = r.net; const c = v>0?'td-pos':v<0?'td-neg':''; const s = v>=0?'+':'-'; return `<td class="td-num ${c}">${s}$${Math.abs(v).toFixed(2)}</td>`; } },
     { id: 'pnlPct',    label: 'P&L %',      td: r => { if (r.pnlPct===null) return '<td class="td-dim">—</td>'; const c = r.pnlPct>=0?'td-pos':'td-neg'; return `<td class="td-num ${c}">${r.pnlPct>=0?'+':''}${r.pnlPct.toFixed(2)}%</td>`; } },
