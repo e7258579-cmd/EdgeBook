@@ -478,6 +478,14 @@
   .tab.active{background:var(--bg);color:var(--text);font-weight:600;border:1px solid var(--border2);box-shadow:0 1px 3px rgba(0,0,0,.07)}
   .section{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:2rem}
 
+  /* === Statistics page card grid — single source of truth for spacing ===
+     gap controls both row-gap and column-gap, so vertical/horizontal spacing
+     always stay equal. New cards: add a plain .section child to pair up,
+     or .section.stats-grid-full to span the full width. */
+  .stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
+  .stats-grid > .section{margin-bottom:0}
+  .stats-grid-full{grid-column:1 / -1}
+
   /* Chart expand modal */
   .chart-modal-overlay{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s ease}
   .chart-modal-overlay.open{opacity:1;pointer-events:all}
@@ -1310,7 +1318,7 @@
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;width:100%;margin-bottom:1.5rem;direction:ltr">
       <div class="page-title" id="stats-page-title">Statistics</div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;direction:ltr">
+    <div class="stats-grid" style="direction:ltr">
       <div class="section">
         <div class="chart-modal-header" style="margin-bottom:.75rem">
           <h2 class="page-title" style="margin:0">Performance by Hour of Day</h2>
@@ -1328,8 +1336,6 @@
         </div>
         <div id="day-stats"></div>
       </div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;direction:ltr">
       <div class="section">
         <div class="chart-modal-header" style="margin-bottom:.75rem">
           <h2 class="page-title" style="margin:0">Performance by Mood</h2>
@@ -1349,18 +1355,18 @@
           <canvas id="holdtime-chart"></canvas>
         </div>
       </div>
-    </div>
-    <div class="section" style="margin-bottom:1rem">
-      <div class="chart-modal-header" style="margin-bottom:.75rem">
-        <h2 class="page-title" style="margin:0">Performance by Price Range</h2>
-        <button class="chart-expand-btn" onclick="expandChart('pricerange')" title="Expand"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
+      <div class="section stats-grid-full">
+        <div class="chart-modal-header" style="margin-bottom:.75rem">
+          <h2 class="page-title" style="margin:0">Performance by Price Range</h2>
+          <button class="chart-expand-btn" onclick="expandChart('pricerange')" title="Expand"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
+        </div>
+        <div style="position:relative;height:200px">
+          <canvas id="pricerange-chart"></canvas>
+        </div>
       </div>
-      <div style="position:relative;height:200px">
-        <canvas id="pricerange-chart"></canvas>
+      <div class="section stats-grid-full">
+        <div id="stats-detail"></div>
       </div>
-    </div>
-    <div class="section">
-      <div id="stats-detail"></div>
     </div>
   </div>
 
