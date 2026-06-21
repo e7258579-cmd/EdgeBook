@@ -8,11 +8,17 @@
  * Depends on globals from the main script block (must be declared before this file loads):
  *   (none yet — Stage 3 only reads/writes the DOM and localStorage)
  *
- * Public API exposed on window (called from StatsPage.js's renderStats(), at
- * the end, after all cards/charts are populated):
- *   initStatsLayout()        — reads saved layout (if any) and applies it to #stats-grid.
- *                               Safe to call multiple times; safe to call before #stats-grid
- *                               exists in the DOM (no-ops gracefully).
+ * Public API exposed on window:
+ *   initStatsLayout()        — called from StatsPage.js's renderStats(), at the end,
+ *                               after all cards/charts are populated. Reads saved layout
+ *                               (if any) and applies it to #stats-grid. Safe to call
+ *                               multiple times; safe to call before #stats-grid exists
+ *                               in the DOM (no-ops gracefully).
+ *   toggleStatsLayoutEdit()  — called from the pencil button's onclick in the HTML
+ *                               (#stats-layout-edit-btn). Enters/exits edit mode: injects
+ *                               or removes the per-card move-handle (⠿) and resize-grip,
+ *                               toggles the dashed outline on #stats-grid, and toggles the
+ *                               button's active state.
  *   getStatsLayout()         — returns the current in-memory layout array
  *                               [{ id, width }, ...] in DOM order. Useful for debugging
  *                               and for later stages (drag/resize) to read current state.
@@ -195,8 +201,76 @@ function getStatsLayout() {
   return _statsLayout.map(e => ({ ...e })); // shallow copy, avoid external mutation
 }
 
+// ─── EDIT MODE ──────────────────────────────────────────────
+// Whether the layout editor is currently active. Handles (move + resize)
+// only exist in the DOM while this is true — kept out of the markup
+// entirely otherwise, so normal page use never pays any cost for them.
+let _statsLayoutEditing = false;
+
+const STATS_LAYOUT_MOVE_HANDLE_CLASS   = 'stats-layout-move-handle';
+const STATS_LAYOUT_RESIZE_GRIP_CLASS   = 'stats-layout-resize-grip';
+
+function _injectCardHandles(el) {
+  // Avoid double-injecting if called more than once for the same card.
+  if (!el.querySelector('.' + STATS_LAYOUT_MOVE_HANDLE_CLASS)) {
+    const moveHandle = document.createElement('div');
+    moveHandle.className = STATS_LAYOUT_MOVE_HANDLE_CLASS;
+    moveHandle.setAttribute('title', 'Drag to move');
+    moveHandle.setAttribute('aria-label', 'Drag to move card');
+    moveHandle.textContent = '⠿';
+    el.appendChild(moveHandle);
+  }
+  if (!el.querySelector('.' + STATS_LAYOUT_RESIZE_GRIP_CLASS)) {
+    const resizeGrip = document.createElement('div');
+    resizeGrip.className = STATS_LAYOUT_RESIZE_GRIP_CLASS;
+    resizeGrip.setAttribute('title', 'Drag to resize');
+    resizeGrip.setAttribute('aria-label', 'Drag to resize card');
+    el.appendChild(resizeGrip);
+  }
+}
+
+function _removeCardHandles(el) {
+  const moveHandle = el.querySelector('.' + STATS_LAYOUT_MOVE_HANDLE_CLASS);
+  if (moveHandle) moveHandle.remove();
+  const resizeGrip = el.querySelector('.' + STATS_LAYOUT_RESIZE_GRIP_CLASS);
+  if (resizeGrip) resizeGrip.remove();
+}
+
+function _enterStatsLayoutEdit() {
+  const grid = _getStatsGrid();
+  if (!grid) return;
+  _statsLayoutEditing = true;
+  grid.classList.add('layout-editing');
+  _getCardEls(grid).forEach(_injectCardHandles);
+
+  const btn = document.getElementById('stats-layout-edit-btn');
+  if (btn) btn.classList.add('active');
+}
+
+function _exitStatsLayoutEdit() {
+  const grid = _getStatsGrid();
+  _statsLayoutEditing = false;
+  if (grid) {
+    grid.classList.remove('layout-editing');
+    _getCardEls(grid).forEach(_removeCardHandles);
+  }
+
+  const btn = document.getElementById('stats-layout-edit-btn');
+  if (btn) btn.classList.remove('active');
+}
+
+// Called from the pencil button (#stats-layout-edit-btn) in EdgeBook.html.
+function toggleStatsLayoutEdit() {
+  if (_statsLayoutEditing) {
+    _exitStatsLayoutEdit();
+  } else {
+    _enterStatsLayoutEdit();
+  }
+}
+
 // ─── EXPOSE PUBLIC API ─────────────────────────────────────
-window.initStatsLayout  = initStatsLayout;
-window.getStatsLayout   = getStatsLayout;
-window.saveStatsLayout  = saveStatsLayout;
-window.resetStatsLayout = resetStatsLayout;
+window.initStatsLayout       = initStatsLayout;
+window.getStatsLayout        = getStatsLayout;
+window.saveStatsLayout       = saveStatsLayout;
+window.resetStatsLayout      = resetStatsLayout;
+window.toggleStatsLayoutEdit = toggleStatsLayoutEdit;

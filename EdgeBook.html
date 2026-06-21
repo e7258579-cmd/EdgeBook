@@ -504,6 +504,44 @@
   .chart-expand-btn svg{width:14px;height:14px;stroke:var(--text2);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
   .chart-modal-body canvas{width:100%!important;height:100%!important}
   .section h2{font-size:15px;font-weight:600;margin-bottom:1rem;color:var(--text)}
+
+  /* === Stats layout — edit mode toggle, drag handle, resize grip === */
+  .stats-layout-edit-btn{width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:.55;transition:opacity .15s,background .15s,border-color .15s;flex-shrink:0}
+  .stats-layout-edit-btn:hover{opacity:1}
+  .stats-layout-edit-btn svg{width:14px;height:14px;stroke:var(--text2);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .stats-layout-edit-btn.active{opacity:1;background:var(--text);border-color:var(--text)}
+  .stats-layout-edit-btn.active svg{stroke:var(--bg)}
+
+  /* Grid-level edit-mode affordance: dashed outline so it's obvious editing is live */
+  .stats-grid.layout-editing{outline:2px dashed var(--border2);outline-offset:8px;border-radius:var(--radius)}
+
+  /* Per-card edit-mode chrome: handles hidden by default, shown only in edit mode */
+  .stats-grid .section{position:relative}
+  .stats-layout-move-handle,.stats-layout-resize-grip{display:none}
+  .stats-grid.layout-editing .section{cursor:default;transition:box-shadow .15s}
+  .stats-grid.layout-editing .stats-layout-move-handle{
+    display:flex;align-items:center;justify-content:center;
+    position:absolute;top:8px;right:8px;z-index:2;
+    width:24px;height:24px;border-radius:6px;
+    background:var(--bg2);border:1px solid var(--border);
+    color:var(--text2);font-size:14px;letter-spacing:-1px;line-height:1;
+    cursor:grab;flex-shrink:0;user-select:none;touch-action:none;
+  }
+  .stats-grid.layout-editing .stats-layout-move-handle:active{cursor:grabbing}
+  .stats-grid.layout-editing .stats-layout-resize-grip{
+    display:block;position:absolute;right:4px;bottom:4px;
+    width:16px;height:16px;border-radius:4px;
+    cursor:nwse-resize;touch-action:none;z-index:2;
+  }
+  .stats-grid.layout-editing .stats-layout-resize-grip::after{
+    content:'';position:absolute;right:3px;bottom:3px;width:8px;height:8px;
+    border-right:2px solid var(--text3);border-bottom:2px solid var(--text3);
+    border-radius:0 0 2px 0;
+  }
+  /* Card being dragged */
+  .stats-grid .section.layout-dragging{opacity:.45}
+  /* Drop-target highlight (swap or insert target) */
+  .stats-grid .section.layout-drop-target{box-shadow:0 0 0 2px var(--text) inset}
   .form-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
   .form-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px}
   .form-row-4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px}
@@ -1323,6 +1361,9 @@
   <div id="tab-stats" style="display:none;direction:ltr">
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;width:100%;margin-bottom:1.5rem;direction:ltr">
       <div class="page-title" id="stats-page-title">Statistics</div>
+      <button class="stats-layout-edit-btn" id="stats-layout-edit-btn" onclick="toggleStatsLayoutEdit()" title="Edit layout">
+        <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      </button>
     </div>
     <div class="stats-grid" id="stats-grid" style="direction:ltr">
       <div class="section card-w-half" data-card-id="hourly">
