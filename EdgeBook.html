@@ -1325,7 +1325,7 @@
       <div class="page-title" id="stats-page-title">Statistics</div>
     </div>
     <div class="stats-grid" id="stats-grid" style="direction:ltr">
-      <div class="section card-w-half">
+      <div class="section card-w-half" data-card-id="hourly">
         <div class="chart-modal-header" style="margin-bottom:.75rem">
           <h2 class="page-title" style="margin:0">Performance by Hour of Day</h2>
           <button class="chart-expand-btn" onclick="expandChart('hourly')" title="Expand"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
@@ -1335,14 +1335,14 @@
         </div>
         <div id="hourly-legend" style="display:flex;gap:16px;justify-content:center;margin-top:10px;flex-wrap:wrap"></div>
       </div>
-      <div class="section card-w-half">
+      <div class="section card-w-half" data-card-id="dayofweek">
         <div class="chart-modal-header" style="margin-bottom:.75rem">
           <h2 class="page-title" style="margin:0">Performance by Day of Week</h2>
           <button class="chart-expand-btn" onclick="expandChart('dayofweek')" title="Expand"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
         </div>
         <div id="day-stats"></div>
       </div>
-      <div class="section card-w-half">
+      <div class="section card-w-half" data-card-id="mood">
         <div class="chart-modal-header" style="margin-bottom:.75rem">
           <h2 class="page-title" style="margin:0">Performance by Mood</h2>
           <button class="chart-expand-btn" onclick="expandChart('mood')" title="Expand"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
@@ -1352,7 +1352,7 @@
         </div>
         <div id="mood-legend" style="display:flex;gap:8px;justify-content:center;margin-top:10px;flex-wrap:wrap"></div>
       </div>
-      <div class="section card-w-half">
+      <div class="section card-w-half" data-card-id="holdtime">
         <div class="chart-modal-header" style="margin-bottom:.75rem">
           <h2 class="page-title" style="margin:0">Avg Hold Time: Wins vs Losses</h2>
           <button class="chart-expand-btn" onclick="expandChart('holdtime')" title="Expand"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
@@ -1361,7 +1361,7 @@
           <canvas id="holdtime-chart"></canvas>
         </div>
       </div>
-      <div class="section card-w-full">
+      <div class="section card-w-full" data-card-id="pricerange">
         <div class="chart-modal-header" style="margin-bottom:.75rem">
           <h2 class="page-title" style="margin:0">Performance by Price Range</h2>
           <button class="chart-expand-btn" onclick="expandChart('pricerange')" title="Expand"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
@@ -1370,7 +1370,7 @@
           <canvas id="pricerange-chart"></canvas>
         </div>
       </div>
-      <div class="section card-w-full">
+      <div class="section card-w-full" data-card-id="statsdetail">
         <div id="stats-detail"></div>
       </div>
     </div>
