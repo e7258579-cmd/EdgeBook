@@ -479,12 +479,15 @@
   .section{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:2rem}
 
   /* === Statistics page card grid — single source of truth for spacing ===
-     gap controls both row-gap and column-gap, so vertical/horizontal spacing
-     always stay equal. New cards: add a plain .section child to pair up,
-     or .section.stats-grid-full to span the full width. */
-  .stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
+     6-column base grid. Each card gets a width tier class:
+     .card-w-third (1/3, span 2), .card-w-half (1/2, span 3, default),
+     .card-w-full (full width, span 6). gap controls both row-gap and
+     column-gap, so vertical/horizontal spacing always stay equal. */
+  .stats-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:1rem;margin-bottom:1rem}
   .stats-grid > .section{margin-bottom:0}
-  .stats-grid-full{grid-column:1 / -1}
+  .card-w-third{grid-column:span 2}
+  .card-w-half{grid-column:span 3}
+  .card-w-full{grid-column:span 6}
 
   /* Chart expand modal */
   .chart-modal-overlay{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s ease}
@@ -804,8 +807,11 @@
   .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--text);color:#fff;padding:10px 20px;border-radius:var(--radius);font-size:13px;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none}
   .toast.show{opacity:1}
 
-  @media(max-width:600px){
+  @media(max-width:900px){
     .stats-grid{grid-template-columns:repeat(2,1fr)}
+    .card-w-third,.card-w-half,.card-w-full{grid-column:span 2}
+  }
+  @media(max-width:600px){
     .form-grid,.form-row,.form-row-4{grid-template-columns:1fr 1fr}
     .trade-row{grid-template-columns:auto 1fr;grid-template-rows:auto auto}
     .trade-pnl,.trade-actions{grid-column:2}
@@ -1318,8 +1324,8 @@
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;width:100%;margin-bottom:1.5rem;direction:ltr">
       <div class="page-title" id="stats-page-title">Statistics</div>
     </div>
-    <div class="stats-grid" style="direction:ltr">
-      <div class="section">
+    <div class="stats-grid" id="stats-grid" style="direction:ltr">
+      <div class="section card-w-half">
         <div class="chart-modal-header" style="margin-bottom:.75rem">
           <h2 class="page-title" style="margin:0">Performance by Hour of Day</h2>
           <button class="chart-expand-btn" onclick="expandChart('hourly')" title="Expand"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
@@ -1329,14 +1335,14 @@
         </div>
         <div id="hourly-legend" style="display:flex;gap:16px;justify-content:center;margin-top:10px;flex-wrap:wrap"></div>
       </div>
-      <div class="section">
+      <div class="section card-w-half">
         <div class="chart-modal-header" style="margin-bottom:.75rem">
           <h2 class="page-title" style="margin:0">Performance by Day of Week</h2>
           <button class="chart-expand-btn" onclick="expandChart('dayofweek')" title="Expand"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
         </div>
         <div id="day-stats"></div>
       </div>
-      <div class="section">
+      <div class="section card-w-half">
         <div class="chart-modal-header" style="margin-bottom:.75rem">
           <h2 class="page-title" style="margin:0">Performance by Mood</h2>
           <button class="chart-expand-btn" onclick="expandChart('mood')" title="Expand"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
@@ -1346,7 +1352,7 @@
         </div>
         <div id="mood-legend" style="display:flex;gap:8px;justify-content:center;margin-top:10px;flex-wrap:wrap"></div>
       </div>
-      <div class="section">
+      <div class="section card-w-half">
         <div class="chart-modal-header" style="margin-bottom:.75rem">
           <h2 class="page-title" style="margin:0">Avg Hold Time: Wins vs Losses</h2>
           <button class="chart-expand-btn" onclick="expandChart('holdtime')" title="Expand"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
@@ -1355,7 +1361,7 @@
           <canvas id="holdtime-chart"></canvas>
         </div>
       </div>
-      <div class="section stats-grid-full">
+      <div class="section card-w-full">
         <div class="chart-modal-header" style="margin-bottom:.75rem">
           <h2 class="page-title" style="margin:0">Performance by Price Range</h2>
           <button class="chart-expand-btn" onclick="expandChart('pricerange')" title="Expand"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
@@ -1364,7 +1370,7 @@
           <canvas id="pricerange-chart"></canvas>
         </div>
       </div>
-      <div class="section stats-grid-full">
+      <div class="section card-w-full">
         <div id="stats-detail"></div>
       </div>
     </div>
