@@ -280,11 +280,15 @@ function toggleStatsLayoutEdit() {
 // keeps tracking even if the pointer moves off the handle/card.
 //
 // Drop behavior:
-//   - Pointer released over another card (.section under #stats-grid)  → SWAP
-//     the dragged card and that card trade DOM positions.
-//   - Pointer released over #stats-grid itself but not over any card
-//     (i.e. empty grid space — the gap/whitespace area, or below the
-//     last row) → INSERT: dragged card is moved to the end of the grid.
+//   - Pointer released over the CENTER band of another card → SWAP: the
+//     dragged card and that card trade DOM positions.
+//   - Pointer released near the LEFT/RIGHT EDGE of another card, or over
+//     empty grid space (gaps between/below cards) → INSERT: the dragged
+//     card is moved to that exact position between two cards (or to the
+//     start/end of the grid), pushing the other cards along — not just
+//     appended to the end. A thin vertical placeholder bar
+//     (.layout-insert-indicator) is shown live during the drag so the
+//     exact landing position is visible before drop.
 //   - Pointer released outside #stats-grid entirely → no-op (card stays
 //     where it was; nothing is reordered or saved).
 // On any successful drop (swap or insert) the in-memory layout is
@@ -293,6 +297,13 @@ function toggleStatsLayoutEdit() {
 // included now so Stage 5 is independently testable end-to-end.
 
 let _dragState = null; // { cardEl, grid, pointerId } while a drag is in progress, else null
+
+// How close to a card's left/right edge (as a fraction of its width) the
+// pointer must be for that side to count as an "insert here" zone rather
+// than a swap. E.g. 0.25 = outer 25% on each side is insert, middle 50% is swap.
+const STATS_LAYOUT_INSERT_EDGE_RATIO = 0.25;
+
+const STATS_LAYOUT_INSERT_INDICATOR_CLASS = 'layout-insert-indicator';
 
 function _onMoveHandlePointerDown(e) {
   if (!_statsLayoutEditing) return;
@@ -313,9 +324,12 @@ function _onMoveHandlePointerDown(e) {
   handle.addEventListener('pointercancel', _onMoveHandlePointerCancel);
 }
 
-// Finds the drop target under the pointer: either another card (for swap)
-// or the grid's own empty space (for insert). Returns
-// { type: 'swap', cardEl } | { type: 'insert' } | null (no valid target).
+// Finds the drop target under the pointer:
+//   - Pointer over the center band of another card           → { type: 'swap', cardEl }
+//   - Pointer over the outer edge band of another card, or
+//     over empty grid space (gaps, below last row)            → { type: 'insert', beforeEl }
+//     beforeEl is the card to insert in front of, or null to insert at the end.
+//   - Pointer outside the grid entirely                       → null
 function _resolveDropTarget(clientX, clientY) {
   const { cardEl: draggedEl, grid } = _dragState;
   const elAtPoint = document.elementFromPoint(clientX, clientY);
@@ -323,33 +337,83 @@ function _resolveDropTarget(clientX, clientY) {
 
   const hoveredCard = elAtPoint.closest('.section[data-card-id]');
   if (hoveredCard && hoveredCard !== draggedEl && hoveredCard.parentElement === grid) {
+    const rect = hoveredCard.getBoundingClientRect();
+    const offsetX = clientX - rect.left;
+    const edgeZone = rect.width * STATS_LAYOUT_INSERT_EDGE_RATIO;
+
+    if (offsetX < edgeZone) {
+      // Left edge band — insert before this card.
+      return { type: 'insert', beforeEl: hoveredCard };
+    }
+    if (offsetX > rect.width - edgeZone) {
+      // Right edge band — insert after this card (i.e. before its next sibling card).
+      return { type: 'insert', beforeEl: _nextCardAfter(hoveredCard, draggedEl) };
+    }
+    // Center band — swap.
     return { type: 'swap', cardEl: hoveredCard };
   }
 
-  // Not over a (different) card — check whether we're still over the grid's
-  // own empty space (gaps between/below cards count; outside the grid does not).
+  // Not over a (different) card — still over the grid's own empty space
+  // (gaps between/below cards count as "insert at the end"; outside the grid does not).
   if (elAtPoint === grid || grid.contains(elAtPoint)) {
-    return { type: 'insert' };
+    return { type: 'insert', beforeEl: null };
   }
 
   return null;
 }
 
+// Returns the next layout-managed card after `cardEl` in DOM order, skipping
+// `excludeEl` (the card currently being dragged). Returns null if `cardEl`
+// is the last one — meaning "insert at the end of the grid".
+function _nextCardAfter(cardEl, excludeEl) {
+  const cards = _getCardEls(_dragState.grid).filter(el => el !== excludeEl);
+  const idx = cards.indexOf(cardEl);
+  if (idx === -1 || idx === cards.length - 1) return null;
+  return cards[idx + 1];
+}
+
 function _clearDropTargetHighlight(grid) {
   _getCardEls(grid).forEach(el => el.classList.remove('layout-drop-target'));
+  const indicator = grid.querySelector('.' + STATS_LAYOUT_INSERT_INDICATOR_CLASS);
+  if (indicator) indicator.remove();
+}
+
+// Shows the insert-position placeholder bar as an actual (temporary) grid
+// item, positioned via insertBefore so normal grid flow pushes neighboring
+// cards aside — giving an accurate live preview of where the card will land.
+function _showInsertIndicator(grid, beforeEl) {
+  let indicator = grid.querySelector('.' + STATS_LAYOUT_INSERT_INDICATOR_CLASS);
+  if (!indicator) {
+    indicator = document.createElement('div');
+    indicator.className = STATS_LAYOUT_INSERT_INDICATOR_CLASS;
+  }
+  if (beforeEl) {
+    grid.insertBefore(indicator, beforeEl);
+  } else {
+    grid.appendChild(indicator); // end of grid
+  }
 }
 
 function _onMoveHandlePointerMove(e) {
   if (!_dragState || e.pointerId !== _dragState.pointerId) return;
   const { grid } = _dragState;
 
-  const target = _resolveDropTarget(e.clientX, e.clientY);
+  // Remove any existing indicator/highlight FIRST, before resolving the drop
+  // target. The indicator bar is itself a grid item (span 1 column) that
+  // shifts neighboring cards when present — resolving against a grid that
+  // still contains it would measure shifted card positions and could flicker
+  // between two answers on consecutive moves. Always resolve against a clean
+  // grid (no inserted indicator) for a stable result.
   _clearDropTargetHighlight(grid);
+
+  const target = _resolveDropTarget(e.clientX, e.clientY);
   if (target && target.type === 'swap') {
     target.cardEl.classList.add('layout-drop-target');
+  } else if (target && target.type === 'insert') {
+    _showInsertIndicator(grid, target.beforeEl);
   }
-  // No highlight needed for 'insert' (empty grid space) or null (invalid drop) —
-  // the dragged card's reduced opacity is feedback enough for those cases.
+  // null (invalid drop, outside the grid) → no highlight; dragged card's
+  // reduced opacity is feedback enough.
 }
 
 function _finishDrag() {
@@ -374,6 +438,11 @@ function _onMoveHandlePointerUp(e) {
   if (!_dragState || e.pointerId !== _dragState.pointerId) return;
   const { cardEl, grid } = _dragState;
 
+  // Clear the indicator/highlight before resolving — same reasoning as in
+  // pointermove: resolving against a grid that still contains the inserted
+  // indicator bar would measure shifted card positions and could pick the
+  // wrong target right at the moment of drop.
+  _clearDropTargetHighlight(grid);
   const target = _resolveDropTarget(e.clientX, e.clientY);
 
   if (target && target.type === 'swap') {
@@ -390,8 +459,13 @@ function _onMoveHandlePointerUp(e) {
     _captureLayoutFromDom();
     saveStatsLayout(_statsLayout);
   } else if (target && target.type === 'insert') {
-    // Dropped on empty grid space (not on another card) — move to the end.
-    grid.appendChild(cardEl);
+    // Move the dragged card to sit directly before `beforeEl` (or to the
+    // end, if beforeEl is null) — a true positional insert, not just append.
+    if (target.beforeEl) {
+      grid.insertBefore(cardEl, target.beforeEl);
+    } else {
+      grid.appendChild(cardEl);
+    }
 
     _captureLayoutFromDom();
     saveStatsLayout(_statsLayout);
