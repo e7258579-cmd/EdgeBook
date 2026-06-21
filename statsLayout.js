@@ -282,13 +282,16 @@ function toggleStatsLayoutEdit() {
 // Drop behavior:
 //   - Pointer released over the CENTER band of another card → SWAP: the
 //     dragged card and that card trade DOM positions.
-//   - Pointer released near the LEFT/RIGHT EDGE of another card, or over
-//     empty grid space (gaps between/below cards) → INSERT: the dragged
-//     card is moved to that exact position between two cards (or to the
-//     start/end of the grid), pushing the other cards along — not just
-//     appended to the end. A thin vertical placeholder bar
-//     (.layout-insert-indicator) is shown live during the drag so the
-//     exact landing position is visible before drop.
+//   - Pointer released near the LEFT/RIGHT EDGE of another card → INSERT:
+//     the dragged card is moved to sit directly before/after that exact
+//     card in DOM order — which, via normal grid flow, keeps it in the
+//     SAME VISUAL ROW as that card (as long as the row has room per the
+//     cards' width spans), rather than jumping to wherever the next card
+//     in linear DOM order happens to be (which could be the next row).
+//   - Pointer released over empty grid space (gaps between/below cards,
+//     not near any card's edge) → INSERT at the end of the grid.
+//   A thin vertical placeholder bar (.layout-insert-indicator) is shown
+//   live during the drag so the exact landing position is visible before drop.
 //   - Pointer released outside #stats-grid entirely → no-op (card stays
 //     where it was; nothing is reordered or saved).
 // On any successful drop (swap or insert) the in-memory layout is
@@ -342,12 +345,27 @@ function _resolveDropTarget(clientX, clientY) {
     const edgeZone = rect.width * STATS_LAYOUT_INSERT_EDGE_RATIO;
 
     if (offsetX < edgeZone) {
-      // Left edge band — insert before this card.
-      return { type: 'insert', beforeEl: hoveredCard };
+      // Left edge band — insert before this card. If this card IS the
+      // dragged card's current next sibling, that's already its position —
+      // normalize to "no-op" instead of showing a placeholder right next
+      // to the (semi-transparent) dragged card itself.
+      return hoveredCard === draggedEl.nextElementSibling
+        ? null
+        : { type: 'insert', beforeEl: hoveredCard };
     }
     if (offsetX > rect.width - edgeZone) {
-      // Right edge band — insert after this card (i.e. before its next sibling card).
-      return { type: 'insert', beforeEl: _nextCardAfter(hoveredCard, draggedEl) };
+      // Right edge band — insert immediately after this card in DOM order.
+      // Using hoveredCard.nextElementSibling (not "the next layout card
+      // anywhere in the DOM") keeps the dragged card in the same visual
+      // row as hoveredCard via normal grid flow — it lands right next to
+      // it, rather than jumping to wherever the next card happens to sit,
+      // which could be the start of the following row.
+      const beforeEl = hoveredCard.nextElementSibling;
+      // Same normalization: if "after hoveredCard" is exactly where the
+      // dragged card already sits, treat as no-op.
+      return beforeEl === draggedEl
+        ? null
+        : { type: 'insert', beforeEl };
     }
     // Center band — swap.
     return { type: 'swap', cardEl: hoveredCard };
@@ -360,16 +378,6 @@ function _resolveDropTarget(clientX, clientY) {
   }
 
   return null;
-}
-
-// Returns the next layout-managed card after `cardEl` in DOM order, skipping
-// `excludeEl` (the card currently being dragged). Returns null if `cardEl`
-// is the last one — meaning "insert at the end of the grid".
-function _nextCardAfter(cardEl, excludeEl) {
-  const cards = _getCardEls(_dragState.grid).filter(el => el !== excludeEl);
-  const idx = cards.indexOf(cardEl);
-  if (idx === -1 || idx === cards.length - 1) return null;
-  return cards[idx + 1];
 }
 
 function _clearDropTargetHighlight(grid) {
