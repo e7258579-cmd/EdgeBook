@@ -553,6 +553,13 @@
     width:3px;border-radius:2px;background:var(--text);
     pointer-events:none;
   }
+  /* Card being resized: pixel width is overridden live by JS during the
+     drag (continuous, not the grid's 6-column track sizing), so it's
+     raised above its neighbors to avoid being visually clipped/overlapped
+     while it temporarily doesn't match its grid-column track width, and
+     any transition on .section is suspended so it tracks the pointer
+     with zero lag instead of easing toward it. */
+  .stats-grid .section.layout-resizing{z-index:3;transition:none}
   .form-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
   .form-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px}
   .form-row-4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px}

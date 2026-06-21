@@ -226,6 +226,7 @@ function _injectCardHandles(el) {
     resizeGrip.className = STATS_LAYOUT_RESIZE_GRIP_CLASS;
     resizeGrip.setAttribute('title', 'Drag to resize');
     resizeGrip.setAttribute('aria-label', 'Drag to resize card');
+    resizeGrip.addEventListener('pointerdown', _onResizeGripPointerDown);
     el.appendChild(resizeGrip);
   }
 }
@@ -237,7 +238,10 @@ function _removeCardHandles(el) {
     moveHandle.remove();
   }
   const resizeGrip = el.querySelector('.' + STATS_LAYOUT_RESIZE_GRIP_CLASS);
-  if (resizeGrip) resizeGrip.remove();
+  if (resizeGrip) {
+    resizeGrip.removeEventListener('pointerdown', _onResizeGripPointerDown);
+    resizeGrip.remove();
+  }
 }
 
 function _enterStatsLayoutEdit() {
@@ -488,6 +492,168 @@ function _onMoveHandlePointerCancel(e) {
   // Pointer interaction was interrupted (e.g. browser gesture, alt-tab) —
   // abandon the drag without reordering or saving.
   _finishDrag();
+}
+
+
+// ─── DRAG TO RESIZE (Stage 6) ───────────────────────────────
+// Pointer-based resize, started only from the resize grip (bottom-right
+// corner) — same isolation principle as the move handle: never triggered
+// by interacting with the card body itself.
+//
+// Feel: width tracks the pointer continuously and smoothly in pixels while
+// dragging (live pixel width/min-width/max-width override via inline
+// style — grid-column itself only accepts whole-number spans, so it can't
+// produce smooth pixel-level tracking). On release, the pointer position
+// is converted to a span and snapped to whichever named tier (third/half/
+// full) it ended up closest to; the inline pixel override is removed and
+// the matching width class is applied via the existing _setCardWidth() —
+// exactly like every other width change in this module. Layout is then
+// captured + auto-saved, same as Stage 5.
+
+let _resizeState = null; // { cardEl, grid, pointerId, columnWidth, gapPx, startSpan } while resizing, else null
+
+const STATS_LAYOUT_SPAN_TIERS = [2, 3, 6]; // third, half, full — in grid-column span units, out of 6
+
+function _onResizeGripPointerDown(e) {
+  if (!_statsLayoutEditing) return;
+  const grip = e.currentTarget;
+  const cardEl = grip.closest('.section[data-card-id]');
+  const grid = _getStatsGrid();
+  if (!cardEl || !grid) return;
+
+  e.preventDefault();
+  e.stopPropagation(); // don't let this bubble into anything card-level (e.g. future click handlers)
+
+  const gridRect = grid.getBoundingClientRect();
+  const gridStyle = window.getComputedStyle(grid);
+  const gapPx = parseFloat(gridStyle.columnGap || gridStyle.gap) || 0;
+  // 6 columns, 5 gaps between them — solve for a single column's width.
+  const columnWidth = (gridRect.width - gapPx * 5) / 6;
+
+  _resizeState = {
+    cardEl,
+    grid,
+    pointerId: e.pointerId,
+    columnWidth,
+    gapPx,
+    startSpan: _spanFromWidth(_widthFromClassList(cardEl))
+  };
+
+  grip.setPointerCapture(e.pointerId);
+  cardEl.classList.add('layout-resizing');
+
+  grip.addEventListener('pointermove', _onResizeGripPointerMove);
+  grip.addEventListener('pointerup', _onResizeGripPointerUp);
+  grip.addEventListener('pointercancel', _onResizeGripPointerCancel);
+}
+
+function _spanFromWidth(width) {
+  return width === 'third' ? 2 : width === 'full' ? 6 : 3; // 'half' (default/fallback) = 3
+}
+
+// Raw pixel width the card should render at while dragging, clamped to
+// stay within the grid's own bounds (1 column min, full grid width max).
+// Used purely for the live visual — has no relationship to grid-column
+// span units until release, when _continuousSpanFromPointer() converts
+// the final pointer position into a span for snapping.
+function _continuousWidthPxFromPointer(clientX) {
+  const { cardEl, grid } = _resizeState;
+  const cardRect = cardEl.getBoundingClientRect();
+  const gridRect = grid.getBoundingClientRect();
+  const draggedWidthPx = clientX - cardRect.left;
+  const maxWidthPx = gridRect.right - cardRect.left; // can't grow past the grid's own right edge
+  return Math.min(maxWidthPx, Math.max(20, draggedWidthPx));
+}
+
+// Converts a pointer X position into a continuous (fractional) span value,
+// based on distance dragged from the card's own left edge — so the card's
+// snap target is computed from the same anchor point used for the live
+// pixel preview above. Used only at release time, to pick the nearest tier.
+function _continuousSpanFromPointer(clientX) {
+  const { cardEl, columnWidth, gapPx } = _resizeState;
+  const cardRect = cardEl.getBoundingClientRect();
+  const draggedWidthPx = clientX - cardRect.left;
+  // Width of N spanned columns = N * columnWidth + (N - 1) * gapPx.
+  // Solve for N given a pixel width:
+  const rawSpan = (draggedWidthPx + gapPx) / (columnWidth + gapPx);
+  return Math.min(6, Math.max(1, rawSpan));
+}
+
+function _nearestTierSpan(span) {
+  return STATS_LAYOUT_SPAN_TIERS.reduce((closest, tier) =>
+    Math.abs(tier - span) < Math.abs(closest - span) ? tier : closest
+  );
+}
+
+function _spanToWidth(span) {
+  return span <= 2 ? 'third' : span >= 6 ? 'full' : 'half';
+}
+
+function _onResizeGripPointerMove(e) {
+  if (!_resizeState || e.pointerId !== _resizeState.pointerId) return;
+  const { cardEl } = _resizeState;
+
+  // True pixel-continuous feedback: grid-column only accepts whole-number
+  // spans (e.g. "span 3"), so animating it directly would jump in 6 discrete
+  // steps rather than smoothly tracking the pointer. Instead, override the
+  // card's rendered width directly in pixels — fully continuous — while
+  // leaving its grid-column (and therefore its grid track placement) alone.
+  // The override is removed on release, see _onResizeGripPointerUp.
+  const widthPx = _continuousWidthPxFromPointer(e.clientX);
+  cardEl.style.width = widthPx + 'px';
+  cardEl.style.minWidth = widthPx + 'px';
+  cardEl.style.maxWidth = widthPx + 'px';
+}
+
+function _finishResize() {
+  if (!_resizeState) return;
+  const { cardEl } = _resizeState;
+
+  cardEl.classList.remove('layout-resizing');
+  // Always clear the live pixel-width override here, in one place, so every
+  // exit path (normal release, cancel) ends with the card relying solely on
+  // its grid-column width class again — never left with a stale inline size.
+  cardEl.style.width = '';
+  cardEl.style.minWidth = '';
+  cardEl.style.maxWidth = '';
+
+  const grip = cardEl.querySelector('.' + STATS_LAYOUT_RESIZE_GRIP_CLASS);
+  if (grip) {
+    grip.removeEventListener('pointermove', _onResizeGripPointerMove);
+    grip.removeEventListener('pointerup', _onResizeGripPointerUp);
+    grip.removeEventListener('pointercancel', _onResizeGripPointerCancel);
+    try { grip.releasePointerCapture(_resizeState.pointerId); } catch (err) { /* already released */ }
+  }
+
+  _resizeState = null;
+}
+
+function _onResizeGripPointerUp(e) {
+  if (!_resizeState || e.pointerId !== _resizeState.pointerId) return;
+  const { cardEl } = _resizeState;
+
+  const liveSpan = _continuousSpanFromPointer(e.clientX);
+  const snappedSpan = _nearestTierSpan(liveSpan);
+  const snappedWidth = _spanToWidth(snappedSpan);
+
+  // Apply the snapped width class — _finishResize() (called below) clears
+  // the live pixel override, so after that the class is the only thing
+  // controlling width again, exactly like every other card in the grid.
+  _setCardWidth(cardEl, snappedWidth);
+
+  _captureLayoutFromDom();
+  saveStatsLayout(_statsLayout);
+
+  _finishResize();
+}
+
+function _onResizeGripPointerCancel(e) {
+  if (!_resizeState || e.pointerId !== _resizeState.pointerId) return;
+  const { cardEl, startSpan } = _resizeState;
+  // Interrupted mid-resize — revert to the width the card had before this
+  // drag started, discarding the live preview. No save (nothing changed).
+  _setCardWidth(cardEl, _spanToWidth(startSpan));
+  _finishResize();
 }
 
 
