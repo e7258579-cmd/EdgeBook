@@ -218,6 +218,7 @@ function _injectCardHandles(el) {
     moveHandle.setAttribute('title', 'Drag to move');
     moveHandle.setAttribute('aria-label', 'Drag to move card');
     moveHandle.textContent = '⠿';
+    moveHandle.addEventListener('pointerdown', _onMoveHandlePointerDown);
     el.appendChild(moveHandle);
   }
   if (!el.querySelector('.' + STATS_LAYOUT_RESIZE_GRIP_CLASS)) {
@@ -231,7 +232,10 @@ function _injectCardHandles(el) {
 
 function _removeCardHandles(el) {
   const moveHandle = el.querySelector('.' + STATS_LAYOUT_MOVE_HANDLE_CLASS);
-  if (moveHandle) moveHandle.remove();
+  if (moveHandle) {
+    moveHandle.removeEventListener('pointerdown', _onMoveHandlePointerDown);
+    moveHandle.remove();
+  }
   const resizeGrip = el.querySelector('.' + STATS_LAYOUT_RESIZE_GRIP_CLASS);
   if (resizeGrip) resizeGrip.remove();
 }
@@ -268,7 +272,143 @@ function toggleStatsLayoutEdit() {
   }
 }
 
-// ─── EXPOSE PUBLIC API ─────────────────────────────────────
+// ─── DRAG TO MOVE / SWAP / INSERT (Stage 5) ────────────────
+// Pointer-based drag, started only from the move handle (⠿) — never from
+// clicking the card body, so chart hover/tooltip interactions inside a
+// card are never hijacked by drag. Uses Pointer Events (covers mouse,
+// touch, and pen with one code path) + setPointerCapture so the drag
+// keeps tracking even if the pointer moves off the handle/card.
+//
+// Drop behavior:
+//   - Pointer released over another card (.section under #stats-grid)  → SWAP
+//     the dragged card and that card trade DOM positions.
+//   - Pointer released over #stats-grid itself but not over any card
+//     (i.e. empty grid space — the gap/whitespace area, or below the
+//     last row) → INSERT: dragged card is moved to the end of the grid.
+//   - Pointer released outside #stats-grid entirely → no-op (card stays
+//     where it was; nothing is reordered or saved).
+// On any successful drop (swap or insert) the in-memory layout is
+// recaptured from the DOM and persisted via saveStatsLayout(), matching
+// the "auto-save after every action" decision (Stage 7 in the plan) —
+// included now so Stage 5 is independently testable end-to-end.
+
+let _dragState = null; // { cardEl, grid, pointerId } while a drag is in progress, else null
+
+function _onMoveHandlePointerDown(e) {
+  if (!_statsLayoutEditing) return;
+  const handle = e.currentTarget;
+  const cardEl = handle.closest('.section[data-card-id]');
+  const grid = _getStatsGrid();
+  if (!cardEl || !grid) return;
+
+  e.preventDefault();
+
+  _dragState = { cardEl, grid, pointerId: e.pointerId };
+  handle.setPointerCapture(e.pointerId);
+
+  cardEl.classList.add('layout-dragging');
+
+  handle.addEventListener('pointermove', _onMoveHandlePointerMove);
+  handle.addEventListener('pointerup', _onMoveHandlePointerUp);
+  handle.addEventListener('pointercancel', _onMoveHandlePointerCancel);
+}
+
+// Finds the drop target under the pointer: either another card (for swap)
+// or the grid's own empty space (for insert). Returns
+// { type: 'swap', cardEl } | { type: 'insert' } | null (no valid target).
+function _resolveDropTarget(clientX, clientY) {
+  const { cardEl: draggedEl, grid } = _dragState;
+  const elAtPoint = document.elementFromPoint(clientX, clientY);
+  if (!elAtPoint) return null;
+
+  const hoveredCard = elAtPoint.closest('.section[data-card-id]');
+  if (hoveredCard && hoveredCard !== draggedEl && hoveredCard.parentElement === grid) {
+    return { type: 'swap', cardEl: hoveredCard };
+  }
+
+  // Not over a (different) card — check whether we're still over the grid's
+  // own empty space (gaps between/below cards count; outside the grid does not).
+  if (elAtPoint === grid || grid.contains(elAtPoint)) {
+    return { type: 'insert' };
+  }
+
+  return null;
+}
+
+function _clearDropTargetHighlight(grid) {
+  _getCardEls(grid).forEach(el => el.classList.remove('layout-drop-target'));
+}
+
+function _onMoveHandlePointerMove(e) {
+  if (!_dragState || e.pointerId !== _dragState.pointerId) return;
+  const { grid } = _dragState;
+
+  const target = _resolveDropTarget(e.clientX, e.clientY);
+  _clearDropTargetHighlight(grid);
+  if (target && target.type === 'swap') {
+    target.cardEl.classList.add('layout-drop-target');
+  }
+  // No highlight needed for 'insert' (empty grid space) or null (invalid drop) —
+  // the dragged card's reduced opacity is feedback enough for those cases.
+}
+
+function _finishDrag() {
+  if (!_dragState) return;
+  const { cardEl, grid } = _dragState;
+
+  cardEl.classList.remove('layout-dragging');
+  _clearDropTargetHighlight(grid);
+
+  const handle = cardEl.querySelector('.' + STATS_LAYOUT_MOVE_HANDLE_CLASS);
+  if (handle) {
+    handle.removeEventListener('pointermove', _onMoveHandlePointerMove);
+    handle.removeEventListener('pointerup', _onMoveHandlePointerUp);
+    handle.removeEventListener('pointercancel', _onMoveHandlePointerCancel);
+    try { handle.releasePointerCapture(_dragState.pointerId); } catch (err) { /* already released */ }
+  }
+
+  _dragState = null;
+}
+
+function _onMoveHandlePointerUp(e) {
+  if (!_dragState || e.pointerId !== _dragState.pointerId) return;
+  const { cardEl, grid } = _dragState;
+
+  const target = _resolveDropTarget(e.clientX, e.clientY);
+
+  if (target && target.type === 'swap') {
+    // Trade DOM positions: insert a marker before the dragged card, move the
+    // dragged card to where the target card was, then move the target card
+    // to the marker. Keeps both elements (and any live Chart.js instances
+    // inside them) intact — only their position in the DOM changes.
+    const marker = document.createComment('stats-layout-swap-marker');
+    grid.insertBefore(marker, cardEl);
+    grid.insertBefore(cardEl, target.cardEl);
+    grid.insertBefore(target.cardEl, marker);
+    marker.remove();
+
+    _captureLayoutFromDom();
+    saveStatsLayout(_statsLayout);
+  } else if (target && target.type === 'insert') {
+    // Dropped on empty grid space (not on another card) — move to the end.
+    grid.appendChild(cardEl);
+
+    _captureLayoutFromDom();
+    saveStatsLayout(_statsLayout);
+  }
+  // else: dropped outside the grid entirely — no reorder, no save.
+
+  _finishDrag();
+}
+
+function _onMoveHandlePointerCancel(e) {
+  if (!_dragState || e.pointerId !== _dragState.pointerId) return;
+  // Pointer interaction was interrupted (e.g. browser gesture, alt-tab) —
+  // abandon the drag without reordering or saving.
+  _finishDrag();
+}
+
+
 window.initStatsLayout       = initStatsLayout;
 window.getStatsLayout        = getStatsLayout;
 window.saveStatsLayout       = saveStatsLayout;
