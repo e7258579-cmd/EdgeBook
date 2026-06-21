@@ -402,6 +402,10 @@ function renderStats() {
   }</div>`;
 
   renderEquityChart(); renderDayStats(); renderMoodStats(); renderHoldTimeChart(); renderPriceRangeChart(); renderHourlyChart();
+
+  // Apply saved card layout (order + width) now that all cards are populated.
+  // Lives in statsLayout.js — generic layout module, no trading logic.
+  if (typeof initStatsLayout === 'function') initStatsLayout();
 }
 
 function renderEquityChart() {
