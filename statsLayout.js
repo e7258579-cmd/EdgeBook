@@ -534,6 +534,18 @@ function _updateGhostForTarget(ghost, target) {
 
 function _onMoveHandlePointerMove(e) {
   if (!_dragState || e.pointerId !== _dragState.pointerId) return;
+
+  // ── Threshold guard ──────────────────────────────────────────────────────
+  // Don't activate a drag until the pointer has moved at least
+  // STATS_LAYOUT_DRAG_THRESHOLD_PX from the initial press point.
+  // This means a plain click/tap on the handle does absolutely nothing.
+  if (!_dragState.active) {
+    const dx = e.clientX - _dragState.startX;
+    const dy = e.clientY - _dragState.startY;
+    if (Math.sqrt(dx * dx + dy * dy) < STATS_LAYOUT_DRAG_THRESHOLD_PX) return;
+    _activateDrag(); // crosses threshold for the first time — create ghost + hide original
+  }
+
   const { grid, ghostEl } = _dragState;
 
   // Always update ghost position first — it must track the pointer every
@@ -582,6 +594,14 @@ function _finishDrag() {
 
 function _onMoveHandlePointerUp(e) {
   if (!_dragState || e.pointerId !== _dragState.pointerId) return;
+
+  // If the drag threshold was never crossed (plain click/tap) — just clean up
+  // the listeners without performing any drop action.
+  if (!_dragState.active) {
+    _finishDrag();
+    return;
+  }
+
   const { cardEl, grid } = _dragState;
 
   // Clear the indicator/highlight before resolving — same reasoning as in
