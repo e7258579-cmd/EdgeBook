@@ -227,8 +227,7 @@ function _injectCardHandles(el) {
     resizeGrip.className = STATS_LAYOUT_RESIZE_GRIP_CLASS;
     resizeGrip.setAttribute('title', 'Drag to resize');
     resizeGrip.setAttribute('aria-label', 'Drag to resize card');
-    // No pointerdown listener here — interact.js attaches its own listeners
-    // via the '.stats-layout-resize-grip' edge selector in _initInteractResize().
+    // No pointerdown listener — interact.js attaches its own via _initInteractResize().
     el.appendChild(resizeGrip);
   }
 }
@@ -238,7 +237,7 @@ function _removeCardHandles(el) {
   if (moveHandle) moveHandle.remove(); // SortableJS handles its own listener cleanup
   const resizeGrip = el.querySelector('.' + STATS_LAYOUT_RESIZE_GRIP_CLASS);
   if (resizeGrip) {
-    // No manual listener to remove — interact.js manages its own teardown via _destroyInteractResize().
+    // No manual listener to remove — interact.js manages its own teardown.
     resizeGrip.remove();
   }
 }
@@ -264,7 +263,7 @@ function _exitStatsLayoutEdit() {
     _getCardEls(grid).forEach(_removeCardHandles);
   }
   _disableSortable();         // pause SortableJS without destroying the instance
-  _destroyInteractResize();   // destroy interact instance so snap targets are recalculated fresh next time
+  _destroyInteractResize();   // destroy so snap targets recalculate fresh next time
 
   const btn = document.getElementById('stats-layout-edit-btn');
   if (btn) btn.classList.remove('active');
@@ -376,22 +375,25 @@ function _initInteractResize() {
   if (_interactInstance) { _interactInstance.unset(); _interactInstance = null; }
 
   const snapTargets = _computeSnapTargets();
+  const minWidth    = snapTargets[0] ? snapTargets[0].width : 100;
+  const maxWidth    = snapTargets[snapTargets.length - 1] ? snapTargets[snapTargets.length - 1].width : Infinity;
 
   _interactInstance = interact('.stats-grid .section[data-card-id]')
     .resizable({
       edges: { right: '.' + STATS_LAYOUT_RESIZE_GRIP_CLASS },
-      // Snap live during drag to the 3 tier widths — this is the key
-      // improvement over the previous manual approach: the card "locks"
-      // visually to each tier as the pointer crosses its midpoint, giving
-      // clear tactile feedback before the user releases.
       modifiers: [
+        // offset:'self' evaluates snap targets against the card's current
+        // absolute width — not relative to where the drag started.
+        // This is what makes shrinking work: dragging left correctly
+        // snaps to smaller tiers instead of being anchored to startCoords.
         interact.modifiers.snapSize({
           targets: snapTargets,
-          range: Infinity,   // always snap to nearest — no dead-zones
-          offset: 'startCoords'
+          range: Infinity,  // always snap to nearest tier — no dead-zones
+          offset: 'self'    // ← key fix: absolute, not relative
         }),
         interact.modifiers.restrictSize({
-          min: { width: snapTargets[0] && snapTargets[0].width || 100 }
+          min: { width: minWidth },
+          max: { width: maxWidth }
         })
       ],
       listeners: {
