@@ -354,10 +354,21 @@ function _onMoveHandlePointerDown(e) {
 
   e.preventDefault();
 
+  // Measure once at drag start — used by _updateGhostForTarget() every
+  // pointermove frame to resize the ghost without re-querying the DOM.
+  const cardRect = cardEl.getBoundingClientRect();
+  const gridStyle = window.getComputedStyle(grid);
+  const gapPx = parseFloat(gridStyle.columnGap || gridStyle.gap) || 0;
+  const columnWidth = (grid.getBoundingClientRect().width - gapPx * 5) / 6;
+
   const ghostEl = _createDragGhost(cardEl);
   _moveDragGhost(ghostEl, e.clientX, e.clientY);
 
-  _dragState = { cardEl, grid, pointerId: e.pointerId, ghostEl };
+  _dragState = {
+    cardEl, grid, pointerId: e.pointerId, ghostEl,
+    origW: cardRect.width, origH: cardRect.height,
+    columnWidth, gapPx
+  };
   handle.setPointerCapture(e.pointerId);
 
   cardEl.classList.add('layout-dragging');
@@ -442,6 +453,58 @@ function _showInsertIndicator(grid, beforeEl) {
   }
 }
 
+// Resizes the ghost to visually communicate what will happen on drop:
+//   - insert between cards  → thin vertical line (4px wide, full row height)
+//   - insert into empty space → card-shaped box sized to the slot
+//   - swap                  → card-shaped box sized to the target card
+//   - null (no valid target) → original dragged-card dimensions (neutral)
+function _updateGhostForTarget(ghost, target) {
+  const { origW, origH, columnWidth, gapPx } = _dragState;
+
+  if (!target) {
+    // Outside grid or no-op — neutral ghost (original card size).
+    ghost.style.width  = origW + 'px';
+    ghost.style.height = origH + 'px';
+    ghost.style.borderRadius = '';
+    return;
+  }
+
+  if (target.type === 'swap') {
+    // Match the size of the card we'd swap with.
+    const r = target.cardEl.getBoundingClientRect();
+    ghost.style.width  = r.width  + 'px';
+    ghost.style.height = r.height + 'px';
+    ghost.style.borderRadius = '';
+    return;
+  }
+
+  if (target.type === 'insert') {
+    if (target.beforeEl) {
+      // Inserting between two cards — show a thin vertical bar.
+      // Height matches the row: use the reference card's height.
+      const refH = target.beforeEl.getBoundingClientRect().height;
+      ghost.style.width  = '4px';
+      ghost.style.height = (refH || origH) + 'px';
+      ghost.style.borderRadius = '2px';
+    } else {
+      // Inserting into empty space at end of grid — size the ghost to
+      // whatever span would be snapped to if dropped here.  We use the
+      // same span-tier logic as the resize module: pick the tier whose
+      // pixel width is closest to the original card's width, but cap at
+      // whatever fits (full-width slot = all 6 columns).
+      const tiers = [2, 3, 6]; // third, half, full
+      const origSpan = (origW + gapPx) / (columnWidth + gapPx);
+      const snappedSpan = tiers.reduce((best, t) =>
+        Math.abs(t - origSpan) < Math.abs(best - origSpan) ? t : best
+      );
+      const slotW = snappedSpan * columnWidth + (snappedSpan - 1) * gapPx;
+      ghost.style.width  = slotW + 'px';
+      ghost.style.height = origH + 'px';
+      ghost.style.borderRadius = '';
+    }
+  }
+}
+
 function _onMoveHandlePointerMove(e) {
   if (!_dragState || e.pointerId !== _dragState.pointerId) return;
   const { grid, ghostEl } = _dragState;
@@ -459,13 +522,14 @@ function _onMoveHandlePointerMove(e) {
   _clearDropTargetHighlight(grid);
 
   const target = _resolveDropTarget(e.clientX, e.clientY);
+  _updateGhostForTarget(ghostEl, target);
   if (target && target.type === 'swap') {
     target.cardEl.classList.add('layout-drop-target');
   } else if (target && target.type === 'insert') {
     _showInsertIndicator(grid, target.beforeEl);
   }
-  // null (invalid drop, outside the grid) → no highlight; dragged card's
-  // reduced opacity is feedback enough.
+  // null (invalid drop, outside the grid) → no highlight; ghost reverts to
+  // original size (handled inside _updateGhostForTarget).
 }
 
 function _finishDrag() {
