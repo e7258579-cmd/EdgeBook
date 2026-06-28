@@ -248,8 +248,8 @@ function _enterStatsLayoutEdit() {
   _statsLayoutEditing = true;
   grid.classList.add('layout-editing');
   _getCardEls(grid).forEach(_injectCardHandles);
-  _initSortable(grid);        // enable SortableJS drag-to-reorder
-  _initInteractResize();      // enable interact.js drag-to-resize
+  _initSortable(grid);
+  _initInteractResize();
 
   const btn = document.getElementById('stats-layout-edit-btn');
   if (btn) btn.classList.add('active');
@@ -262,8 +262,8 @@ function _exitStatsLayoutEdit() {
     grid.classList.remove('layout-editing');
     _getCardEls(grid).forEach(_removeCardHandles);
   }
-  _disableSortable();         // pause SortableJS without destroying the instance
-  _destroyInteractResize();   // destroy so snap targets recalculate fresh next time
+  _disableSortable();
+  _destroyInteractResize();
 
   const btn = document.getElementById('stats-layout-edit-btn');
   if (btn) btn.classList.remove('active');
@@ -307,11 +307,18 @@ function _initSortable(grid) {
   }
 
   _sortableInstance = Sortable.create(grid, {
-    handle: '.' + STATS_LAYOUT_MOVE_HANDLE_CLASS,
+    // No `handle` — the entire card is draggable in edit mode.
+    // The resize grip and standard interactive elements are excluded via `filter`
+    // so chart tooltips, buttons, inputs and the resize grip still work normally.
+    filter: [
+      '.' + STATS_LAYOUT_RESIZE_GRIP_CLASS,
+      'button', 'input', 'select', 'textarea', 'a',
+      'canvas',   // Chart.js canvases — let tooltips/hover still fire
+    ].join(','),
+    preventOnFilter: true,  // don't start a drag when clicking filtered elements
     animation: 200,
     ghostClass: 'layout-sortable-ghost',
     dragClass: 'layout-sortable-drag',
-    filter: '.' + STATS_LAYOUT_RESIZE_GRIP_CLASS, // resize grip clicks don't start a drag
     onEnd: function () {
       _captureLayoutFromDom();
       saveStatsLayout(_statsLayout);
@@ -375,25 +382,23 @@ function _initInteractResize() {
   if (_interactInstance) { _interactInstance.unset(); _interactInstance = null; }
 
   const snapTargets = _computeSnapTargets();
-  const minWidth    = snapTargets[0] ? snapTargets[0].width : 100;
-  const maxWidth    = snapTargets[snapTargets.length - 1] ? snapTargets[snapTargets.length - 1].width : Infinity;
 
   _interactInstance = interact('.stats-grid .section[data-card-id]')
     .resizable({
       edges: { right: '.' + STATS_LAYOUT_RESIZE_GRIP_CLASS },
+      // Snap live during drag to the 3 tier widths — this is the key
+      // improvement over the previous manual approach: the card "locks"
+      // visually to each tier as the pointer crosses its midpoint, giving
+      // clear tactile feedback before the user releases.
       modifiers: [
-        // offset:'self' evaluates snap targets against the card's current
-        // absolute width — not relative to where the drag started.
-        // This is what makes shrinking work: dragging left correctly
-        // snaps to smaller tiers instead of being anchored to startCoords.
         interact.modifiers.snapSize({
           targets: snapTargets,
-          range: Infinity,  // always snap to nearest tier — no dead-zones
-          offset: 'self'    // ← key fix: absolute, not relative
+          range: Infinity,
+          offset: 'self'    // absolute — enables shrinking (not relative to drag start)
         }),
         interact.modifiers.restrictSize({
-          min: { width: minWidth },
-          max: { width: maxWidth }
+          min: { width: snapTargets[0] ? snapTargets[0].width : 100 },
+          max: { width: snapTargets[snapTargets.length - 1] ? snapTargets[snapTargets.length - 1].width : Infinity }
         })
       ],
       listeners: {

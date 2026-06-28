@@ -518,10 +518,11 @@
   /* Per-card edit-mode chrome: handles hidden by default, shown only in edit mode */
   .stats-grid .section{position:relative}
   .stats-layout-move-handle,.stats-layout-resize-grip{display:none}
-  .stats-grid.layout-editing .section{cursor:default;transition:box-shadow .15s}
+  .stats-grid.layout-editing .section{cursor:grab;transition:box-shadow .15s}
+  .stats-grid.layout-editing .section:active{cursor:grabbing}
   .stats-grid.layout-editing .stats-layout-move-handle{
     display:flex;align-items:center;justify-content:center;
-    position:absolute;top:8px;right:8px;z-index:2;
+    position:absolute;top:8px;left:8px;z-index:2;
     width:24px;height:24px;border-radius:6px;
     background:var(--bg2);border:1px solid var(--border);
     color:var(--text2);font-size:14px;letter-spacing:-1px;line-height:1;
