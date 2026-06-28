@@ -314,31 +314,32 @@ const STATS_LAYOUT_INSERT_INDICATOR_CLASS = 'layout-insert-indicator';
 const STATS_LAYOUT_DRAG_GHOST_CLASS       = 'stats-layout-drag-ghost';
 
 // ── Ghost helpers ──────────────────────────────────────────
-// Creates the ghost element sized to match the dragged card and appends it
-// to document.body (fixed positioning, so it's never clipped by the grid's
-// overflow or stacking context). Returns the ghost element.
+// Creates a visual clone of the dragged card, positioned exactly over the
+// original card so the drag appears to "pick up" the card itself.
+// The clone is appended to document.body with fixed positioning so it
+// escapes the grid's stacking context and can move freely above everything.
 function _createDragGhost(cardEl) {
   const rect = cardEl.getBoundingClientRect();
   const ghost = document.createElement('div');
   ghost.className = STATS_LAYOUT_DRAG_GHOST_CLASS;
   ghost.style.width  = rect.width  + 'px';
   ghost.style.height = rect.height + 'px';
-  // Start it off-screen so there's no flash at (0,0) before the first
-  // pointermove positions it correctly.
-  ghost.style.left = '-9999px';
-  ghost.style.top  = '-9999px';
+  // Start exactly over the original card — gives the illusion of picking
+  // it up directly rather than spawning a new element.
+  ghost.style.left = rect.left + 'px';
+  ghost.style.top  = rect.top  + 'px';
   document.body.appendChild(ghost);
   return ghost;
 }
 
-// Moves the ghost so its top-left corner tracks the pointer, offset slightly
-// so the ghost doesn't sit directly under the pointer — this keeps
-// elementFromPoint() (used in _resolveDropTarget) seeing the actual grid
-// elements below rather than the ghost, which has pointer-events:none in CSS
-// but could still interfere with hit-testing in some edge cases.
+// Moves the ghost so it stays centered under the pointer, using the
+// offset from the point where the drag started (where the handle was
+// clicked) so the card doesn't jump relative to the finger/cursor.
+// dragOffsetX/Y are stored in _dragState at pointerdown.
 function _moveDragGhost(ghost, clientX, clientY) {
-  ghost.style.left = (clientX + 12) + 'px';
-  ghost.style.top  = (clientY - 20) + 'px';
+  const { dragOffsetX, dragOffsetY } = _dragState;
+  ghost.style.left = (clientX - dragOffsetX) + 'px';
+  ghost.style.top  = (clientY - dragOffsetY) + 'px';
 }
 
 function _removeDragGhost(ghost) {
@@ -354,24 +355,37 @@ function _onMoveHandlePointerDown(e) {
 
   e.preventDefault();
 
-  // Measure once at drag start — used by _updateGhostForTarget() every
-  // pointermove frame to resize the ghost without re-querying the DOM.
+  // Measure once at drag start — used every pointermove frame.
   const cardRect = cardEl.getBoundingClientRect();
   const gridStyle = window.getComputedStyle(grid);
   const gapPx = parseFloat(gridStyle.columnGap || gridStyle.gap) || 0;
   const columnWidth = (grid.getBoundingClientRect().width - gapPx * 5) / 6;
 
+  // How far from the card's top-left corner the pointer landed — used by
+  // _moveDragGhost() so the ghost stays anchored under the grab point
+  // instead of jumping to center on pointer-down.
+  const dragOffsetX = e.clientX - cardRect.left;
+  const dragOffsetY = e.clientY - cardRect.top;
+
   const ghostEl = _createDragGhost(cardEl);
-  _moveDragGhost(ghostEl, e.clientX, e.clientY);
 
   _dragState = {
     cardEl, grid, pointerId: e.pointerId, ghostEl,
     origW: cardRect.width, origH: cardRect.height,
-    columnWidth, gapPx
+    columnWidth, gapPx,
+    dragOffsetX, dragOffsetY
   };
+
+  // Move ghost to pointer position immediately (in case there's no
+  // pointermove before pointerup on a tap/click).
+  _moveDragGhost(ghostEl, e.clientX, e.clientY);
+
   handle.setPointerCapture(e.pointerId);
 
-  cardEl.classList.add('layout-dragging');
+  // Hide the original card in place — keeps its grid slot occupied so
+  // the layout doesn't reflow, but makes it invisible so only the ghost
+  // is seen. Restored in _finishDrag via cardEl.style.visibility = ''.
+  cardEl.style.visibility = 'hidden';
 
   handle.addEventListener('pointermove', _onMoveHandlePointerMove);
   handle.addEventListener('pointerup', _onMoveHandlePointerUp);
@@ -536,7 +550,9 @@ function _finishDrag() {
   if (!_dragState) return;
   const { cardEl, grid, ghostEl } = _dragState;
 
-  cardEl.classList.remove('layout-dragging');
+  // Restore the original card's visibility before removing the ghost,
+  // so there's no frame where neither the card nor the ghost is visible.
+  cardEl.style.visibility = '';
   _clearDropTargetHighlight(grid);
   _removeDragGhost(ghostEl);
 
