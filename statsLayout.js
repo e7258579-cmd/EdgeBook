@@ -519,6 +519,61 @@ function _updateGhostForTarget(ghost, target) {
   }
 }
 
+// ─── ROW CAPACITY CHECK (Stage C) ──────────────────────────
+// Before allowing an insert drop, verify the target row has enough free
+// columns to accommodate the dragged card. Swap drops are always allowed
+// (they exchange two cards without changing any row's total column count).
+
+// Returns the grid-column span of a card element based on its width class.
+function _getCardSpan(el) {
+  if (el.classList.contains('card-w-full'))  return 6;
+  if (el.classList.contains('card-w-third')) return 2;
+  return 3; // card-w-half (default)
+}
+
+// Returns the span of the dragged card, derived from its original width
+// stored in _dragState (measured at pointerdown, before visibility:hidden).
+function _getDraggedSpan() {
+  const { origW, columnWidth, gapPx } = _dragState;
+  const rawSpan = (origW + gapPx) / (columnWidth + gapPx);
+  // Snap to the nearest tier, same as resize snap logic.
+  return [2, 3, 6].reduce((best, t) =>
+    Math.abs(t - rawSpan) < Math.abs(best - rawSpan) ? t : best
+  );
+}
+
+// Given a reference element (the card that would be displaced, i.e.
+// `beforeEl` for insert), finds all cards in the same visual row and
+// returns whether the dragged card's span fits in the remaining space.
+// "Same row" = cards whose getBoundingClientRect().top is within ROW_TOLERANCE
+// pixels of the reference card's top (handles sub-pixel rendering differences).
+const STATS_LAYOUT_ROW_TOLERANCE_PX = 8;
+
+function _hasRoomInRow(referenceEl) {
+  const { cardEl: draggedEl, grid } = _dragState;
+  // If referenceEl is null (insert at end of grid), the dragged card
+  // goes to a new row or an empty slot — always has room.
+  if (!referenceEl) return true;
+
+  const refTop  = referenceEl.getBoundingClientRect().top;
+  const draggedSpan = _getDraggedSpan();
+
+  // Sum spans of all cards in the same row as referenceEl, excluding the
+  // dragged card itself (it's currently invisible / hidden in the grid but
+  // still occupies its slot — we exclude it so we're measuring only the
+  // "other" cards in that row).
+  let usedSpans = 0;
+  _getCardEls(grid).forEach(el => {
+    if (el === draggedEl) return; // dragged card's slot is what we're filling
+    const top = el.getBoundingClientRect().top;
+    if (Math.abs(top - refTop) <= STATS_LAYOUT_ROW_TOLERANCE_PX) {
+      usedSpans += _getCardSpan(el);
+    }
+  });
+
+  return (usedSpans + draggedSpan) <= 6;
+}
+
 function _onMoveHandlePointerMove(e) {
   if (!_dragState || e.pointerId !== _dragState.pointerId) return;
   const { grid, ghostEl } = _dragState;
@@ -536,6 +591,18 @@ function _onMoveHandlePointerMove(e) {
   _clearDropTargetHighlight(grid);
 
   const target = _resolveDropTarget(e.clientX, e.clientY);
+
+  // For insert targets, check if the dragged card actually fits in the
+  // target row. If not, treat it as a blocked drop: show the ghost dimmed
+  // and skip the insert indicator — no visual promise of a drop that won't happen.
+  if (target && target.type === 'insert' && !_hasRoomInRow(target.beforeEl)) {
+    ghostEl.style.opacity = '0.3';
+    return; // don't show indicator, don't highlight anything
+  }
+
+  // Valid target (or swap, which is always allowed) — restore ghost opacity
+  // and show the appropriate visual feedback.
+  ghostEl.style.opacity = '';
   _updateGhostForTarget(ghostEl, target);
   if (target && target.type === 'swap') {
     target.cardEl.classList.add('layout-drop-target');
@@ -592,6 +659,12 @@ function _onMoveHandlePointerUp(e) {
     _captureLayoutFromDom();
     saveStatsLayout(_statsLayout);
   } else if (target && target.type === 'insert') {
+    // Before moving, verify the target row has room for the dragged card.
+    // If not, silently abort — the card stays where it was, nothing is saved.
+    if (!_hasRoomInRow(target.beforeEl)) {
+      _finishDrag();
+      return;
+    }
     // Move the dragged card to sit directly before `beforeEl` (or to the
     // end, if beforeEl is null) — a true positional insert, not just append.
     if (target.beforeEl) {
