@@ -303,7 +303,7 @@ function toggleStatsLayoutEdit() {
 // the "auto-save after every action" decision (Stage 7 in the plan) —
 // included now so Stage 5 is independently testable end-to-end.
 
-let _dragState = null; // { cardEl, grid, pointerId } while a drag is in progress, else null
+let _dragState = null; // { cardEl, grid, pointerId, ghostEl } while a drag is in progress, else null
 
 // How close to a card's left/right edge (as a fraction of its width) the
 // pointer must be for that side to count as an "insert here" zone rather
@@ -311,6 +311,39 @@ let _dragState = null; // { cardEl, grid, pointerId } while a drag is in progres
 const STATS_LAYOUT_INSERT_EDGE_RATIO = 0.25;
 
 const STATS_LAYOUT_INSERT_INDICATOR_CLASS = 'layout-insert-indicator';
+const STATS_LAYOUT_DRAG_GHOST_CLASS       = 'stats-layout-drag-ghost';
+
+// ── Ghost helpers ──────────────────────────────────────────
+// Creates the ghost element sized to match the dragged card and appends it
+// to document.body (fixed positioning, so it's never clipped by the grid's
+// overflow or stacking context). Returns the ghost element.
+function _createDragGhost(cardEl) {
+  const rect = cardEl.getBoundingClientRect();
+  const ghost = document.createElement('div');
+  ghost.className = STATS_LAYOUT_DRAG_GHOST_CLASS;
+  ghost.style.width  = rect.width  + 'px';
+  ghost.style.height = rect.height + 'px';
+  // Start it off-screen so there's no flash at (0,0) before the first
+  // pointermove positions it correctly.
+  ghost.style.left = '-9999px';
+  ghost.style.top  = '-9999px';
+  document.body.appendChild(ghost);
+  return ghost;
+}
+
+// Moves the ghost so its top-left corner tracks the pointer, offset slightly
+// so the ghost doesn't sit directly under the pointer — this keeps
+// elementFromPoint() (used in _resolveDropTarget) seeing the actual grid
+// elements below rather than the ghost, which has pointer-events:none in CSS
+// but could still interfere with hit-testing in some edge cases.
+function _moveDragGhost(ghost, clientX, clientY) {
+  ghost.style.left = (clientX + 12) + 'px';
+  ghost.style.top  = (clientY - 20) + 'px';
+}
+
+function _removeDragGhost(ghost) {
+  if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
+}
 
 function _onMoveHandlePointerDown(e) {
   if (!_statsLayoutEditing) return;
@@ -321,7 +354,10 @@ function _onMoveHandlePointerDown(e) {
 
   e.preventDefault();
 
-  _dragState = { cardEl, grid, pointerId: e.pointerId };
+  const ghostEl = _createDragGhost(cardEl);
+  _moveDragGhost(ghostEl, e.clientX, e.clientY);
+
+  _dragState = { cardEl, grid, pointerId: e.pointerId, ghostEl };
   handle.setPointerCapture(e.pointerId);
 
   cardEl.classList.add('layout-dragging');
@@ -408,7 +444,11 @@ function _showInsertIndicator(grid, beforeEl) {
 
 function _onMoveHandlePointerMove(e) {
   if (!_dragState || e.pointerId !== _dragState.pointerId) return;
-  const { grid } = _dragState;
+  const { grid, ghostEl } = _dragState;
+
+  // Always update ghost position first — it must track the pointer every
+  // frame regardless of what the drop-target resolution decides below.
+  _moveDragGhost(ghostEl, e.clientX, e.clientY);
 
   // Remove any existing indicator/highlight FIRST, before resolving the drop
   // target. The indicator bar is itself a grid item (span 1 column) that
@@ -430,10 +470,11 @@ function _onMoveHandlePointerMove(e) {
 
 function _finishDrag() {
   if (!_dragState) return;
-  const { cardEl, grid } = _dragState;
+  const { cardEl, grid, ghostEl } = _dragState;
 
   cardEl.classList.remove('layout-dragging');
   _clearDropTargetHighlight(grid);
+  _removeDragGhost(ghostEl);
 
   const handle = cardEl.querySelector('.' + STATS_LAYOUT_MOVE_HANDLE_CLASS);
   if (handle) {

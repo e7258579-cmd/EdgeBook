@@ -560,6 +560,15 @@
      any transition on .section is suspended so it tracks the pointer
      with zero lag instead of easing toward it. */
   .stats-grid .section.layout-resizing{z-index:3;transition:none}
+  /* Drag ghost: floating clone that follows the pointer during a card move.
+     Fixed position so it escapes the grid's stacking context; pointer-events
+     none so it never blocks elementFromPoint() on the grid beneath it. */
+  .stats-layout-drag-ghost{
+    position:fixed;pointer-events:none;z-index:1000;
+    border-radius:var(--radius);
+    background:var(--bg2);border:2px solid var(--text2);
+    opacity:.8;
+  }
   .form-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
   .form-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px}
   .form-row-4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px}
