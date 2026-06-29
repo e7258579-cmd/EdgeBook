@@ -534,25 +534,12 @@ function onReflectionInput(event) {
   }, 500);
 }
 
-// ─── AI ANALYSIS ─────────────────────────────────────────────────────────────
-async function generateDayAI(dateStr, entryId) {
-  const outputEl = document.getElementById('ai-output-' + entryId);
-  if (!outputEl) return;
+// ─── AI ANALYSIS — DAY ───────────────────────────────────────────────────────
 
-  outputEl.innerHTML = `<div class="jrn-ai-loading"><div class="jrn-spinner"></div> Analyzing…</div>`;
-
-  const trades    = _getDayTrades(dateStr);
-  const entry     = _jrnEntries[entryId];
-  const reflection = entry ? (entry.reflection || '') : '';
-
-  const tradesSummary = _groupBySymbol(trades).map(g =>
-    `${g.symbol}: ${g.trades.length} trade(s), net P&L ${_fmt$(g.netPnl)}, ` +
-    g.trades.map(t =>
-      `${(t.direction||t.dir||'').toUpperCase()} entry $${parseFloat(t.entry||0).toFixed(2)} exit $${parseFloat(t.exit||0).toFixed(2)} qty ${t.qty||t.shares||'?'}`
-    ).join('; ')
-  ).join('\n');
-
-  const prompt = `You are analyzing a day trader's journal entry.
+// Builds the content array for the Anthropic API, interleaving the text
+// prompt with any base64 screenshots the user attached to the day entry.
+function _buildDayAiContent(dateStr, tradesSummary, reflection, screenshots) {
+  const textPrompt = `You are analyzing a day trader's journal entry.
 
 Date: ${dateStr}
 Trades:
@@ -560,13 +547,54 @@ ${tradesSummary}
 
 Trader's reflection: ${reflection || '(none provided)'}
 
-Analyze this trading day covering:
+${screenshots.length ? `The trader also attached ${screenshots.length} chart screenshot(s) above. Reference them where relevant.\n` : ''}Analyze this trading day covering:
 1. Mental/emotional state based on the reflection
 2. Technical execution quality (entries, exits, timing)
 3. P&L breakdown and patterns
 4. What went well and what to improve
 
 Be concise, specific, and actionable. Max 200 words.`;
+
+  if (!screenshots.length) return textPrompt; // plain string → API accepts both
+
+  // Build a multimodal content array: images first, then the text prompt
+  const parts = [];
+  for (const dataUrl of screenshots) {
+    // dataUrl is 'data:image/png;base64,XXXX' or 'data:image/jpeg;base64,XXXX'
+    const [header, b64] = dataUrl.split(',');
+    const mediaType = (header.match(/:(.*?);/) || [])[1] || 'image/png';
+    parts.push({
+      type: 'image',
+      source: { type: 'base64', media_type: mediaType, data: b64 }
+    });
+  }
+  parts.push({ type: 'text', text: textPrompt });
+  return parts;
+}
+
+async function generateDayAI(dateStr, entryId) {
+  const outputEl = document.getElementById('ai-output-' + entryId);
+  const btnEl    = document.querySelector(`[onclick="generateDayAI('${dateStr}','${entryId}')"]`);
+  if (!outputEl) return;
+
+  // Disable button while running
+  if (btnEl) { btnEl.disabled = true; btnEl.style.opacity = '.5'; }
+  outputEl.innerHTML = `<div class="jrn-ai-loading"><div class="jrn-spinner"></div> Analyzing…</div>`;
+
+  const trades      = _getDayTrades(dateStr);
+  const entry       = _jrnEntries[entryId];
+  const reflection  = entry ? (entry.reflection || '') : '';
+  const screenshots = entry ? (entry.screenshots || []) : [];
+
+  const tradesSummary = _groupBySymbol(trades).map(g =>
+    `${g.symbol}: ${g.trades.length} trade(s), net P&L ${_fmt$(g.netPnl)}, ` +
+    g.trades.map(t =>
+      `${(t.direction||t.dir||'').toUpperCase()} entry $${parseFloat(t.entry||0).toFixed(2)} ` +
+      `exit $${parseFloat(t.exit||0).toFixed(2)} qty ${t.qty||t.shares||'?'}`
+    ).join('; ')
+  ).join('\n');
+
+  const content = _buildDayAiContent(dateStr, tradesSummary, reflection, screenshots);
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -575,24 +603,168 @@ Be concise, specific, and actionable. Max 200 words.`;
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 1000,
-        messages: [{ role: 'user', content: prompt }]
+        messages: [{ role: 'user', content }]
       })
     });
     const data = await res.json();
+    if (data.error) throw new Error(data.error.message || 'API error');
     const text = (data.content || []).map(b => b.type === 'text' ? b.text : '').join('');
 
-    // Save to Firestore
-    const existing = _jrnEntries[entryId] || (typeof makeDayEntry === 'function' ? makeDayEntry(dateStr) : { id: entryId, date: dateStr, type: 'day' });
-    const updated  = { ...existing, aiSummary: text, aiGeneratedAt: Date.now() };
+    // Persist to Firestore
+    const existing = _jrnEntries[entryId] || (typeof makeDayEntry === 'function'
+      ? makeDayEntry(dateStr)
+      : { id: entryId, date: dateStr, type: 'day' });
+    const updated = { ...existing, aiSummary: text, aiGeneratedAt: Date.now() };
     _jrnEntries[entryId] = updated;
     if (typeof saveJournalEntry === 'function') await saveJournalEntry(updated);
 
     outputEl.innerHTML = `<div class="jrn-ai-text" contenteditable="true" data-entry-id="${entryId}" data-field="aiSummary" onInput="onAiTextInput(event)">${_escHtml(text)}</div>`;
+
+    // Flip button label to "Regenerate"
+    if (btnEl) btnEl.innerHTML = `
+      <svg viewBox="0 0 24 24" width="13" height="13"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      Regenerate`;
   } catch(e) {
     console.error('AI analysis error:', e);
-    outputEl.innerHTML = `<div class="jrn-ai-error">Failed to generate analysis. Check your connection.</div>`;
+    outputEl.innerHTML = `<div class="jrn-ai-error">Failed to generate analysis — ${_escHtml(e.message || 'check your connection')}.</div>`;
+  } finally {
+    if (btnEl) { btnEl.disabled = false; btnEl.style.opacity = ''; }
   }
 }
+
+// ─── AI ANALYSIS — PER SYMBOL (Stage 4 / Stage 6 entry point) ───────────────
+
+// Popover state — only one open at a time
+let _symPopover = null;
+
+function _closeSymPopover() {
+  if (_symPopover) {
+    _symPopover.remove();
+    _symPopover = null;
+  }
+}
+
+// Opens a popover anchored below the symbol row's AI button
+async function generateSymbolAI(dateStr, symbol, btnEl) {
+  // Close any existing popover
+  _closeSymPopover();
+
+  // Build popover
+  const pop = document.createElement('div');
+  pop.className = 'jrn-sym-popover';
+  pop.innerHTML = `
+    <div class="jrn-sym-pop-header">
+      <span class="jrn-sym-pop-title">AI — ${_escHtml(symbol)}</span>
+      <button class="jrn-sym-pop-close" onclick="jrnCloseSymPopover()" aria-label="Close">✕</button>
+    </div>
+    <div class="jrn-sym-pop-body">
+      <div class="jrn-ai-loading"><div class="jrn-spinner"></div> Analyzing ${_escHtml(symbol)}…</div>
+    </div>`;
+  document.body.appendChild(pop);
+  _symPopover = pop;
+
+  // Position below the button
+  _positionSymPopover(pop, btnEl);
+
+  // Close on outside click
+  const outsideHandler = (e) => {
+    if (!pop.contains(e.target) && e.target !== btnEl) {
+      _closeSymPopover();
+      document.removeEventListener('click', outsideHandler, true);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', outsideHandler, true), 0);
+
+  // Gather data
+  const trades    = _getDayTrades(dateStr).filter(t =>
+    (t.symbol || t.sym || '').toUpperCase() === symbol.toUpperCase()
+  );
+  const entryId   = typeof buildDayEntryId === 'function' ? buildDayEntryId(dateStr) : `day_${window.activeAccount||'live'}_${dateStr}`;
+  const entry     = _jrnEntries[entryId];
+  const screenshots = entry ? (entry.screenshots || []) : [];
+
+  const netPnl = trades.reduce((s,t) => s + (parseFloat(t.pnl)||0), 0);
+  const tradeLines = trades.map(t =>
+    `  ${(t.direction||t.dir||'').toUpperCase()} entry $${parseFloat(t.entry||0).toFixed(2)} ` +
+    `exit $${parseFloat(t.exit||0).toFixed(2)} qty ${t.qty||t.shares||'?'} ` +
+    `P&L ${_fmt$(parseFloat(t.pnl)||0)}` +
+    (t.entryTime ? ` @ ${t.entryTime}` : '')
+  ).join('\n');
+
+  const textPrompt = `You are analyzing a day trader's trades in a single symbol.
+
+Date: ${dateStr}
+Symbol: ${symbol}
+Net P&L: ${_fmt$(netPnl)}
+Trades (${trades.length}):
+${tradeLines}
+
+${screenshots.length ? `The trader attached ${screenshots.length} chart screenshot(s). Reference them where relevant.\n` : ''}Provide a focused analysis:
+1. Entry/exit quality and timing
+2. Position sizing and risk management
+3. What worked and what to improve for this symbol
+
+Be concise and specific. Max 120 words.`;
+
+  // Build multimodal content if screenshots present
+  let content = textPrompt;
+  if (screenshots.length) {
+    const parts = [];
+    for (const dataUrl of screenshots) {
+      const [header, b64] = dataUrl.split(',');
+      const mediaType = (header.match(/:(.*?);/) || [])[1] || 'image/png';
+      parts.push({ type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } });
+    }
+    parts.push({ type: 'text', text: textPrompt });
+    content = parts;
+  }
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1000, messages: [{ role: 'user', content }] })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message || 'API error');
+    const text = (data.content || []).map(b => b.type === 'text' ? b.text : '').join('');
+
+    // Show result in popover (editable)
+    const bodyEl = pop.querySelector('.jrn-sym-pop-body');
+    if (bodyEl) {
+      bodyEl.innerHTML = `<div class="jrn-sym-pop-text" contenteditable="true">${_escHtml(text)}</div>`;
+    }
+
+    // Persist aiAnalysis to the first trade of this symbol via saveOneTrade if available
+    if (typeof saveOneTrade === 'function' && trades.length) {
+      try {
+        await saveOneTrade({ ...trades[0], aiAnalysis: text });
+      } catch(e) {
+        console.warn('generateSymbolAI: saveOneTrade failed', e);
+      }
+    }
+  } catch(e) {
+    console.error('Symbol AI error:', e);
+    const bodyEl = pop.querySelector('.jrn-sym-pop-body');
+    if (bodyEl) bodyEl.innerHTML = `<div class="jrn-ai-error">Failed — ${_escHtml(e.message || 'check your connection')}.</div>`;
+  }
+}
+
+function _positionSymPopover(pop, anchor) {
+  const rect = anchor.getBoundingClientRect();
+  const scrollY = window.scrollY || window.pageYOffset;
+  const scrollX = window.scrollX || window.pageXOffset;
+  pop.style.position  = 'absolute';
+  pop.style.top       = `${rect.bottom + scrollY + 6}px`;
+  // Align right edge with anchor, but clamp to viewport
+  let left = rect.right + scrollX - 300; // popover is 300px wide
+  left = Math.max(8, Math.min(left, window.innerWidth - 316));
+  pop.style.left      = `${left}px`;
+  pop.style.width     = '300px';
+  pop.style.zIndex    = '1000';
+}
+
+function jrnCloseSymPopover() { _closeSymPopover(); }
 
 // Saves manual edits to the AI text field
 const _aiDebounce = {};
