@@ -22,7 +22,7 @@
 // the Anthropic API key never reaches the browser. The Worker verifies the
 // user's Firebase ID token before forwarding the request.
 // See: worker/edgebook-ai-proxy.js for the Worker source + setup instructions.
-const WORKER_URL = 'https://edgebook-ai-proxy.e7258579.workers.dev/; // ← replace after deploying the Worker
+const WORKER_URL = 'https://edgebook-ai-proxy.e7258579.workers.dev'; // ← replace after deploying the Worker
 
 // Calls the AI proxy Worker instead of Anthropic directly. Attaches the
 // current user's Firebase ID token so the Worker can verify the request
