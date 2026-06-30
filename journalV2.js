@@ -17,6 +17,34 @@
  * Public API: window.renderJournalPage()
  */
 
+// ─── AI PROXY CONFIG ────────────────────────────────────────────────────────
+// All AI calls go through a Cloudflare Worker (not directly to Anthropic) so
+// the Anthropic API key never reaches the browser. The Worker verifies the
+// user's Firebase ID token before forwarding the request.
+// See: worker/edgebook-ai-proxy.js for the Worker source + setup instructions.
+const WORKER_URL = 'https://edgebook-ai-proxy.e7258579.workers.dev/; // ← replace after deploying the Worker
+
+// Calls the AI proxy Worker instead of Anthropic directly. Attaches the
+// current user's Firebase ID token so the Worker can verify the request
+// is coming from a real signed-in user before it spends API credits.
+async function _callAiProxy(payload) {
+  if (typeof _auth === 'undefined' || !_auth.currentUser) {
+    throw new Error('You must be signed in to use AI analysis.');
+  }
+  const idToken = await _auth.currentUser.getIdToken();
+  const res = await fetch(WORKER_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + idToken,
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message || 'API error');
+  return data;
+}
+
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let _jrnYear  = new Date().getFullYear();
 let _jrnMonth = new Date().getMonth() + 1; // 1-12
@@ -617,17 +645,11 @@ async function generateDayAI(dateStr, entryId) {
   const content = _buildDayAiContent(dateStr, tradesSummary, reflection, screenshots);
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        messages: [{ role: 'user', content }]
-      })
+    const data = await _callAiProxy({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1000,
+      messages: [{ role: 'user', content }]
     });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message || 'API error');
     const text = (data.content || []).map(b => b.type === 'text' ? b.text : '').join('');
 
     // Persist to Firestore
@@ -740,13 +762,7 @@ Be concise and specific. Max 120 words.`;
   }
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1000, messages: [{ role: 'user', content }] })
-    });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message || 'API error');
+    const data = await _callAiProxy({ model: 'claude-sonnet-4-6', max_tokens: 1000, messages: [{ role: 'user', content }] });
     const text = (data.content || []).map(b => b.type === 'text' ? b.text : '').join('');
 
     // Show result in popover (editable)
@@ -1043,13 +1059,7 @@ async function generatePeriodAI() {
   const prompt     = _buildPeriodPrompt(type, identifier, trades, reflection);
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1000, messages: [{ role: 'user', content: prompt }] })
-    });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message || 'API error');
+    const data = await _callAiProxy({ model: 'claude-sonnet-4-6', max_tokens: 1000, messages: [{ role: 'user', content: prompt }] });
     const text = (data.content || []).map(b => b.type === 'text' ? b.text : '').join('');
 
     // Save to Firestore
