@@ -170,6 +170,7 @@ async function _doSaveTrade(editingIdOverride) {
     renderLog();
     renderHomeList();
     if (typeof unlockModeButtons === 'function') unlockModeButtons();
+    _refreshJournalIfVisible();
     toast('✓ Trade updated!');
 
   } else {
@@ -202,11 +203,22 @@ async function _doSaveTrade(editingIdOverride) {
     closeNewTradeModal();
     renderHomeList();
     if (typeof unlockModeButtons === 'function') unlockModeButtons();
+    _refreshJournalIfVisible();
     toast('✓ Trade saved!');
   }
 }
 
 // ─── RESET / DISCARD ───────────────────────────────────────
+// Re-renders the Journal v2 page if it's the currently visible tab.
+// Called after trade save/edit so the journal reflects new data
+// without requiring the user to navigate away and back.
+function _refreshJournalIfVisible() {
+  const journal = document.getElementById('tab-journal');
+  if (journal && journal.style.display !== 'none' && typeof renderJournalPage === 'function') {
+    renderJournalPage();
+  }
+}
+
 function resetForm() {
   // Note: _editingTradeId is intentionally NOT reset here.
   // It is managed exclusively by openEdit() and _doSaveTrade().

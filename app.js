@@ -126,14 +126,16 @@ function setCustomRange() {
 // NOT called after save/edit/delete — each write caller handles its own renders.
 function refreshAll() {
   updateStats();
-  const home  = document.getElementById('tab-home');
-  const log   = document.getElementById('tab-log');
-  const stats = document.getElementById('tab-stats');
-  const cal   = document.getElementById('tab-cal');
-  if (home  && home.style.display  !== 'none') { renderHomeList(); renderStats(); renderWeekCalendar(); }
-  if (log   && log.style.display   !== 'none') { renderLog(); }
-  if (stats && stats.style.display !== 'none') { renderStats(); }
-  if (cal   && cal.style.display   !== 'none') { renderCalPage(); }
+  const home    = document.getElementById('tab-home');
+  const log     = document.getElementById('tab-log');
+  const stats   = document.getElementById('tab-stats');
+  const cal     = document.getElementById('tab-cal');
+  const journal = document.getElementById('tab-journal');
+  if (home    && home.style.display    !== 'none') { renderHomeList(); renderStats(); renderWeekCalendar(); }
+  if (log     && log.style.display     !== 'none') { renderLog(); }
+  if (stats   && stats.style.display   !== 'none') { renderStats(); }
+  if (cal     && cal.style.display     !== 'none') { renderCalPage(); }
+  if (journal && journal.style.display !== 'none' && typeof renderJournalPage === 'function') { renderJournalPage(); }
 }
 
 // ─── DATE CONSTANT + DOM INIT ──────────────────────────────
