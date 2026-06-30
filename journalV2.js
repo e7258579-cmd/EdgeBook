@@ -7,6 +7,9 @@
  *
  * Depends on:
  *   window.trades       — trade array from accounts.js / app.js
+ *                          (read via bare `trades` identifier as a fallback —
+ *                          see _activeTrades(); `trades` is not always
+ *                          attached to `window` depending on script scoping)
  *   window.activeAccount — 'live' | 'demo'
  *   journalV2Data.js    — Firestore data layer (saveJournalEntry, loadJournalEntry, etc.)
  *
@@ -58,8 +61,12 @@ function _escAttr(s) {
 
 // ─── TRADE DATA HELPERS ───────────────────────────────────────────────────────
 // Returns trades for the active account only.
+// NOTE: `trades` is a bare global declared in app.js/accounts.js (not always
+// attached to `window` depending on script scoping), so we read it via the
+// global identifier directly rather than `window.trades`. `typeof` guards
+// against ReferenceError if this file ever loads before `trades` exists.
 function _activeTrades() {
-  const all = window.trades || [];
+  const all = (typeof trades !== 'undefined' && trades) ? trades : (window.trades || []);
   const acct = window.activeAccount || 'live';
   return all.filter(t => (t.account || 'live') === acct);
 }
