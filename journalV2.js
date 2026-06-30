@@ -46,6 +46,16 @@ function _escHtml(s) {
     .replace(/"/g,'&quot;');
 }
 
+// Escapes a string for safe embedding inside a single-quoted JS string
+// within an inline HTML attribute, e.g. onclick="fn('${_escAttr(x)}')".
+function _escAttr(s) {
+  if (!s) return '';
+  return String(s)
+    .replace(/\\/g,'\\\\')
+    .replace(/'/g,"\\'")
+    .replace(/"/g,'&quot;');
+}
+
 // ─── TRADE DATA HELPERS ───────────────────────────────────────────────────────
 // Returns trades for the active account only.
 function _activeTrades() {
@@ -164,6 +174,9 @@ function _renderDayCard(dateStr, entry) {
           <span class="jrn-sym-name">${_escHtml(g.symbol)}</span>
           <span class="jrn-sym-meta">${g.trades.length} entr${g.trades.length !== 1 ? 'ies' : 'y'}</span>
           <span class="jrn-sym-pnl ${symPnlClass}">${_fmt$(g.netPnl)}</span>
+          <button class="jrn-sym-ai-btn" onclick="event.stopPropagation();generateSymbolAI('${dateStr}','${_escAttr(g.symbol)}',this)" title="AI analysis for ${_escAttr(g.symbol)}">
+            <svg viewBox="0 0 24 24" width="12" height="12"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          </button>
           <span class="jrn-sym-chevron" id="chev-${safeId}">›</span>
         </div>
         <div class="jrn-sym-detail" id="detail-${safeId}" style="display:none">
@@ -200,7 +213,7 @@ function _renderDayCard(dateStr, entry) {
         <span class="jrn-section-title">AI Analysis</span>
         <button class="jrn-ai-btn" onclick="generateDayAI('${dateStr}','${entryId}')">
           <svg viewBox="0 0 24 24" width="13" height="13"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-          Generate
+          ${aiSummary ? 'Regenerate' : 'Generate'}
         </button>
       </div>
       <div class="jrn-ai-output" id="ai-output-${entryId}">
@@ -1208,6 +1221,57 @@ function _injectJrnStyles() {
     display: inline-block;
     width: 16px; text-align: center;
   }
+  .jrn-sym-ai-btn {
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    color: var(--text3);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: border-color .12s, color .12s, background .12s;
+  }
+  .jrn-sym-ai-btn svg { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linejoin: round; }
+  .jrn-sym-ai-btn:hover { color: var(--accent, #6366f1); border-color: var(--accent, #6366f1); background: var(--bg); }
+
+  /* ── Symbol AI popover ── */
+  .jrn-sym-popover {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 32px rgba(0,0,0,.25);
+    overflow: hidden;
+  }
+  .jrn-sym-pop-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+  }
+  .jrn-sym-pop-title { font-size: 12px; font-weight: 700; color: var(--text); }
+  .jrn-sym-pop-close {
+    width: 18px; height: 18px;
+    border: none; background: transparent;
+    color: var(--text3);
+    font-size: 11px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .jrn-sym-pop-close:hover { color: var(--text); }
+  .jrn-sym-pop-body {
+    padding: 10px;
+    max-height: 260px;
+    overflow-y: auto;
+  }
+  .jrn-sym-pop-text {
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text2);
+    white-space: pre-wrap;
+    outline: none;
+  }
+  .jrn-sym-pop-text:focus { color: var(--text); }
 
   /* ── Trade detail rows ── */
   .jrn-sym-detail { padding: 4px 0 6px 56px; }
@@ -1449,6 +1513,8 @@ window.toggleSymDetail   = toggleSymDetail;
 window.onReflectionInput = onReflectionInput;
 window.onAiTextInput     = onAiTextInput;
 window.generateDayAI     = generateDayAI;
+window.generateSymbolAI   = generateSymbolAI;
+window.jrnCloseSymPopover = jrnCloseSymPopover;
 window.openPeriodModal   = openPeriodModal;
 // Stage 3 — screenshots
 window.jrnAddScreenshot    = jrnAddScreenshot;
