@@ -947,10 +947,14 @@ async function openPeriodModal(type) {
   const reflEl   = document.getElementById('jrn-pm-reflection');
   const aiOutEl  = document.getElementById('jrn-pm-ai-output');
   const statusEl = document.getElementById('jrn-pm-save-status');
+  const btnElInit = document.getElementById('jrn-pm-ai-btn');
   reflEl.textContent   = '';
   statusEl.textContent = '';
   aiOutEl.innerHTML    = '<div class="jrn-ai-placeholder">Click Generate to get an AI analysis of this period</div>';
   reflEl.setAttribute('placeholder', `What defined this ${type}? Key lessons?`);
+  if (btnElInit) btnElInit.innerHTML = `
+    <svg viewBox="0 0 24 24" width="13" height="13"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+    Generate`;
 
   // Open modal
   const overlay = document.getElementById('jrn-period-modal');
@@ -962,11 +966,19 @@ async function openPeriodModal(type) {
     try {
       const entry = await loadJournalPeriodEntry(type, identifier);
       _periodModal.entry = entry;
+      const btnEl = document.getElementById('jrn-pm-ai-btn');
       if (entry) {
         reflEl.textContent = entry.reflection || '';
         if (entry.aiSummary) {
           aiOutEl.innerHTML = `<div class="jrn-ai-text" contenteditable="true"
             onInput="onPeriodAiTextInput(event)">${_escHtml(entry.aiSummary)}</div>`;
+          if (btnEl) btnEl.innerHTML = `
+            <svg viewBox="0 0 24 24" width="13" height="13"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            Regenerate`;
+        } else if (btnEl) {
+          btnEl.innerHTML = `
+            <svg viewBox="0 0 24 24" width="13" height="13"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            Generate`;
         }
       }
     } catch(e) {
@@ -1013,7 +1025,9 @@ async function generatePeriodAI() {
   if (!type) return;
 
   const aiOutEl = document.getElementById('jrn-pm-ai-output');
+  const btnEl   = document.getElementById('jrn-pm-ai-btn');
   if (!aiOutEl) return;
+  if (btnEl) { btnEl.disabled = true; btnEl.style.opacity = '.5'; }
   aiOutEl.innerHTML = '<div class="jrn-ai-loading"><div class="jrn-spinner"></div> Analyzing…</div>';
 
   const trades     = _getPeriodTrades(type, identifier);
@@ -1028,6 +1042,7 @@ async function generatePeriodAI() {
       body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1000, messages: [{ role: 'user', content: prompt }] })
     });
     const data = await res.json();
+    if (data.error) throw new Error(data.error.message || 'API error');
     const text = (data.content || []).map(b => b.type === 'text' ? b.text : '').join('');
 
     // Save to Firestore
@@ -1039,9 +1054,15 @@ async function generatePeriodAI() {
 
     aiOutEl.innerHTML = `<div class="jrn-ai-text" contenteditable="true"
       onInput="onPeriodAiTextInput(event)">${_escHtml(text)}</div>`;
+
+    if (btnEl) btnEl.innerHTML = `
+      <svg viewBox="0 0 24 24" width="13" height="13"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      Regenerate`;
   } catch(e) {
     console.error('Period AI error:', e);
-    aiOutEl.innerHTML = '<div class="jrn-ai-error">Failed to generate analysis. Check your connection.</div>';
+    aiOutEl.innerHTML = `<div class="jrn-ai-error">Failed to generate analysis — ${_escHtml(e.message || 'check your connection')}.</div>`;
+  } finally {
+    if (btnEl) { btnEl.disabled = false; btnEl.style.opacity = ''; }
   }
 }
 
