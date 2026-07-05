@@ -2196,7 +2196,8 @@ showPage('home');     // initialises sidebar active state + renders home tab
 (function initAcctUI() {
   if (typeof updateAcctBadge   === 'function') updateAcctBadge();
   if (typeof updateAcctButtons === 'function') updateAcctButtons();
-  if (typeof showModeFlash     === 'function') showModeFlash(window.activeAccount || 'live');
+  // showModeFlash is now called inside onAuthStateChanged in accounts.js,
+  // after the real account is restored — so we don't call it here anymore.
 })();
 
 // ── Right panel drawer (laptop only) ────────────────────────────────────────

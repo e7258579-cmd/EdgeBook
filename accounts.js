@@ -317,9 +317,12 @@ _auth.onAuthStateChanged(async (user) => {
   }
 
   // Kick off the app render
-  if (typeof refreshAll       === 'function') refreshAll();
+  if (typeof refreshAll        === 'function') refreshAll();
   if (typeof updateAcctButtons === 'function') updateAcctButtons();
   if (typeof updateAcctBadge   === 'function') updateAcctBadge();
+  // Show the mode flash here — AFTER auth + account are confirmed — so it
+  // always reflects the real restored account, never the 'live' default.
+  if (typeof showModeFlash     === 'function') showModeFlash(activeAccount);
 });
 
 // ─── EXPOSE PUBLIC API ────────────────────────────────────
