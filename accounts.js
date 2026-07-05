@@ -31,7 +31,10 @@ const _auth = firebase.auth();
 const _db   = firebase.firestore();
 
 // ─── STATE ────────────────────────────────────────────────
-let activeAccount = 'live';
+// Read from localStorage immediately (before onAuthStateChanged fires) so that
+// any flash/UI shown during the async auth check already reflects the correct
+// account — instead of always defaulting to 'live' and then jumping to 'demo'.
+let activeAccount = localStorage.getItem('edgebook_active_account') || 'live';
 let _currentUser  = null;
 
 // ─── AUTH UI ──────────────────────────────────────────────
@@ -295,8 +298,10 @@ _auth.onAuthStateChanged(async (user) => {
   _currentUser = user;
   _removeAuthOverlay();
 
-  // Restore last active account
-  activeAccount = localStorage.getItem('edgebook_active_account') || 'live';
+  // Restore last active account (already set at module load, but re-apply here
+  // in case the value changed between page load and auth completing).
+  const savedAccount = localStorage.getItem('edgebook_active_account');
+  if (savedAccount) activeAccount = savedAccount;
 
   // Migrate localStorage data to Firestore (once only)
   await _migrateIfNeeded();
