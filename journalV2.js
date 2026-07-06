@@ -647,7 +647,7 @@ async function generateDayAI(dateStr, entryId) {
   try {
     const data = await _callAiProxy({
       model: 'claude-sonnet-4-6',
-      max_tokens: 1000,
+      max_tokens: 2500,
       messages: [{ role: 'user', content }]
     });
     const text = (data.content || []).map(b => b.type === 'text' ? b.text : '').join('');
@@ -762,7 +762,7 @@ Be concise and specific. Max 120 words.`;
   }
 
   try {
-    const data = await _callAiProxy({ model: 'claude-sonnet-4-6', max_tokens: 1000, messages: [{ role: 'user', content }] });
+    const data = await _callAiProxy({ model: 'claude-sonnet-4-6', max_tokens: 2500, messages: [{ role: 'user', content }] });
     const text = (data.content || []).map(b => b.type === 'text' ? b.text : '').join('');
 
     // Show result in popover (editable)
@@ -1059,7 +1059,7 @@ async function generatePeriodAI() {
   const prompt     = _buildPeriodPrompt(type, identifier, trades, reflection);
 
   try {
-    const data = await _callAiProxy({ model: 'claude-sonnet-4-6', max_tokens: 1000, messages: [{ role: 'user', content: prompt }] });
+    const data = await _callAiProxy({ model: 'claude-sonnet-4-6', max_tokens: 2500, messages: [{ role: 'user', content: prompt }] });
     const text = (data.content || []).map(b => b.type === 'text' ? b.text : '').join('');
 
     // Save to Firestore
