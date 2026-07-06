@@ -77,49 +77,6 @@ function _escHtml(s) {
     .replace(/"/g,'&quot;');
 }
 
-/**
- * Converts a limited subset of Markdown to HTML for AI output display.
- * Handles: **bold**, * bullet lists, numbered lists, newlines.
- * Always escapes HTML first to prevent XSS.
- */
-function _markdownToHtml(s) {
-  if (!s) return '';
-  let t = _escHtml(String(s));
-
-  // **bold**
-  t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-
-  // Process line by line for lists
-  const lines = t.split('\n');
-  const out = [];
-  let inList = false;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    // Bullet: "* text" or "- text" at start of line
-    const bulletMatch = line.match(/^(\s*)[*\-]\s+(.+)$/);
-    // Numbered: "1. text"
-    const numberedMatch = line.match(/^(\s*)\d+\.\s+(.+)$/);
-
-    if (bulletMatch || numberedMatch) {
-      if (!inList) { out.push('<ul>'); inList = true; }
-      const content = bulletMatch ? bulletMatch[2] : numberedMatch[2];
-      out.push(`<li>${content}</li>`);
-    } else {
-      if (inList) { out.push('</ul>'); inList = false; }
-      if (line.trim() === '') {
-        out.push('<br>');
-      } else {
-        out.push(`<p>${line}</p>`);
-      }
-    }
-  }
-  if (inList) out.push('</ul>');
-
-  return out.join('');
-}
-
 // Escapes a string for safe embedding inside a single-quoted JS string
 // within an inline HTML attribute, e.g. onclick="fn('${_escAttr(x)}')".
 function _escAttr(s) {
@@ -239,7 +196,7 @@ function _renderDayCard(dateStr, entry) {
   const pnlClass = totalPnl > 0 ? 'jrn-pos' : totalPnl < 0 ? 'jrn-neg' : 'jrn-neu';
 
   const reflection = entry ? (_escHtml(entry.reflection) || '') : '';
-  const aiSummary  = entry ? (_markdownToHtml(entry.aiSummary) || '') : '';
+  const aiSummary  = entry ? (_escHtml(entry.aiSummary)  || '') : '';
   const entryId    = buildDayEntryId(dateStr);
 
   // Symbol rows
@@ -690,7 +647,7 @@ async function generateDayAI(dateStr, entryId) {
   try {
     const data = await _callAiProxy({
       model: 'claude-sonnet-4-6',
-      max_tokens: 1000,
+      max_tokens: 2500,
       messages: [{ role: 'user', content }]
     });
     const text = (data.content || []).map(b => b.type === 'text' ? b.text : '').join('');
@@ -703,7 +660,7 @@ async function generateDayAI(dateStr, entryId) {
     _jrnEntries[entryId] = updated;
     if (typeof saveJournalEntry === 'function') await saveJournalEntry(updated);
 
-    outputEl.innerHTML = `<div class="jrn-ai-text" contenteditable="true" data-entry-id="${entryId}" data-field="aiSummary" onInput="onAiTextInput(event)">${_markdownToHtml(text)}</div>`;
+    outputEl.innerHTML = `<div class="jrn-ai-text" contenteditable="true" data-entry-id="${entryId}" data-field="aiSummary" onInput="onAiTextInput(event)">${_escHtml(text)}</div>`;
 
     // Flip button label to "Regenerate"
     if (btnEl) btnEl.innerHTML = `
@@ -805,13 +762,13 @@ Be concise and specific. Max 120 words.`;
   }
 
   try {
-    const data = await _callAiProxy({ model: 'claude-sonnet-4-6', max_tokens: 1000, messages: [{ role: 'user', content }] });
+    const data = await _callAiProxy({ model: 'claude-sonnet-4-6', max_tokens: 2500, messages: [{ role: 'user', content }] });
     const text = (data.content || []).map(b => b.type === 'text' ? b.text : '').join('');
 
     // Show result in popover (editable)
     const bodyEl = pop.querySelector('.jrn-sym-pop-body');
     if (bodyEl) {
-      bodyEl.innerHTML = `<div class="jrn-sym-pop-text" contenteditable="true">${_markdownToHtml(text)}</div>`;
+      bodyEl.innerHTML = `<div class="jrn-sym-pop-text" contenteditable="true">${_escHtml(text)}</div>`;
     }
 
     // Persist aiAnalysis to the first trade of this symbol via saveOneTrade if available
@@ -1102,7 +1059,7 @@ async function generatePeriodAI() {
   const prompt     = _buildPeriodPrompt(type, identifier, trades, reflection);
 
   try {
-    const data = await _callAiProxy({ model: 'claude-sonnet-4-6', max_tokens: 1000, messages: [{ role: 'user', content: prompt }] });
+    const data = await _callAiProxy({ model: 'claude-sonnet-4-6', max_tokens: 2500, messages: [{ role: 'user', content: prompt }] });
     const text = (data.content || []).map(b => b.type === 'text' ? b.text : '').join('');
 
     // Save to Firestore
