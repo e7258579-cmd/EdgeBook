@@ -364,7 +364,7 @@ function _renderScreenshotSection(entryId, dateStr, screenshots) {
         class="jrn-thumb"
         src="${src}"
         alt="Screenshot ${idx + 1}"
-        onclick="jrnViewScreenshot(${JSON.stringify(src)})"
+        onclick="jrnViewScreenshot('${entryId}',${idx})"
         title="Click to enlarge"
       />
       <button
@@ -477,8 +477,15 @@ function _refreshScreenshotSection(entryId, dateStr, screenshots) {
   section.replaceWith(newSection);
 }
 
-// Opens a full-screen lightbox to view a screenshot
-function jrnViewScreenshot(src) {
+// Opens a full-screen lightbox to view a screenshot.
+// Receives entryId + index instead of the raw base64 string to avoid
+// embedding huge data-URLs inside HTML onclick attributes (causes breakage).
+function jrnViewScreenshot(entryId, idx) {
+  const entry = _jrnEntries[entryId];
+  if (!entry || !entry.screenshots) return;
+  const src = entry.screenshots[idx];
+  if (!src) return;
+
   // Reuse existing lightbox if present
   let lb = document.getElementById('jrn-lightbox');
   if (!lb) {
