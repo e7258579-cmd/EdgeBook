@@ -1693,6 +1693,15 @@ window.addEventListener('scroll', () => {
   const logTab = document.getElementById('tab-log');
   const calTab = document.getElementById('tab-cal');
 
+  const journalTab = document.getElementById('tab-journal');
+  if (journalTab && journalTab.style.display !== 'none') {
+    const jrnTitle = document.getElementById('jrn-page-title');
+    const hidden = !jrnTitle || jrnTitle.getBoundingClientRect().bottom < 52;
+    tbTitle.textContent = 'Journal';
+    tbTitle.classList.toggle('visible', hidden);
+    return;
+  }
+
   if (logTab && logTab.style.display !== 'none') {
     const logTitle = document.getElementById('log-page-title');
     const hidden = !logTitle || logTitle.getBoundingClientRect().bottom < 52;

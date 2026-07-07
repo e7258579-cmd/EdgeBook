@@ -560,7 +560,7 @@ async function renderJournalPage() {
   tab.innerHTML = `
     <div class="jrn-root" style="direction:ltr">
       <div class="jrn-topbar">
-        <div class="page-title">Journal</div>
+        <div class="page-title" id="jrn-page-title">Journal</div>
         ${_renderNav()}
       </div>
       ${_renderPeriodCards()}
@@ -1148,7 +1148,7 @@ function _injectJrnStyles() {
   s.id = 'jrn-styles';
   s.textContent = `
   /* ── Journal v2 ──────────────────────────────────────────── */
-  .jrn-root { max-width: 860px; margin: 0 auto; }
+  .jrn-root { }
 
   .jrn-topbar {
     display: flex;
