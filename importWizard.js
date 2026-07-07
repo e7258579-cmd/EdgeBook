@@ -467,6 +467,9 @@ function _doWizImport() {
   save();
   closeImportWizard();
   toast(`✓ Imported ${wizParsedTrades.length} new trades`);
+  // Re-render the Journal so it picks up the newly imported trades
+  // without requiring the user to navigate away and back.
+  if (typeof renderJournalPage === 'function') renderJournalPage();
   showPage('home');
 }
 
