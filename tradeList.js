@@ -312,32 +312,32 @@ function renderHomeList() {
   const rows = groups.map(g => {
     const ts = g.trades;
     const gid = ('home_' + g.date + '_' + g.sym).replace(/[^a-zA-Z0-9]/g,'_');
-    const totalPnl = ts.reduce((s,t)=>s+t.pnl-(typeof calcCommission === 'function' ? calcCommission(t) : 0),0); // net
+    // Gross P&L — no commission deduction
+    const totalPnl = ts.reduce((s,t) => s + t.pnl, 0);
     const wins = ts.filter(t=>t.pnl>0).length;
     const wr = ts.length ? Math.round(wins/ts.length*100) : 0;
     const pnlCls = totalPnl>0?'pos':totalPnl<0?'neg':'';
     const pnlSign = totalPnl>0?'+':totalPnl<0?'-':'';
-    const pctVals = ts.filter(t=>t.entry&&t.qty).map(t=>(t.pnl-(typeof calcCommission==='function'?calcCommission(t):0))/(t.entry*t.qty)*100); // net %
-    const avgPct = pctVals.length ? pctVals.reduce((a,b)=>a+b,0)/pctVals.length : null;
-    const pctStr = avgPct!==null ? (avgPct>=0?'+':'')+avgPct.toFixed(2)+'%' : '—';
     const allDirs = ts.every(t=>t.dir==='long')?'long':ts.every(t=>t.dir==='short')?'short':'mixed';
     const dirBadge = allDirs==='mixed'
       ? `<span class="dir-badge" style="background:var(--bg2);color:var(--text3)">Mixed</span>`
       : `<span class="dir-badge ${allDirs==='long'?'long-badge':'short-badge'}">${allDirs==='long'?'Long':'Short'}</span>`;
-    const avgRating = ts.filter(t=>t.rating).length ? Math.round(ts.reduce((s,t)=>s+(t.rating||0),0)/ts.filter(t=>t.rating).length) : 0;
+
+    // Date as dd/mm/yyyy
+    const [y, m, d] = g.date.split('-');
+    const dateFmt = `${d}/${m}/${y}`;
 
     return `
       <tr class="data-row" onclick="toggleExpandRow('${gid}')">
-        <td><span class="col-date">${fmtDate(g.date) + ', ' + g.date.slice(0,4)}</span></td>
+        <td><span class="col-date">${dateFmt}</span></td>
         <td><span class="col-sym">${g.sym}</span></td>
         <td>${dirBadge}</td>
         <td class="col-num">${ts.length}</td>
         <td><span class="col-pnl ${pnlCls}">${pnlSign}$${Math.abs(totalPnl).toLocaleString('en-US',{maximumFractionDigits:0})}</span></td>
-        <td><span class="col-pnl ${avgPct>0?'pos':avgPct<0?'neg':''}" style="font-size:12px">${pctStr}</span></td>
         <td class="col-num">${ts.length>1?`<span style="color:${wr>=50?'var(--green)':'var(--red)'}">${wr}%</span>`:'—'}</td>
       </tr>
       <tr class="trade-expand-row" id="expand-${gid}">
-        <td colspan="7">${buildGroupPanel(ts)}</td>
+        <td colspan="6">${buildGroupPanel(ts)}</td>
       </tr>`;
   }).join('');
 
@@ -345,7 +345,7 @@ function renderHomeList() {
     <table class="trade-table">
       <thead><tr>
         <th class="col-date-hd">Date</th><th>Symbol</th><th>Dir</th>
-        <th>Trades</th><th>P&amp;L (Net) $</th><th>P&amp;L % (Net)</th><th>Win Rate</th>
+        <th>Trades</th><th>P&amp;L</th><th>Win Rate</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
