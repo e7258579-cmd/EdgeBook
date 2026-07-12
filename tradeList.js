@@ -340,7 +340,7 @@ function renderHomeList() {
         <td><span class="col-sym">${g.sym}</span></td>
         <td>${dirBadge}</td>
         <td class="col-num">${ts.length}</td>
-        <td><span class="col-pnl ${pnlCls}">${pnlSign}$${Math.abs(totalPnl).toLocaleString('en-US',{maximumFractionDigits:0})}</span></td>
+        <td><span class="col-pnl ${pnlCls}" style="font-size:13px">${pnlSign}$${Math.abs(totalPnl).toFixed(2)}</span></td>
         <td class="col-num">${ts.length>1?`<span style="color:${wr>=50?'var(--green)':'var(--red)'}">${wr}%</span>`:'—'}</td>
       </tr>
       <tr class="trade-expand-row" id="expand-${gid}">
