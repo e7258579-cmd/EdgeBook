@@ -80,12 +80,13 @@ function drawDonut(id, posVal, negVal, posColor, negColor, commVal, hoverLabels)
             valEl.className = hoverLabels.default.cls;
             valEl.style.color = '';
             if (lblEl) lblEl.textContent = hoverLabels.default.lbl;
+          if (lblEl) lblEl.style.fontSize = '';
           } else {
             const net = posVal - negVal - comm;
             valEl.textContent = fmtNum(net);
             valEl.className = 'stat-val ' + (net > 0 ? 'pos' : net < 0 ? 'neg' : 'neu');
             valEl.style.color = '';
-            if (lblEl) lblEl.textContent = 'P&L (Net)';
+            if (lblEl) { lblEl.textContent = 'P&L'; lblEl.style.fontSize = ''; }
           }
           return;
         }
@@ -101,15 +102,15 @@ function drawDonut(id, posVal, negVal, posColor, negColor, commVal, hoverLabels)
           if (idx === 0) {
             valEl.textContent = fmtNum(posVal);
             valEl.style.color = posColor;
-            if (lblEl) lblEl.textContent = 'Profit (Gross)';
+            if (lblEl) { lblEl.textContent = 'Profit'; lblEl.style.fontSize = '12px'; }
           } else if (idx === 1) {
             valEl.textContent = fmtNum(-negVal);
             valEl.style.color = negColor;
-            if (lblEl) lblEl.textContent = 'Loss (Gross)';
+            if (lblEl) { lblEl.textContent = 'Loss'; lblEl.style.fontSize = '12px'; }
           } else {
             valEl.textContent = '-' + fmtNum(comm);
             valEl.style.color = '#EF9F27';
-            if (lblEl) lblEl.textContent = 'Fees';
+            if (lblEl) { lblEl.textContent = 'Fees'; lblEl.style.fontSize = '12px'; }
           }
           valEl.className = 'stat-val';
         }
@@ -166,13 +167,12 @@ function updateStats() {
   const pf = totalNeg ? totalPos / totalNeg : null;
 
   const totalComm = ft.reduce((a,t) => a + calcCommission(t), 0);
-  // Headline P&L KPI is NET (gross minus fees). totalPnl above remains
-  // GROSS and is still used for avg/win/loss/profit-factor breakdowns.
-  const totalNetPnl = totalPnl - totalComm;
+  // Headline P&L KPI is now GROSS (totalPnl, no fee deduction).
+  const totalNetPnl = totalPnl - totalComm; // kept for reference but not shown in donut
 
   const setHtml = (id, html, cls) => { const e=document.getElementById(id); if(e){e.innerHTML=html;e.className=cls;} };
 
-  const pnlTxt=fmtNum(totalNetPnl), pnlCls='stat-val '+(totalNetPnl>0?'pos':totalNetPnl<0?'neg':'neu');
+  const pnlTxt=fmtNum(totalPnl), pnlCls='stat-val '+(totalPnl>0?'pos':totalPnl<0?'neg':'neu');
   const wrTxt=wr+'%', wrCls='stat-val '+(wr>=50?'pos':n>0?'neg':'neu');
   const avgTxt=fmtNum(avg), avgCls='stat-val '+(avg>0?'pos':avg<0?'neg':'neu');
   const pfTxt=pf?pf.toFixed(2):'—', pfCls='stat-val '+(pf&&pf>=1?'pos':pf?'neg':'neu');
@@ -193,7 +193,7 @@ function updateStats() {
   };
 
   // Hero
-  setHtml('s-pnl', tipVal(pnlTxt, totalNetPnl), pnlCls); drawDonut('d-pnl',totalPos,totalNeg,'#8dc572','#D85A30',totalComm);
+  setHtml('s-pnl', tipVal(pnlTxt, totalPnl), pnlCls); drawDonut('d-pnl',totalPos,totalNeg,'#8dc572','#D85A30',totalComm);
   setHtml('s-wr',  wrTxt, wrCls);                      drawDonut('d-wr', winCount,lossCount,'#8dc572','#D85A30',0,wrHover);
   setHtml('s-avg', tipVal(avgTxt, avg), avgCls);        drawDonut('d-avg',avgWin,avgLoss,'#8dc572','#D85A30',0,avgHover);
   setHtml('s-pf',  pfTxt, pfCls);                       drawDonut('d-pf', avgWin,avgLoss,'#8dc572','#D85A30');
@@ -233,7 +233,7 @@ function updateStats() {
   })();
 
   // Compact
-  setHtml('s-pnl-c', tipVal(pnlTxt, totalNetPnl), pnlCls); drawDonut('d-pnl-c',totalPos,totalNeg,'#8dc572','#D85A30',totalComm);
+  setHtml('s-pnl-c', tipVal(pnlTxt, totalPnl), pnlCls); drawDonut('d-pnl-c',totalPos,totalNeg,'#8dc572','#D85A30',totalComm);
   setHtml('s-wr-c',  wrTxt, wrCls);                      drawDonut('d-wr-c', winCount,lossCount,'#8dc572','#D85A30',0,wrHover);
   setHtml('s-avg-c', tipVal(avgTxt, avg), avgCls);        drawDonut('d-avg-c',avgWin,avgLoss,'#8dc572','#D85A30',0,avgHover);
   setHtml('s-pf-c',  pfTxt, pfCls);                       drawDonut('d-pf-c', avgWin,avgLoss,'#8dc572','#D85A30');
