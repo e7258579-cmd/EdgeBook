@@ -197,17 +197,17 @@ function buildGroupPanel(ts) {
       <td style="white-space:nowrap;width:1px;padding-left:16px">
         <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center">
           <button title="Edit" data-id="${t.id}" onclick="event.stopPropagation();openEdit(+this.dataset.id||this.dataset.id)"
-            style="background:none;border:none;cursor:pointer;padding:4px;color:var(--text2);opacity:.7;transition:opacity .15s"
-            onmouseover="this.style.opacity=1" onmouseout="this.style.opacity='.7'">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            style="background:none;border:none;cursor:pointer;padding:4px;color:var(--text);opacity:.55;transition:opacity .15s"
+            onmouseover="this.style.opacity=1" onmouseout="this.style.opacity='.55'">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 20h9"/>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
             </svg>
           </button>
           <button title="Delete" data-id="${t.id}" onclick="event.stopPropagation();deleteTrade(+this.dataset.id||this.dataset.id)"
-            style="background:none;border:none;cursor:pointer;padding:4px;color:var(--red);opacity:.7;transition:opacity .15s"
-            onmouseover="this.style.opacity=1" onmouseout="this.style.opacity='.7'">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            style="background:none;border:none;cursor:pointer;padding:4px;color:var(--text);opacity:.55;transition:opacity .15s"
+            onmouseover="this.style.opacity=1" onmouseout="this.style.opacity='.55'">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="3 6 5 6 21 6"/>
               <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
               <path d="M10 11v6M14 11v6"/>
