@@ -183,34 +183,43 @@ function buildGroupPanel(ts) {
   const rows = ts.map((t, i) => {
     const pnlCls  = t.pnl>0?'pos':t.pnl<0?'neg':'';
     const pnlSign = t.pnl>0?'+':t.pnl<0?'-':'';
-    const fees    = typeof calcCommission === 'function' ? calcCommission(t) : 0;
-    const net     = t.pnl - fees;
-    const netCls  = net>0?'pos':net<0?'neg':'';
-    const netSign = net>=0?'+':'-';
     const allImgs = t.imgs && t.imgs.length ? t.imgs : (t.img ? [t.img] : []);
     const hasExtra = t.notes || t.reason || t.mood || allImgs.length;
     const isLast   = i === ts.length - 1;
 
     const dataRow = `<tr style="background:var(--bg2)${!hasExtra && !isLast ? ';border-bottom:1px solid var(--border)' : ''}">
-      <td><span class="dir-badge ${t.dir==='long'?'long-badge':'short-badge'}" style="font-size:10px;padding:2px 7px">${t.dir==='long'?'Long':'Short'}</span></td>
-      <td class="col-num">${t.entryTime||'—'} → ${t.exitTime||'—'}</td>
+      <td style="padding-right:4px"><span class="dir-badge ${t.dir==='long'?'long-badge':'short-badge'}" style="font-size:10px;padding:2px 7px">${t.dir==='long'?'Long':'Short'}</span></td>
+      <td class="col-num" style="padding-left:4px">${t.entryTime||'—'} → ${t.exitTime||'—'}</td>
       <td class="col-num">${t.entry?'$'+Number(t.entry).toFixed(2):'—'}</td>
       <td class="col-num">${t.exit?'$'+Number(t.exit).toFixed(2):'—'}</td>
       <td class="col-num">${t.qty?t.qty.toLocaleString():'—'}</td>
       <td><span class="col-pnl ${pnlCls}" style="font-size:13px">${pnlSign}$${Math.abs(t.pnl).toFixed(2)}</span></td>
-      <td><span class="col-pnl neg" style="font-size:13px">-$${fees.toFixed(2)}</span></td>
-      <td><span class="col-pnl ${netCls}" style="font-size:13px">${netSign}$${Math.abs(net).toFixed(2)}</span></td>
-      <td style="white-space:nowrap;width:1px;padding-left:24px">
-        <div style="display:flex;gap:6px;justify-content:flex-end">
-          <button class="btn-edit" data-id="${t.id}" onclick="event.stopPropagation();openEdit(+this.dataset.id||this.dataset.id)">Edit</button>
-          <button class="btn-sm"   data-id="${t.id}" onclick="event.stopPropagation();deleteTrade(+this.dataset.id||this.dataset.id)">Delete</button>
+      <td style="white-space:nowrap;width:1px;padding-left:16px">
+        <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center">
+          <button title="Edit" data-id="${t.id}" onclick="event.stopPropagation();openEdit(+this.dataset.id||this.dataset.id)"
+            style="background:none;border:none;cursor:pointer;padding:4px;color:var(--text2);opacity:.7;transition:opacity .15s"
+            onmouseover="this.style.opacity=1" onmouseout="this.style.opacity='.7'">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+          </button>
+          <button title="Delete" data-id="${t.id}" onclick="event.stopPropagation();deleteTrade(+this.dataset.id||this.dataset.id)"
+            style="background:none;border:none;cursor:pointer;padding:4px;color:var(--red);opacity:.7;transition:opacity .15s"
+            onmouseover="this.style.opacity=1" onmouseout="this.style.opacity='.7'">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+              <path d="M10 11v6M14 11v6"/>
+              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+            </svg>
+          </button>
         </div>
       </td>
     </tr>`;
 
-    // Extra row — mood/setup/notes/images — directly below its trade row
     const extraRow = hasExtra ? `<tr style="background:var(--bg2)${!isLast ? ';border-bottom:1px solid var(--border)' : ''}">
-      <td colspan="9" style="padding:2px 12px 8px;word-break:break-word;overflow-wrap:break-word">
+      <td colspan="7" style="padding:2px 12px 8px;word-break:break-word;overflow-wrap:break-word">
         <div style="display:flex;flex-direction:column;gap:4px">
           ${t.mood   ? `<div style="font-size:11px;color:var(--text3)"><strong style="color:var(--text2)">Mood:</strong> ${escHtml(t.mood)}</div>` : ''}
           ${t.reason ? `<div style="font-size:11px;color:var(--text3)"><strong style="color:var(--text2)">Setup:</strong> ${wrapAt40(escHtml(t.reason))}</div>` : ''}
@@ -224,14 +233,12 @@ function buildGroupPanel(ts) {
   }).join('');
 
   const sub_thead = `<tr style="background:var(--bg2)">
-    <th style="font-size:12px;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border)">Dir</th>
-    <th style="font-size:12px;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border)">Time</th>
+    <th style="font-size:12px;padding:6px 12px 6px 12px;background:var(--bg2);border-bottom:1px solid var(--border)">Dir</th>
+    <th style="font-size:12px;padding:6px 4px;background:var(--bg2);border-bottom:1px solid var(--border)">Time</th>
     <th style="font-size:12px;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border)">Entry</th>
     <th style="font-size:12px;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border)">Exit</th>
     <th style="font-size:12px;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border)">Qty</th>
-    <th style="font-size:12px;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border)">P&L Gross</th>
-    <th style="font-size:12px;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border)">Fees</th>
-    <th style="font-size:12px;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border)">P&L Net</th>
+    <th style="font-size:12px;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border)">P&L</th>
     <th style="background:var(--bg2);border-bottom:1px solid var(--border);width:1px;white-space:nowrap"></th>
   </tr>`;
 
