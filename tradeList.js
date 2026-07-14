@@ -74,7 +74,7 @@ function renderLog() {
   const thead = `<thead><tr>
     <th style="width:32px"><input type="checkbox" id="select-all-cb-inner" onchange="toggleSelectAll(this)" style="width:15px;height:15px;cursor:pointer;accent-color:var(--text)"></th>
     <th class="col-date-hd">Date</th><th>Symbol</th><th>Dir</th>
-    <th>Trades</th><th>P&amp;L</th><th>% P&amp;L</th><th></th>
+    <th>Trades</th><th>Shares traded</th><th>P&amp;L</th><th>% P&amp;L</th><th></th>
   </tr></thead>`;
 
   let html = '';
@@ -102,6 +102,7 @@ function renderLog() {
       const ts = g.trades;
       const gid = (g.date + '_' + g.sym).replace(/[^a-zA-Z0-9]/g,'_');
       const totalPnl = ts.reduce((s,t)=>s+t.pnl,0);
+      const totalQty  = ts.reduce((s,t)=>s+(t.qty||0),0);
       const pnlCls  = totalPnl>0?'pos':totalPnl<0?'neg':'';
       const pnlSign = totalPnl>0?'+':totalPnl<0?'-':'';
       // Gross % P&L — no fee deduction
@@ -121,24 +122,35 @@ function renderLog() {
 
       // Shared style for all non-P&L cells — same font, size, weight, color
       const cellStyle = 'font-size:13px;font-weight:400;color:var(--text2)';
+      const tdPad     = 'padding:10px 12px';
 
       html += `
         <tr class="data-row" onclick="toggleExpandRow('${gid}')">
-          <td onclick="event.stopPropagation()">
+          <td style="${tdPad}" onclick="event.stopPropagation()">
             <input type="checkbox" class="row-cb group-cb" data-ids="${tradeIds}" onchange="onGroupCbChange(this)" style="width:15px;height:15px;cursor:pointer;accent-color:var(--text)">
           </td>
-          <td><span style="${cellStyle}">${dateFmt}</span></td>
-          <td><span style="${cellStyle}">${g.sym}</span></td>
-          <td>${dirBadge}</td>
-          <td style="${cellStyle}" class="col-num">${ts.length}</td>
-          <td><span class="col-pnl ${pnlCls}" style="font-size:13px;font-weight:400">${pnlSign}$${Math.abs(totalPnl).toFixed(2)}</span></td>
-          <td><span style="${cellStyle}">${pctStr}</span></td>
-          <td><div class="col-actions">
-            <button class="btn-sm" data-ids="${tradeIds}" onclick="event.stopPropagation();deleteGroup(this.dataset.ids)">Delete</button>
-          </div></td>
+          <td style="${tdPad}"><span style="${cellStyle}">${dateFmt}</span></td>
+          <td style="${tdPad}"><span style="${cellStyle}">${g.sym}</span></td>
+          <td style="${tdPad}">${dirBadge}</td>
+          <td style="${tdPad};text-align:right" class="col-num">${ts.length}</td>
+          <td style="${tdPad};text-align:right" class="col-num"><span style="${cellStyle}">${totalQty ? totalQty.toLocaleString() : '—'}</span></td>
+          <td style="${tdPad}"><span class="col-pnl ${pnlCls}" style="font-size:13px;font-weight:400">${pnlSign}$${Math.abs(totalPnl).toFixed(2)}</span></td>
+          <td style="${tdPad}"><span style="${cellStyle}">${pctStr}</span></td>
+          <td style="${tdPad};white-space:nowrap;width:1px">
+            <button title="Delete" data-ids="${tradeIds}" onclick="event.stopPropagation();deleteGroup(this.dataset.ids)"
+              style="background:none;border:none;cursor:pointer;padding:4px;color:var(--text);opacity:.55;transition:opacity .15s"
+              onmouseover="this.style.opacity=1" onmouseout="this.style.opacity='.55'">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                <path d="M10 11v6M14 11v6"/>
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+              </svg>
+            </button>
+          </td>
         </tr>
         <tr class="trade-expand-row" id="expand-${gid}" onclick="event.stopPropagation()">
-          <td colspan="8">${buildGroupPanel(ts)}</td>
+          <td colspan="9">${buildGroupPanel(ts)}</td>
         </tr>`;
     });
 
