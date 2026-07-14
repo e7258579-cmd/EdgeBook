@@ -196,13 +196,16 @@ function buildGroupPanel(ts) {
     const hasExtra = t.notes || t.reason || t.mood || allImgs.length;
     const isLast   = i === ts.length - 1;
 
+    const tdC = 'text-align:center;padding:6px 12px';
     const dataRow = `<tr style="background:var(--bg2)${!hasExtra && !isLast ? ';border-bottom:1px solid var(--border)' : ''}">
-      <td style="padding-right:4px"><span class="dir-badge ${t.dir==='long'?'long-badge':'short-badge'}" style="font-size:10px;padding:2px 7px">${t.dir==='long'?'Long':'Short'}</span></td>
-      <td class="col-num" style="padding-left:4px">${t.entryTime||'—'} → ${t.exitTime||'—'}</td>
-      <td class="col-num">${t.entry?'$'+Number(t.entry).toFixed(2):'—'}</td>
-      <td class="col-num">${t.exit?'$'+Number(t.exit).toFixed(2):'—'}</td>
-      <td class="col-num">${t.qty?t.qty.toLocaleString():'—'}</td>
-      <td><span class="col-pnl ${pnlCls}" style="font-size:13px">${pnlSign}$${Math.abs(t.pnl).toFixed(2)}</span></td>
+      <td style="padding:6px 12px"><span class="dir-badge ${t.dir==='long'?'long-badge':'short-badge'}" style="font-size:10px;padding:2px 7px">${t.dir==='long'?'Long':'Short'}</span></td>
+      <td class="col-num" style="${tdC}">${t.entryTime||'—'}</td>
+      <td class="col-num" style="${tdC}">${t.exitTime||'—'}</td>
+      <td class="col-num" style="${tdC}">${t.duration||'—'}</td>
+      <td class="col-num" style="${tdC}">${t.entry?'$'+Number(t.entry).toFixed(2):'—'}</td>
+      <td class="col-num" style="${tdC}">${t.exit?'$'+Number(t.exit).toFixed(2):'—'}</td>
+      <td class="col-num" style="${tdC}">${t.qty?t.qty.toLocaleString():'—'}</td>
+      <td style="${tdC}"><span class="col-pnl ${pnlCls}" style="font-size:13px">${pnlSign}$${Math.abs(t.pnl).toFixed(2)}</span></td>
       <td style="white-space:nowrap;width:1px;padding-left:16px">
         <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center">
           <button title="Edit" data-id="${t.id}" onclick="event.stopPropagation();openEdit(+this.dataset.id||this.dataset.id)"
@@ -241,13 +244,16 @@ function buildGroupPanel(ts) {
     return dataRow + extraRow;
   }).join('');
 
+  const thStyle = 'font-size:12px;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border);text-align:center';
   const sub_thead = `<tr style="background:var(--bg2)">
-    <th style="font-size:12px;padding:6px 12px 6px 12px;background:var(--bg2);border-bottom:1px solid var(--border)">Dir</th>
-    <th style="font-size:12px;padding:6px 4px;background:var(--bg2);border-bottom:1px solid var(--border)">Time</th>
-    <th style="font-size:12px;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border)">Entry</th>
-    <th style="font-size:12px;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border)">Exit</th>
-    <th style="font-size:12px;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border)">Qty</th>
-    <th style="font-size:12px;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border)">P&L</th>
+    <th style="${thStyle};text-align:left">Dir</th>
+    <th style="${thStyle}">Time In</th>
+    <th style="${thStyle}">Time Out</th>
+    <th style="${thStyle}">Duration</th>
+    <th style="${thStyle}">Entry</th>
+    <th style="${thStyle}">Exit</th>
+    <th style="${thStyle}">Qty</th>
+    <th style="${thStyle}">P&L</th>
     <th style="background:var(--bg2);border-bottom:1px solid var(--border);width:1px;white-space:nowrap"></th>
   </tr>`;
 
