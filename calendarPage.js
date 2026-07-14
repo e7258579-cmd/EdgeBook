@@ -152,7 +152,7 @@ function renderCalPage() {
 
   // Title
   titleEl.className = 'page-title';
-  titleEl.innerHTML = 'Calendar <span style="font-size:11px;font-weight:400;color:var(--text3);letter-spacing:0">(P&amp;L shown is Net, after fees)</span>';
+  titleEl.innerHTML = 'Calendar';
   titleEl.style.visibility = 'visible';
   titleEl.style.marginBottom = '';
   titleEl.style.height = '';
@@ -212,7 +212,7 @@ function renderCalPage() {
     }
 
     const monthKey   = `${yr}-${pad(mo + 1)}`;
-    const monthPnl   = parseFloat(Object.keys(dayMap).filter(d => d.startsWith(monthKey)).reduce((s, d) => parseFloat((s + dayMap[d].net).toFixed(2)), 0).toFixed(2));
+    const monthPnl   = parseFloat(Object.keys(dayMap).filter(d => d.startsWith(monthKey)).reduce((s, d) => parseFloat((s + dayMap[d].pnl).toFixed(2)), 0).toFixed(2));
     const monthCount = Object.keys(dayMap).filter(d => d.startsWith(monthKey)).reduce((s, d) => s + dayMap[d].count, 0);
     const monthPnlHtml = monthCount > 0
       ? `<span class="day-cell-pnl ${pnlCls(monthPnl)}" style="font-size:12px">${fmt(monthPnl)}</span><span class="day-cell-count" style="font-size:10px;margin-right:4px">${monthCount} trade${monthCount !== 1 ? 's' : ''}</span>`
@@ -245,14 +245,14 @@ function renderCalPage() {
           const isToday = dt.toDateString() === today.toDateString();
           const data    = dayMap[dateStr];
           const isHol   = holidays.includes(dateStr);
-          if (data) { weekPnl = parseFloat((weekPnl + data.net).toFixed(2)); weekCount += data.count; }
+          if (data) { weekPnl = parseFloat((weekPnl + data.pnl).toFixed(2)); weekCount += data.count; }
           const numHtml = isToday
             ? `<div class="day-cell-num" style="background:var(--text);color:var(--bg);width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px">${dt.getDate()}</div>`
             : `<div class="day-cell-num">${dt.getDate()}</div>`;
           const ntd = ntdMap[dateStr];
           cells += `<div class="day-cell${isToday ? ' today' : ''}${data ? ' has-trades' : ''}${isHol ? ' holiday' : ''}${ntd && !data ? (ntd.positive ? ' ntd-good' : ' ntd-bad') : ''}" data-date="${dateStr}" onclick="selectCalDay('${dateStr}')">
             ${numHtml}
-            ${isHol ? '' : ntd && !data ? `<div class="day-cell-ntd">${ntd.positive ? '—' : '✗'}</div>` : data ? `<div class="day-cell-pnl ${pnlCls(data.net)}">${fmt(data.net)}</div><div class="day-cell-count">${data.count} trade${data.count !== 1 ? 's' : ''}</div>` : ''}</div>`;
+            ${isHol ? '' : ntd && !data ? `<div class="day-cell-ntd">${ntd.positive ? '—' : '✗'}</div>` : data ? `<div class="day-cell-pnl ${pnlCls(data.pnl)}">${fmt(data.pnl)}</div><div class="day-cell-count">${data.count} trade${data.count !== 1 ? 's' : ''}</div>` : ''}</div>`;
         });
         const wkCls = weekPnl > 0 ? 'pos-week' : weekPnl < 0 ? 'neg-week' : '';
         cells += `<div class="day-cell week-summary ${wkCls}">
@@ -313,7 +313,7 @@ function renderCalPage() {
         cells += `<div class="day-cell${isOther ? ' other-month' : ''}${isToday ? ' today' : ''}${data ? ' has-trades' : ''}${isHol ? ' holiday' : ''}${ntd && !data ? (ntd.positive ? ' ntd-good' : ' ntd-bad') : ''}" data-date="${isOther ? '' : dateStr}" onclick="if(!${isOther})selectCalDay('${dateStr}')">
           ${numHtml}
           ${!isOther && !isHol && ntd && !data ? `<div class="day-cell-ntd">${ntd.positive ? '—' : '✗'}</div>` : ''}
-          ${!isOther && !isHol && data ? `<div class="day-cell-pnl ${pnlCls(data.net)}">${fmt(data.net)}</div><div class="day-cell-count">${data.count} trade${data.count !== 1 ? 's' : ''}</div>` : ''}</div>`;
+          ${!isOther && !isHol && data ? `<div class="day-cell-pnl ${pnlCls(data.pnl)}">${fmt(data.pnl)}</div><div class="day-cell-count">${data.count} trade${data.count !== 1 ? 's' : ''}</div>` : ''}</div>`;
       }
       gridHtml = `<div class="day-grid-header">${dayNames7.map(d => `<span>${d}</span>`).join('')}</div><div class="day-grid">${cells}</div>`;
     }
@@ -399,7 +399,7 @@ function openCalZoom(yr, mo) {
   const bodyEl  = document.getElementById('cal-zoom-body');
   if (!overlay || !titleEl || !bodyEl) return;
 
-  titleEl.innerHTML = monthNames[mo] + ' ' + yr + ' <span style="font-size:11px;font-weight:400;color:var(--text3)">(Net)</span>';
+  titleEl.innerHTML = monthNames[mo] + ' ' + yr;
 
   // Build dayMap from all trades
   const dayMap = {};
@@ -456,12 +456,12 @@ function openCalZoom(yr, mo) {
         const isToday = dt.toDateString() === today.toDateString();
         const data    = dayMap[dateStr];
         const isHol   = holidays.includes(dateStr);
-        if (data) { weekPnl = parseFloat((weekPnl + data.net).toFixed(2)); weekCount += data.count; }
+        if (data) { weekPnl = parseFloat((weekPnl + data.pnl).toFixed(2)); weekCount += data.count; }
         const numHtml = isToday
           ? `<div class="day-cell-num" style="background:var(--text);color:var(--bg);width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px">${dt.getDate()}</div>`
           : `<div class="day-cell-num">${dt.getDate()}</div>`;
         cells += `<div class="day-cell${isToday ? ' today' : ''}${data ? ' has-trades' : ''}${isHol ? ' holiday' : ''}${ntdMap[dateStr] && !data ? (ntdMap[dateStr].positive ? ' ntd-good' : ' ntd-bad') : ''}">
-          ${numHtml}${isHol ? '' : ntdMap[dateStr] && !data ? `<div class="day-cell-ntd">${ntdMap[dateStr].positive ? '—' : '✗'}</div>` : data ? `<div class="day-cell-pnl ${pnlCls(data.net)}">${fmt(data.net)}</div><div class="day-cell-count">${data.count} trade${data.count !== 1 ? 's' : ''}</div>` : ''}</div>`;
+          ${numHtml}${isHol ? '' : ntdMap[dateStr] && !data ? `<div class="day-cell-ntd">${ntdMap[dateStr].positive ? '—' : '✗'}</div>` : data ? `<div class="day-cell-pnl ${pnlCls(data.pnl)}">${fmt(data.pnl)}</div><div class="day-cell-count">${data.count} trade${data.count !== 1 ? 's' : ''}</div>` : ''}</div>`;
       });
       const wkCls = weekPnl > 0 ? 'pos-week' : weekPnl < 0 ? 'neg-week' : '';
       cells += `<div class="day-cell week-summary ${wkCls}">
