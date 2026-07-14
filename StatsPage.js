@@ -82,9 +82,9 @@ function drawDonut(id, posVal, negVal, posColor, negColor, commVal, hoverLabels)
             if (lblEl) lblEl.textContent = hoverLabels.default.lbl;
           if (lblEl) lblEl.style.fontSize = '';
           } else {
-            const net = posVal - negVal - comm;
-            valEl.textContent = fmtNum(net);
-            valEl.className = 'stat-val ' + (net > 0 ? 'pos' : net < 0 ? 'neg' : 'neu');
+            const gross = posVal - negVal;
+            valEl.textContent = fmtNum(gross);
+            valEl.className = 'stat-val ' + (gross > 0 ? 'pos' : gross < 0 ? 'neg' : 'neu');
             valEl.style.color = '';
             if (lblEl) { lblEl.textContent = 'P&L'; lblEl.style.fontSize = ''; }
           }
@@ -246,10 +246,10 @@ function updateStats() {
       const valEl = document.getElementById(canvasId.replace('d-','s-'));
       const lblEl = document.getElementById(canvasId.replace('d-','lbl-'));
       if (!valEl) return;
-      valEl.innerHTML = tipVal(pnlTxt, totalNetPnl);
+      valEl.innerHTML = tipVal(pnlTxt, totalPnl);
       valEl.className = pnlCls;
       valEl.style.color = '';
-      if (lblEl) lblEl.textContent = 'P&L (Net)';
+      if (lblEl) lblEl.textContent = 'P&L';
     };
   });
   ['d-wr','d-wr-c'].forEach(canvasId => {
