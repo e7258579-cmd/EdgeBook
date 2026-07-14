@@ -133,7 +133,7 @@ function renderLog() {
           <td style="${tdPad}"><span style="${cellStyle}">${g.sym}</span></td>
           <td style="${tdPad}">${dirBadge}</td>
           <td style="${tdPad};text-align:center" class="col-num">${ts.length}</td>
-          <td style="${tdPad};text-align:center" class="col-num"><span style="${cellStyle}">${totalQty ? totalQty.toLocaleString() : '—'}</span></td>
+          <td style="${tdPad};text-align:center" class="col-num">${totalQty ? totalQty.toLocaleString() : '—'}</td>
           <td style="${tdPad}"><span class="col-pnl ${pnlCls}" style="font-size:13px;font-weight:400">${pnlSign}$${Math.abs(totalPnl).toFixed(2)}</span></td>
           <td style="${tdPad}"><span style="${cellStyle}">${pctStr}</span></td>
           <td style="${tdPad};white-space:nowrap;width:1px">
