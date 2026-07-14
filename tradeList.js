@@ -74,7 +74,7 @@ function renderLog() {
   const thead = `<thead><tr>
     <th style="width:32px"><input type="checkbox" id="select-all-cb-inner" onchange="toggleSelectAll(this)" style="width:15px;height:15px;cursor:pointer;accent-color:var(--text)"></th>
     <th class="col-date-hd">Date</th><th>Symbol</th><th>Dir</th>
-    <th>Trades</th><th>Total P&amp;L Gross</th><th>Total Fees</th><th>Total P&amp;L Net</th><th>P&amp;L % (Net)</th><th></th>
+    <th>Trades</th><th>P&amp;L</th><th>% P&amp;L</th><th></th>
   </tr></thead>`;
 
   let html = '';
@@ -102,46 +102,43 @@ function renderLog() {
       const ts = g.trades;
       const gid = (g.date + '_' + g.sym).replace(/[^a-zA-Z0-9]/g,'_');
       const totalPnl = ts.reduce((s,t)=>s+t.pnl,0);
-      const wins = ts.filter(t=>t.pnl>0).length;
-      const wr = ts.length ? Math.round(wins/ts.length*100) : 0;
-      const pnlCls = totalPnl>0?'pos':totalPnl<0?'neg':'';
+      const pnlCls  = totalPnl>0?'pos':totalPnl<0?'neg':'';
       const pnlSign = totalPnl>0?'+':totalPnl<0?'-':'';
-      const pctVals = ts.filter(t=>t.entry&&t.qty).map(t=>(t.pnl-(typeof calcCommission==='function'?calcCommission(t):0))/(t.entry*t.qty)*100); // net %
-      const avgPct = pctVals.length ? pctVals.reduce((a,b)=>a+b,0)/pctVals.length : null;
-      const pctStr = avgPct!==null ? (avgPct>=0?'+':'')+avgPct.toFixed(2)+'%' : '—';
+      // Gross % P&L — no fee deduction
+      const pctVals = ts.filter(t=>t.entry&&t.qty).map(t=>t.pnl/(t.entry*t.qty)*100);
+      const avgPct  = pctVals.length ? pctVals.reduce((a,b)=>a+b,0)/pctVals.length : null;
+      const pctStr  = avgPct!==null ? (avgPct>=0?'+':'')+avgPct.toFixed(2)+'%' : '—';
       const allDirs = ts.every(t=>t.dir==='long')?'long':ts.every(t=>t.dir==='short')?'short':'mixed';
       const dirBadge = allDirs==='mixed'
         ? `<span class="dir-badge" style="background:var(--bg2);color:var(--text3)">Mixed</span>`
         : `<span class="dir-badge ${allDirs==='long'?'long-badge':'short-badge'}">${allDirs==='long'?'Long':'Short'}</span>`;
-      const totalFees = ts.reduce((s,t) => s + (typeof calcCommission === 'function' ? calcCommission(t) : 0), 0);
-      const feesCls = totalFees > 0 ? 'neg' : '';
 
-      // Group checkbox covers all trades in group
       const tradeIds = ts.map(t=>t.id).join(',');
 
-      const netPnl    = totalPnl - totalFees;
-      const netCls    = netPnl > 0 ? 'pos' : netPnl < 0 ? 'neg' : '';
-      const netSign   = netPnl >= 0 ? '+' : '-';
+      // Date as dd/mm/yyyy
+      const [y,m,d] = g.date.split('-');
+      const dateFmt = `${d}/${m}/${y}`;
+
+      // Shared style for all non-P&L cells — same font, size, weight, color
+      const cellStyle = 'font-size:13px;font-weight:400;color:var(--text2)';
 
       html += `
         <tr class="data-row" onclick="toggleExpandRow('${gid}')">
           <td onclick="event.stopPropagation()">
             <input type="checkbox" class="row-cb group-cb" data-ids="${tradeIds}" onchange="onGroupCbChange(this)" style="width:15px;height:15px;cursor:pointer;accent-color:var(--text)">
           </td>
-          <td><span class="col-date">${fmtDate(g.date)}</span></td>
-          <td><span class="col-sym">${g.sym}</span></td>
+          <td><span style="${cellStyle}">${dateFmt}</span></td>
+          <td><span style="${cellStyle}">${g.sym}</span></td>
           <td>${dirBadge}</td>
-          <td class="col-num">${ts.length}</td>
-          <td><span class="col-pnl ${pnlCls}">${pnlSign}$${Math.abs(totalPnl).toLocaleString('en-US',{maximumFractionDigits:0})}</span></td>
-          <td><span class="col-pnl ${feesCls}" style="font-size:13px">-$${totalFees.toFixed(2)}</span></td>
-          <td><span class="col-pnl ${netCls}">${netSign}$${Math.abs(netPnl).toLocaleString('en-US',{maximumFractionDigits:2})}</span></td>
-          <td><span class="col-pnl ${avgPct>0?'pos':avgPct<0?'neg':''}" style="font-size:12px">${pctStr}</span></td>
+          <td style="${cellStyle}" class="col-num">${ts.length}</td>
+          <td><span class="col-pnl ${pnlCls}" style="font-size:13px;font-weight:400">${pnlSign}$${Math.abs(totalPnl).toFixed(2)}</span></td>
+          <td><span style="${cellStyle}">${pctStr}</span></td>
           <td><div class="col-actions">
             <button class="btn-sm" data-ids="${tradeIds}" onclick="event.stopPropagation();deleteGroup(this.dataset.ids)">Delete</button>
           </div></td>
         </tr>
         <tr class="trade-expand-row" id="expand-${gid}" onclick="event.stopPropagation()">
-          <td colspan="10">${buildGroupPanel(ts)}</td>
+          <td colspan="8">${buildGroupPanel(ts)}</td>
         </tr>`;
     });
 
