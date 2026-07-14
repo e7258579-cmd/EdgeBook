@@ -419,11 +419,11 @@ function renderEquityChart() {
     return;
   }
 
-  // Aggregate PnL + stats by day (NET — gross minus fees, consistent with calendar page)
+  // Aggregate PnL + stats by day (GROSS — no fee deduction)
   const dayMap = {};
   sorted.forEach(t => {
     if (!dayMap[t.date]) dayMap[t.date] = { pnl: 0, wins: 0, losses: 0, count: 0 };
-    dayMap[t.date].pnl    += (t.pnl - calcCommission(t));
+    dayMap[t.date].pnl    += t.pnl;
     dayMap[t.date].count  += 1;
     if (t.pnl > 0) dayMap[t.date].wins++;
     else if (t.pnl < 0) dayMap[t.date].losses++;
@@ -607,7 +607,7 @@ function renderEquityChart() {
               <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:7px;font-family:${siteFont}">${dateStr}</div>
               <div style="display:flex;flex-direction:column;gap:5px">
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:20px">
-                  <span style="font-size:12px;color:var(--text2);font-family:${siteFont}">Day P&L (Net)</span>
+                  <span style="font-size:12px;color:var(--text2);font-family:${siteFont}">Day P&L</span>
                   <span style="font-size:14px;font-weight:700;color:${pnlCls};font-family:${siteFont}">${fmt(dayPnl)}</span>
                 </div>
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:20px">
