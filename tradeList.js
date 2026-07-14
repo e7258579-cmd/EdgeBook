@@ -82,7 +82,7 @@ function renderLog() {
   years.forEach((year, yi) => {
     const yearGroups = byYear[year];
     const yearTrades = yearGroups.flatMap(g => g.trades);
-    const yearPnl = yearTrades.reduce((s,x)=>s+x.pnl-(typeof calcCommission === 'function' ? calcCommission(x) : 0),0); // net
+    const yearPnl = yearTrades.reduce((s,x)=>s+x.pnl,0); // gross
     const yearPnlCls = yearPnl>0?'var(--green)':yearPnl<0?'var(--red)':'var(--text3)';
 
     html += `<div style="${yi>0?'margin-top:1.75rem':''}">
@@ -90,8 +90,8 @@ function renderLog() {
         <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.6rem">
           <span style="font-size:20px;font-weight:700;color:var(--text2);letter-spacing:.18em;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">${year}</span>
           <span style="display:flex;align-items:baseline;gap:14px">
+            <span style="font-size:12px;font-weight:600;color:${yearPnlCls}">P&amp;L ${yearPnl>0?'+':yearPnl<0?'-':''}$${Math.abs(yearPnl).toLocaleString('en-US',{maximumFractionDigits:0})}</span>
             <span style="font-size:11px;color:var(--text3)">${yearTrades.length} trade${yearTrades.length!==1?'s':''}</span>
-            <span style="font-size:12px;font-weight:600;color:${yearPnlCls}" title="Net of fees">${yearPnl>0?'+':yearPnl<0?'-':''}$${Math.abs(yearPnl).toLocaleString('en-US',{maximumFractionDigits:0})} <span style="font-size:9px;color:var(--text3);font-weight:400">net</span></span>
           </span>
         </div>
       </div>
