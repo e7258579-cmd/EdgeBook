@@ -639,12 +639,26 @@ function renderCalDayPanel(dateStr) {
       ? `<span class="dir-badge short-badge">Short</span>`
       : `<span class="dir-badge long-badge">Long</span>`;
 
-    // Compute net pnl and pnl% based on net
-    const fees   = typeof calcCommission === 'function' ? calcCommission(t) : 0;
-    const netPnl = parseFloat(t.pnl) - fees;
+    // Gross P&L and pnl% based on gross
+    const grossPnl = parseFloat(t.pnl) || 0;
     const entryV = parseFloat(t.entry); const qtyV = parseFloat(t.qty);
-    const pnlPct = (!isNaN(entryV) && !isNaN(qtyV) && !isNaN(netPnl) && entryV > 0 && qtyV > 0)
-      ? fmtPct(netPnl / (entryV * qtyV) * 100) : '—';
+    const pnlPct = (!isNaN(entryV) && !isNaN(qtyV) && entryV > 0 && qtyV > 0)
+      ? fmtPct(grossPnl / (entryV * qtyV) * 100) : '—';
+
+    // Duration helper
+    function _parseMins(timeStr) {
+      if (!timeStr) return null;
+      const [h, m] = timeStr.split(':').map(Number);
+      return isNaN(h) || isNaN(m) ? null : h * 60 + m;
+    }
+    const durStr = (() => {
+      const inM  = _parseMins(t.entryTime);
+      const outM = _parseMins(t.exitTime);
+      if (inM == null || outM == null) return '—';
+      const diff = outM - inM;
+      if (diff <= 0) return '—';
+      return diff >= 60 ? `${Math.floor(diff / 60)}h ${diff % 60}m` : `${diff}m`;
+    })();
 
     // Setup / Reason
     const setupHtml = t.reason ? `
@@ -678,17 +692,17 @@ function renderCalDayPanel(dateStr) {
             ${dirBadge}
           </div>
           <div style="text-align:right;flex-shrink:0">
-            <div style="font-size:14px;font-weight:700" class="${pnlCls(netPnl)}">${fmtPnl(netPnl)}</div>
+            <div style="font-size:14px;font-weight:700" class="${pnlCls(grossPnl)}">${fmtPnl(grossPnl)}</div>
             <div style="font-size:10px;color:var(--text3);margin-top:1px">${pnlPct}</div>
           </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 10px">
-          ${_rpRow('Time', t.entryTime && t.exitTime ? `${t.entryTime}→${t.exitTime}` : (t.entryTime || '—'))}
+          ${_rpRow('Time in',  t.entryTime || '—')}
+          ${_rpRow('Time out', t.exitTime  || '—')}
+          ${_rpRow('Duration', durStr)}
           ${_rpRow('Qty', t.qty || '—')}
           ${_rpRow('Entry', t.entry ? '$' + parseFloat(t.entry).toFixed(2) : '—')}
           ${_rpRow('Exit', t.exit ? '$' + parseFloat(t.exit).toFixed(2) : '—')}
-          ${_rpRow('Gross', `<span class="${pnlCls(t.pnl)}">${fmtPnl(t.pnl)}</span>`)}
-          ${_rpRow('Fees', fees > 0 ? `<span class="neg">$${fees.toFixed(2)}</span>` : '—')}
           ${_rpRow('R:R', fmt2(t.rr))}
           ${_rpRow('★', stars(t.rating))}
         </div>
@@ -701,7 +715,7 @@ function renderCalDayPanel(dateStr) {
   panel.innerHTML = `
     <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:1rem;gap:6px;flex-wrap:wrap">
       <div style="font-size:14px;font-weight:500;color:var(--text2);letter-spacing:.01em;font-family:'CircularXXWeb-Bold',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">${label}</div>
-      <div style="font-size:10px;color:var(--text3)">${dayTrades.length} trade${dayTrades.length !== 1 ? 's' : ''} · <span class="${pnlCls(totalNetPnl)}">${fmtPnl(totalNetPnl)}</span> net</div>
+      <div style="font-size:12px;color:var(--text3)"><span class="${pnlCls(totalNetPnl)}">${fmtPnl(totalNetPnl)}</span> net · ${dayTrades.length} trade${dayTrades.length !== 1 ? 's' : ''}</div>
     </div>
     <div style="display:flex;gap:10px;margin-bottom:1.1rem">
       <div style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;text-align:center">
@@ -709,8 +723,8 @@ function renderCalDayPanel(dateStr) {
         <div style="font-size:14px;font-weight:700;color:${wins / dayTrades.length >= 0.5 ? 'var(--green)' : 'var(--red)'}">${Math.round(wins / dayTrades.length * 100)}%</div>
       </div>
       <div style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;text-align:center">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);font-weight:700;margin-bottom:3px">Day P&amp;L NET</div>
-        <div style="font-size:14px;font-weight:700" class="${pnlCls(totalNetPnl)}">${fmtPnl(totalNetPnl)}</div>
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);font-weight:700;margin-bottom:3px">Day P&amp;L</div>
+        <div style="font-size:14px;font-weight:700" class="${pnlCls(totalPnl)}">${fmtPnl(totalPnl)}</div>
       </div>
     </div>
     <div>${tradesHtml}</div>`;
