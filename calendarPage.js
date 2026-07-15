@@ -715,7 +715,6 @@ function renderCalDayPanel(dateStr) {
   panel.innerHTML = `
     <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:1rem;gap:6px;flex-wrap:wrap">
       <div style="font-size:14px;font-weight:500;color:var(--text2);letter-spacing:.01em;font-family:'CircularXXWeb-Bold',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">${label}</div>
-      <div style="font-size:12px;color:var(--text3)"><span class="${pnlCls(totalNetPnl)}">${fmtPnl(totalNetPnl)}</span> net · ${dayTrades.length} trade${dayTrades.length !== 1 ? 's' : ''}</div>
     </div>
     <div style="display:flex;gap:10px;margin-bottom:1.1rem">
       <div style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;text-align:center">
@@ -725,6 +724,10 @@ function renderCalDayPanel(dateStr) {
       <div style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;text-align:center">
         <div style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);font-weight:700;margin-bottom:3px">Day P&amp;L</div>
         <div style="font-size:14px;font-weight:700" class="${pnlCls(totalPnl)}">${fmtPnl(totalPnl)}</div>
+      </div>
+      <div style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;text-align:center">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);font-weight:700;margin-bottom:3px">Trades</div>
+        <div style="font-size:14px;font-weight:700;color:var(--text)">${dayTrades.length}</div>
       </div>
     </div>
     <div>${tradesHtml}</div>`;
