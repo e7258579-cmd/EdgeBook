@@ -519,7 +519,7 @@ function openCalZoom(yr, mo) {
       cells += `<div class="day-cell${isOther ? ' other-month' : ''}${isToday ? ' today' : ''}${data ? ' has-trades' : ''}${isHol ? ' holiday' : ''}${!isOther && ntdMap[dateStr] && !data ? (ntdMap[dateStr].positive ? ' ntd-good' : ' ntd-bad') : ''}">
         ${numHtml}
         ${!isOther && !isHol && ntdMap[dateStr] && !data ? `<div class="day-cell-ntd">${ntdMap[dateStr].positive ? '—' : '✗'}</div>` : ''}
-        ${!isOther && !isHol && data ? `<div class="day-cell-pnl ${pnlCls(data.net)}">${fmt(data.net)}</div><div class="day-cell-count">${data.count} trade${data.count !== 1 ? 's' : ''}</div>` : ''}</div>`;
+        ${!isOther && !isHol && data ? `<div class="day-cell-pnl ${pnlCls(data.pnl)}">${fmt(data.pnl)}</div><div class="day-cell-count">${data.count} trade${data.count !== 1 ? 's' : ''}</div>` : ''}</div>`;
     }
     gridHtml = `<div class="day-grid-header">${dayNames7.map(d => `<span>${d}</span>`).join('')}</div><div class="day-grid">${cells}</div>`;
   }
