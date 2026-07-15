@@ -190,10 +190,10 @@ function renderCalPage() {
   const allDateKeys = Object.keys(dayMap).sort();
   if (!allDateKeys.length) { gridEl.innerHTML = `<div class="empty">No trades found.</div>`; return; }
 
-  // Build cumulative map (used when calSubMode === 'cumulative') — uses net P&L
+  // Build cumulative map (used when calSubMode === 'cumulative') — uses gross P&L
   let runningTotal = 0;
   const cumMap = {};
-  allDateKeys.forEach(d => { runningTotal += dayMap[d].net; cumMap[d] = runningTotal; });
+  allDateKeys.forEach(d => { runningTotal += dayMap[d].pnl; cumMap[d] = runningTotal; });
 
   // Generate month list from months that actually exist in dayMap, descending
   const monthSet = new Set(allDateKeys.map(d => d.slice(0, 7)));
@@ -288,7 +288,7 @@ function renderCalPage() {
         cells += `<div class="day-cell${isOther ? ' other-month' : ''}${isToday ? ' today' : ''}${data ? ' has-trades' : ''}${isHol ? ' holiday' : ''}${ntd && !data ? (ntd.positive ? ' ntd-good' : ' ntd-bad') : ''}" data-date="${isOther ? '' : dateStr}" onclick="if(!${isOther})selectCalDay('${dateStr}')">
           ${numHtml}
           ${!isOther && !isHol && ntd && !data ? `<div class="day-cell-ntd">${ntd.positive ? '—' : '✗'}</div>` : ''}
-          ${!isOther && !isHol && cumVal != null ? `<div class="day-cell-pnl ${pnlCls(cumVal)}">${fmt(cumVal)}</div><div class="day-cell-count" style="opacity:.55;font-size:9px">${data ? fmt(data.net) + ' day' : ''}</div>` : ''}</div>`;
+          ${!isOther && !isHol && cumVal != null ? `<div class="day-cell-pnl ${pnlCls(cumVal)}">${fmt(cumVal)}</div><div class="day-cell-count" style="opacity:.55;font-size:9px">${data ? fmt(data.pnl) + ' day' : ''}</div>` : ''}</div>`;
       }
       gridHtml = `<div class="day-grid-header">${dayNames7.map(d => `<span>${d}</span>`).join('')}</div><div class="day-grid">${cells}</div>`;
 
@@ -418,11 +418,11 @@ function openCalZoom(yr, mo) {
     ? loadJournal().reduce((m, e) => { if (e.type === 'ntd') m[e.date] = e; return m; }, {})
     : {};
 
-  // Build cumulative map — uses net P&L
+  // Build cumulative map — uses gross P&L
   const allDateKeys = Object.keys(dayMap).sort();
   let running = 0;
   const cumMap = {};
-  allDateKeys.forEach(d => { running += dayMap[d].net; cumMap[d] = running; });
+  allDateKeys.forEach(d => { running += dayMap[d].pnl; cumMap[d] = running; });
 
   const pad    = n  => String(n).padStart(2, '0');
   const fmt    = pnl => `${pnl > 0 ? '+' : pnl < 0 ? '-' : ''}$${Math.abs(pnl).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
@@ -495,7 +495,7 @@ function openCalZoom(yr, mo) {
       cells += `<div class="day-cell${isOther ? ' other-month' : ''}${isToday ? ' today' : ''}${data ? ' has-trades' : ''}${isHol ? ' holiday' : ''}${!isOther && ntdMap[dateStr] && !data ? (ntdMap[dateStr].positive ? ' ntd-good' : ' ntd-bad') : ''}">
         ${numHtml}
         ${!isOther && !isHol && ntdMap[dateStr] && !data ? `<div class="day-cell-ntd">${ntdMap[dateStr].positive ? '—' : '✗'}</div>` : ''}
-        ${!isOther && !isHol && cumVal != null ? `<div class="day-cell-pnl ${pnlCls(cumVal)}">${fmt(cumVal)}</div><div class="day-cell-count" style="opacity:.55;font-size:9px">${data ? fmt(data.net) + ' day' : ''}</div>` : ''}</div>`;
+        ${!isOther && !isHol && cumVal != null ? `<div class="day-cell-pnl ${pnlCls(cumVal)}">${fmt(cumVal)}</div><div class="day-cell-count" style="opacity:.55;font-size:9px">${data ? fmt(data.pnl) + ' day' : ''}</div>` : ''}</div>`;
     }
     gridHtml = `<div class="day-grid-header">${dayNames7.map(d => `<span>${d}</span>`).join('')}</div><div class="day-grid">${cells}</div>`;
 
