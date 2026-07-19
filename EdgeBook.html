@@ -474,6 +474,15 @@
   .donut-center.compact-center .stat-label{font-size:7px}
   .donut-center.compact-center .stat-val{font-size:11px}
   .pos{color:var(--green)}.neg{color:var(--red)}.neu{color:var(--text)}
+  /* === KPI bar row (replaces hero donuts) === */
+  .kpi-bar-row{display:grid;grid-template-columns:repeat(4,1fr);gap:2rem}
+  .kpi-bar-card{display:flex;flex-direction:column;cursor:default}
+  .kpi-bar-card .stat-label{font-size:10px;margin-bottom:6px}
+  .kpi-bar-card .stat-val{color:var(--text2) !important}
+  .kpi-bar-track{position:relative;height:8px;border-radius:6px;overflow:hidden;display:flex;margin-top:12px;background:var(--bg2)}
+  .kpi-bar-seg{height:100%;cursor:pointer;transition:opacity .12s}
+  .kpi-bar-seg:hover{opacity:.8}
+  .kpi-bar-fee{position:absolute;top:-3px;width:3px;height:14px;border-radius:2px;background:var(--amber);cursor:pointer;display:none}
   .tabs{display:flex;gap:4px;margin-bottom:1.25rem;background:var(--bg2);border-radius:var(--radius);padding:3px;border:1px solid var(--border)}
   .tab{flex:1;padding:8px 12px;font-size:13px;background:none;border:none;cursor:pointer;border-radius:8px;color:var(--text2);transition:all .15s;font-family:inherit}
   .tab.active{background:var(--bg);color:var(--text);font-weight:600;border:1px solid var(--border2);box-shadow:0 1px 3px rgba(0,0,0,.07)}
@@ -1282,44 +1291,57 @@
   <!-- HOME PAGE -->
   <div id="tab-home" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:0.5rem">
 
-  <!-- HERO STATS + LATEST TRADES: side by side in one card -->
-  <div style="display:flex;align-items:stretch;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;flex-shrink:0">
-
-    <!-- Left: Donuts -->
-    <div class="stats-hero" id="stats-hero" style="margin-bottom:0;padding:1.25rem;flex-shrink:0">
-      <div class="hero-small-grid">
-        <div class="stat-card donut-card">
-          <div class="donut-wrap"><canvas id="d-pnl" width="168" height="168"></canvas><div class="donut-center"><span class="stat-label" id="lbl-pnl">P&amp;L</span><span class="stat-val neu" id="s-pnl">$0</span></div></div>
+  <!-- KPI BAR ROW: full width, replaces the 4 hero donuts -->
+  <div class="stats-hero" id="stats-hero" style="margin-bottom:0;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;flex-shrink:0">
+    <div class="kpi-bar-row">
+      <div class="stat-card kpi-bar-card" id="bar-pnl">
+        <span class="stat-label" id="lbl-pnl">P&amp;L</span>
+        <span class="stat-val neu" id="s-pnl">$0</span>
+        <div class="kpi-bar-track">
+          <div class="kpi-bar-seg" id="seg-pnl-win"></div>
+          <div class="kpi-bar-seg" id="seg-pnl-loss"></div>
+          <div class="kpi-bar-fee" id="fee-pnl"></div>
         </div>
-        <div class="stat-card donut-card">
-          <div class="donut-wrap"><canvas id="d-wr" width="168" height="168"></canvas><div class="donut-center"><span class="stat-label" id="lbl-wr">Win%</span><span class="stat-val neu" id="s-wr">0%</span></div></div>
+      </div>
+      <div class="stat-card kpi-bar-card" id="bar-wr">
+        <span class="stat-label" id="lbl-wr">Win%</span>
+        <span class="stat-val neu" id="s-wr">0%</span>
+        <div class="kpi-bar-track">
+          <div class="kpi-bar-seg" id="seg-wr-win"></div>
+          <div class="kpi-bar-seg" id="seg-wr-loss"></div>
         </div>
-        <div class="stat-card donut-card">
-          <div class="donut-wrap"><canvas id="d-avg" width="168" height="168"></canvas><div class="donut-center"><span class="stat-label" id="lbl-avg">Per Trade</span><span class="stat-val neu" id="s-avg">$0</span></div></div>
+      </div>
+      <div class="stat-card kpi-bar-card" id="bar-avg">
+        <span class="stat-label" id="lbl-avg">Per Trade</span>
+        <span class="stat-val neu" id="s-avg">$0</span>
+        <div class="kpi-bar-track">
+          <div class="kpi-bar-seg" id="seg-avg-win"></div>
+          <div class="kpi-bar-seg" id="seg-avg-loss"></div>
         </div>
-        <div class="stat-card donut-card">
-          <div class="donut-wrap"><canvas id="d-pf" width="168" height="168"></canvas><div class="donut-center"><span class="stat-label">Factor</span><span class="stat-val neu" id="s-pf">—</span></div></div>
+      </div>
+      <div class="stat-card kpi-bar-card" id="bar-pf">
+        <span class="stat-label">Factor</span>
+        <span class="stat-val neu" id="s-pf">—</span>
+        <div class="kpi-bar-track" style="cursor:default">
+          <div class="kpi-bar-seg" id="seg-pf-win" style="cursor:default"></div>
+          <div class="kpi-bar-seg" id="seg-pf-loss" style="cursor:default"></div>
         </div>
       </div>
     </div>
+  </div>
 
-    <!-- Separator -->
-    <div style="width:1px;background:var(--border);flex-shrink:0;align-self:stretch"></div>
-
-    <!-- Right: Latest Trades -->
-    <div style="flex:1;min-width:0;padding:1.25rem;display:flex;flex-direction:column">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;direction:ltr">
-        <div class="page-title-sm">Latest Trades</div>
-        <a class="all-trades-link" onclick="showPage('log')">All Trades</a>
-      </div>
-      <div id="home-trades-list" style="flex:1;overflow:hidden"></div>
-      <button onclick="openNewTradeModal()" style="margin-top:1rem;width:100%;display:flex;align-items:center;justify-content:center;gap:10px;padding:13px 20px;border-radius:12px;border:1.5px dashed var(--border2);background:transparent;color:var(--text2);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s;letter-spacing:.01em" onmouseover="this.style.borderColor='var(--green)';this.style.color='var(--green)';this.style.background='rgba(29,158,117,.05)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--text2)';this.style.background='transparent'">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-        New Trade
-      </button>
+  <!-- LATEST TRADES: full width, below the KPI row -->
+  <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;flex-shrink:0;padding:1.25rem;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;direction:ltr">
+      <div class="page-title-sm">Latest Trades</div>
+      <a class="all-trades-link" onclick="showPage('log')">All Trades</a>
     </div>
-
-  </div><!-- end hero+trades card -->
+    <div id="home-trades-list" style="overflow:hidden"></div>
+    <button onclick="openNewTradeModal()" style="margin-top:1rem;width:100%;display:flex;align-items:center;justify-content:center;gap:10px;padding:13px 20px;border-radius:12px;border:1.5px dashed var(--border2);background:transparent;color:var(--text2);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s;letter-spacing:.01em" onmouseover="this.style.borderColor='var(--green)';this.style.color='var(--green)';this.style.background='rgba(29,158,117,.05)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--text2)';this.style.background='transparent'">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+      New Trade
+    </button>
+  </div><!-- end KPI + trades -->
 
     <!-- Equity Chart + Last Week: side by side -->
     <div style="display:flex;align-items:stretch;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;flex:1;min-height:0">

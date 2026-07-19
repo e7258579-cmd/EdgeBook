@@ -119,6 +119,67 @@ function drawDonut(id, posVal, negVal, posColor, negColor, commVal, hoverLabels)
   });
 }
 
+// renderKpiBar — bar-based replacement for the hero drawDonut() rings.
+// Mirrors drawDonut's exact default/hover values, labels and colors 1:1,
+// including the '-' + fmtNum(comm) fee formatting from the original code.
+function renderKpiBar(key, posVal, negVal, posColor, negColor, commVal, opts) {
+  const winSeg = document.getElementById('seg-'+key+'-win');
+  const lossSeg = document.getElementById('seg-'+key+'-loss');
+  if (!winSeg || !lossSeg) return;
+  const valEl = document.getElementById('s-'+key);
+  const lblEl = document.getElementById('lbl-'+key);
+  const feeEl = document.getElementById('fee-'+key);
+  const barEl = document.getElementById('bar-'+key);
+  const comm = Math.abs(commVal || 0);
+  const rawTotal = Math.abs(posVal) + Math.abs(negVal);
+  const winPct = rawTotal > 0 ? Math.abs(posVal) / rawTotal * 100 : 50;
+
+  winSeg.style.width = winPct + '%';
+  winSeg.style.background = posColor;
+  lossSeg.style.width = (100 - winPct) + '%';
+  lossSeg.style.background = negColor;
+
+  if (feeEl) {
+    if (comm > 0) { feeEl.style.display = 'block'; feeEl.style.left = 'calc(' + winPct + '% - 2px)'; }
+    else { feeEl.style.display = 'none'; }
+  }
+
+  const resetDefault = () => {
+    if (!valEl) return;
+    valEl.innerHTML = opts.defaultHtml;
+    valEl.className = opts.defaultCls;
+    valEl.style.color = '';
+    if (lblEl) lblEl.textContent = opts.defaultLbl;
+  };
+  resetDefault();
+  if (!opts.interactive) return;
+
+  winSeg.onmouseenter = () => {
+    if (!valEl) return;
+    valEl.textContent = opts.winVal;
+    valEl.className = 'stat-val';
+    valEl.style.color = '';
+    if (lblEl) lblEl.textContent = opts.winLbl;
+  };
+  lossSeg.onmouseenter = () => {
+    if (!valEl) return;
+    valEl.textContent = opts.lossVal;
+    valEl.className = 'stat-val';
+    valEl.style.color = '';
+    if (lblEl) lblEl.textContent = opts.lossLbl;
+  };
+  if (feeEl) {
+    feeEl.onmouseenter = () => {
+      if (!valEl) return;
+      valEl.textContent = '-' + fmtNum(comm);
+      valEl.className = 'stat-val';
+      valEl.style.color = '';
+      if (lblEl) lblEl.textContent = 'Fees';
+    };
+  }
+  if (barEl) barEl.onmouseleave = resetDefault;
+}
+
 function fmtFull(v) {
   // Full number with commas, no decimals, with sign
   const abs = Math.abs(v);
@@ -193,10 +254,25 @@ function updateStats() {
   };
 
   // Hero
-  setHtml('s-pnl', tipVal(pnlTxt, totalPnl), pnlCls); drawDonut('d-pnl',totalPos,totalNeg,'#8dc572','#D85A30',totalComm);
-  setHtml('s-wr',  wrTxt, wrCls);                      drawDonut('d-wr', winCount,lossCount,'#8dc572','#D85A30',0,wrHover);
-  setHtml('s-avg', tipVal(avgTxt, avg), avgCls);        drawDonut('d-avg',avgWin,avgLoss,'#8dc572','#D85A30',0,avgHover);
-  setHtml('s-pf',  pfTxt, pfCls);                       drawDonut('d-pf', avgWin,avgLoss,'#8dc572','#D85A30');
+  renderKpiBar('pnl', totalPos, totalNeg, '#8dc572', '#D85A30', totalComm, {
+    interactive: true,
+    defaultHtml: tipVal(pnlTxt, totalPnl), defaultCls: pnlCls, defaultLbl: 'P&L',
+    winVal: fmtNum(totalPos), lossVal: fmtNum(-totalNeg), winLbl: 'Profit', lossLbl: 'Loss'
+  });
+  renderKpiBar('wr', winCount, lossCount, '#8dc572', '#D85A30', 0, {
+    interactive: true,
+    defaultHtml: wrTxt, defaultCls: wrCls, defaultLbl: 'Win%',
+    winVal: winCount, lossVal: lossCount, winLbl: 'Wins', lossLbl: 'Losses'
+  });
+  renderKpiBar('avg', avgWin, avgLoss, '#8dc572', '#D85A30', 0, {
+    interactive: true,
+    defaultHtml: tipVal(avgTxt, avg), defaultCls: avgCls, defaultLbl: 'Per Trade',
+    winVal: fmtNum(avgWin), lossVal: fmtNum(-Math.abs(avgLoss)), winLbl: 'Avg Win', lossLbl: 'Avg Loss'
+  });
+  renderKpiBar('pf', avgWin, avgLoss, '#8dc572', '#D85A30', 0, {
+    interactive: false,
+    defaultHtml: pfTxt, defaultCls: pfCls, defaultLbl: 'Factor'
+  });
 
   // Avg Rating stars
   const ratedTrades = ft.filter(t => t.rating);
