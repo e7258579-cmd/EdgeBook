@@ -467,7 +467,6 @@
   .donut-wrap.compact-sm{width:58px;height:58px;margin:0 auto 2px}
   .donut-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;width:60%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
   .donut-center .stat-label{font-size:10px;color:var(--text2);margin-bottom:0;letter-spacing:.02em;font-weight:700;font-family:'CircularXXWeb-Bold',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;line-height:1.2}
-  #lbl-pnl { font-size: 11px; }
   .donut-center .stat-val{font-size:18px;font-weight:700;white-space:nowrap;color:var(--text2) !important;font-family:'CircularXXWeb-Bold',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
   .donut-center.hero-large-center .stat-label{font-size:13px}
   .donut-center.hero-large-center .stat-val{font-size:28px}
@@ -476,8 +475,8 @@
   .pos{color:var(--green)}.neg{color:var(--red)}.neu{color:var(--text)}
   /* === KPI bar row (replaces hero donuts) === */
   .kpi-bar-row{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem}
-  .kpi-bar-card{display:flex;flex-direction:column;cursor:default;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px}
-  .kpi-bar-card .stat-label{font-size:11px;margin-bottom:6px}
+  .kpi-bar-card{display:flex;flex-direction:column;cursor:default;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px}
+  .kpi-bar-card .stat-label{font-size:14px;font-weight:700;color:var(--text2);line-height:1;letter-spacing:.18em;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-transform:uppercase;margin-bottom:10px}
   .kpi-bar-card .stat-val{color:var(--text2) !important}
   .kpi-bar-track{position:relative;height:8px;border-radius:6px;overflow:hidden;display:flex;margin-top:12px;background:var(--bg2)}
   .kpi-bar-seg{height:100%;cursor:pointer;transition:opacity .12s}
@@ -1292,7 +1291,7 @@
   <div id="tab-home" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:0.5rem">
 
   <!-- KPI BAR ROW: full width, replaces the 4 hero donuts -->
-  <div class="stats-hero" id="stats-hero" style="margin-bottom:0;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;flex-shrink:0">
+  <div class="stats-hero" id="stats-hero" style="margin-bottom:0;flex-shrink:0">
     <div class="kpi-bar-row">
       <div class="stat-card kpi-bar-card" id="bar-pnl">
         <span class="stat-label" id="lbl-pnl">P&amp;L</span>
@@ -1304,7 +1303,7 @@
         </div>
       </div>
       <div class="stat-card kpi-bar-card" id="bar-wr">
-        <span class="stat-label" id="lbl-wr">Win%</span>
+        <span class="stat-label" id="lbl-wr">Win Rate</span>
         <span class="stat-val neu" id="s-wr">0%</span>
         <div class="kpi-bar-track">
           <div class="kpi-bar-seg" id="seg-wr-win"></div>
@@ -1312,7 +1311,7 @@
         </div>
       </div>
       <div class="stat-card kpi-bar-card" id="bar-avg">
-        <span class="stat-label" id="lbl-avg">Per Trade</span>
+        <span class="stat-label" id="lbl-avg">Average P&amp;L Per Trade</span>
         <span class="stat-val neu" id="s-avg">$0</span>
         <div class="kpi-bar-track">
           <div class="kpi-bar-seg" id="seg-avg-win"></div>

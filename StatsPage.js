@@ -261,12 +261,12 @@ function updateStats() {
   });
   renderKpiBar('wr', winCount, lossCount, '#8dc572', '#D85A30', 0, {
     interactive: true,
-    defaultHtml: wrTxt, defaultCls: wrCls, defaultLbl: 'Win%',
+    defaultHtml: wrTxt, defaultCls: wrCls, defaultLbl: 'Win Rate',
     winVal: winCount, lossVal: lossCount, winLbl: 'Wins', lossLbl: 'Losses'
   });
   renderKpiBar('avg', avgWin, avgLoss, '#8dc572', '#D85A30', 0, {
     interactive: true,
-    defaultHtml: tipVal(avgTxt, avg), defaultCls: avgCls, defaultLbl: 'Per Trade',
+    defaultHtml: tipVal(avgTxt, avg), defaultCls: avgCls, defaultLbl: 'Average P&L Per Trade',
     winVal: fmtNum(avgWin), lossVal: fmtNum(-Math.abs(avgLoss)), winLbl: 'Avg Win', lossLbl: 'Avg Loss'
   });
   renderKpiBar('pf', avgWin, avgLoss, '#8dc572', '#D85A30', 0, {
