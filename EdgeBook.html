@@ -496,8 +496,9 @@
      (breakpoints, theme tweaks) this strip resizes proportionally with it instead
      of relying on hand-picked fixed px values. */
   .tb-stat-item .stat-label{
-    font-size:clamp(9px, calc(var(--tb-h) * 0.19), 11px);color:var(--text2);letter-spacing:.02em;font-weight:700;
-    font-family:'CircularXXWeb-Bold',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    font-size:clamp(9px, calc(var(--tb-h) * 0.19), 11px);color:var(--text2);font-weight:700;
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    letter-spacing:.18em;text-transform:uppercase;
     white-space:nowrap;
   }
   .tb-stat-item .stat-val{font-size:clamp(13px, calc(var(--tb-h) * 0.27), 15px);line-height:1;white-space:nowrap}
@@ -1255,23 +1256,23 @@
          regardless of what .tb-left is doing (buttons, time filter, etc). -->
     <div class="stats-compact" id="stats-compact">
       <div class="tb-stat-item">
-        <span class="stat-label">Profit Factor</span>
-        <span class="stat-val neu" id="s-pf-c">—</span>
+        <span class="stat-label" id="lbl-pnl-c">P&amp;L</span>
+        <span class="stat-val neu" id="s-pnl-c">$0</span>
         <span class="tb-stat-line"></span>
       </div>
       <div class="tb-stat-item">
-        <span class="stat-label" id="lbl-avg-c">Avg Per Trade</span>
-        <span class="stat-val neu" id="s-avg-c">$0</span>
-        <span class="tb-stat-line"></span>
-      </div>
-      <div class="tb-stat-item">
-        <span class="stat-label" id="lbl-wr-c">Win Rate</span>
+        <span class="stat-label" id="lbl-wr-c">Win%</span>
         <span class="stat-val neu" id="s-wr-c">0%</span>
         <span class="tb-stat-line"></span>
       </div>
       <div class="tb-stat-item">
-        <span class="stat-label" id="lbl-pnl-c">P&amp;L</span>
-        <span class="stat-val neu" id="s-pnl-c">$0</span>
+        <span class="stat-label" id="lbl-avg-c">Per Trade</span>
+        <span class="stat-val neu" id="s-avg-c">$0</span>
+        <span class="tb-stat-line"></span>
+      </div>
+      <div class="tb-stat-item">
+        <span class="stat-label">Factor</span>
+        <span class="stat-val neu" id="s-pf-c">—</span>
         <span class="tb-stat-line"></span>
       </div>
     </div>
