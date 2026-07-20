@@ -459,7 +459,31 @@
   .stats-hero{margin-bottom:2rem;display:grid}
   .hero-pnl-wrap{display:none}
   .hero-small-grid{display:grid;grid-template-columns:168px 168px;gap:6px;align-items:center;justify-self:start}
-  .stats-compact{display:none !important}
+  /* Compact KPI strip — lives in the topbar, revealed on Home-page scroll.
+     Animation mirrors .tb-page-title (max-width/opacity/transform), so it
+     matches the same "content scrolls away → summary appears in topbar"
+     language used on every other tab. */
+  .stats-compact{
+    display:flex;align-items:center;gap:clamp(14px,2vw,26px);
+    position:absolute;right:clamp(280px,22vw,380px);top:50%;
+    transform:translate(0,calc(-50% + 8px));
+    opacity:0;pointer-events:none;
+    transition:opacity .22s, transform .25s cubic-bezier(.4,0,.2,1);
+  }
+  .stats-compact.visible{ opacity:1; pointer-events:auto; transform:translate(0,-50%); }
+  .tb-stat-item{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
+  .tb-stat-item .stat-label{
+    font-size:10px;color:var(--text2);letter-spacing:.02em;font-weight:700;
+    font-family:'CircularXXWeb-Bold',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    white-space:nowrap;
+  }
+  .tb-stat-item .stat-val{font-size:14px;line-height:1;white-space:nowrap}
+  /* Underline stands in for the donut — same red/green language as the value text.
+     :has() lets us key off the .pos/.neg/.neu class the JS already sets on .stat-val,
+     no extra JS wiring needed. */
+  .tb-stat-line{width:28px;height:2px;border-radius:2px;background:var(--border2)}
+  .tb-stat-item:has(.stat-val.pos) .tb-stat-line{background:var(--green)}
+  .tb-stat-item:has(.stat-val.neg) .tb-stat-line{background:var(--red)}
   .stat-card{background:transparent;border:none;border-radius:0;padding:0;text-align:center;box-shadow:none}
   .stat-label{font-size:15px;color:var(--text2);margin-bottom:10px;letter-spacing:.04em;font-weight:700;font-family:'CircularXXWeb-Bold',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}  .stat-val{font-size:18px;font-weight:700}
   .donut-card{padding:0}
@@ -1254,6 +1278,29 @@
         Table
       </button>
     </div>
+    <!-- Compact KPI strip — Home page only, revealed on scroll (see .stats-compact CSS + scroll listener) -->
+    <div class="stats-compact" id="stats-compact">
+      <div class="tb-stat-item">
+        <span class="stat-label">Profit Factor</span>
+        <span class="stat-val neu" id="s-pf-c">—</span>
+        <span class="tb-stat-line"></span>
+      </div>
+      <div class="tb-stat-item">
+        <span class="stat-label" id="lbl-avg-c">Avg Per Trade</span>
+        <span class="stat-val neu" id="s-avg-c">$0</span>
+        <span class="tb-stat-line"></span>
+      </div>
+      <div class="tb-stat-item">
+        <span class="stat-label" id="lbl-wr-c">Win Rate</span>
+        <span class="stat-val neu" id="s-wr-c">0%</span>
+        <span class="tb-stat-line"></span>
+      </div>
+      <div class="tb-stat-item">
+        <span class="stat-label" id="lbl-pnl-c">P&amp;L</span>
+        <span class="stat-val neu" id="s-pnl-c">$0</span>
+        <span class="tb-stat-line"></span>
+      </div>
+    </div>
     <div class="tb-right">
       <div id="acct-badge" class="acct-badge"></div>
       <span class="tb-date" id="tb-today-date"></span>
@@ -1274,26 +1321,6 @@
   <div class="main-wrap" id="main-wrap">
   <div class="app-columns">
 <div class="app home-scroll-active">
-
-  <!-- COMPACT STICKY BAR (on scroll) -->
-  <div class="stats-compact" id="stats-compact">
-    <div class="stat-card donut-card">
-      <div class="stat-label" style="font-size:11px;margin-bottom:3px">Profit Factor</div>
-      <div class="donut-wrap compact-sm"><canvas id="d-pf-c" width="58" height="58"></canvas><div class="donut-center compact-center"><span class="stat-val neu" id="s-pf-c" style="font-size:11px">—</span></div></div>
-    </div>
-    <div class="stat-card donut-card">
-      <div class="stat-label" style="font-size:11px;margin-bottom:3px" id="lbl-avg-c">Avg Per Trade</div>
-      <div class="donut-wrap compact-sm"><canvas id="d-avg-c" width="58" height="58"></canvas><div class="donut-center compact-center"><span class="stat-val neu" id="s-avg-c" style="font-size:11px">$0</span></div></div>
-    </div>
-    <div class="stat-card donut-card">
-      <div class="stat-label" style="font-size:11px;margin-bottom:3px" id="lbl-wr-c">Win Rate</div>
-      <div class="donut-wrap compact-sm"><canvas id="d-wr-c" width="58" height="58"></canvas><div class="donut-center compact-center"><span class="stat-val neu" id="s-wr-c" style="font-size:11px">0%</span></div></div>
-    </div>
-    <div class="stat-card donut-card">
-      <div class="stat-label" style="font-size:11px;margin-bottom:3px" id="lbl-pnl-c">P&amp;L</div>
-      <div class="donut-wrap compact-sm"><canvas id="d-pnl-c" width="58" height="58"></canvas><div class="donut-center compact-center"><span class="stat-val neu" id="s-pnl-c" style="font-size:11px">$0</span></div></div>
-    </div>
-  </div>
 
   <!-- HOME PAGE -->
   <div id="tab-home" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:0.5rem">
@@ -1751,6 +1778,8 @@ window.addEventListener('scroll', () => {
     const hero = document.getElementById('stats-hero');
     const scrolled = !hero || hero.getBoundingClientRect().bottom < 52;
     if (typeof setTfScrolled === 'function') setTfScrolled(scrolled);
+    const statsCompact = document.getElementById('stats-compact');
+    if (statsCompact) statsCompact.classList.toggle('visible', scrolled);
     tbTitle.classList.remove('visible');
     return;
   }
@@ -1862,6 +1891,8 @@ function showPage(p) {
   if (tbCalMode)       tbCalMode.style.display        = p === 'cal' ? 'flex' : 'none';
   if (tbLogControls)   tbLogControls.style.display    = p === 'log' ? 'flex' : 'none';
   if (tbSizingToggle)  tbSizingToggle.style.display   = p === 'sizing' ? 'flex' : 'none';
+  const statsCompactNav = document.getElementById('stats-compact');
+  if (statsCompactNav && p !== 'home') statsCompactNav.classList.remove('visible');
   // (tb-cal-controls removed — filters live in #cal-filter-bar)
   if (p==='stats') { renderStats(); if (typeof initStatsLayout === 'function') initStatsLayout(); }
   if (p==='sizing') { renderSizingPage(); }
