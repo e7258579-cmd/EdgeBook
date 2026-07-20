@@ -102,6 +102,17 @@ function setTimeFilter(mode, btn) {
 }
 
 function toggleCustomPanel() {
+  // Scrolled state (Home page): gear opens the dropdown holding the
+  // presets + custom range, instead of the inline panel.
+  if (tfScrolled) {
+    const dropdown = document.getElementById('tf-scroll-dropdown');
+    const gear     = document.getElementById('tf-gear-btn');
+    if (!dropdown) return;
+    const isOpen = dropdown.classList.contains('open');
+    dropdown.classList.toggle('open', !isOpen);
+    if (gear) gear.classList.toggle('active', !isOpen);
+    return;
+  }
   const panel = document.getElementById('tf-custom-panel');
   const gear  = document.getElementById('tf-gear-btn');
   const isOpen = panel.classList.contains('open');
@@ -112,6 +123,49 @@ function toggleCustomPanel() {
     document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
   }
 }
+
+// ─── SCROLLED TIME-FILTER (Home page) ──────────────────────
+// On scroll, the 1W/1M/1Y presets collapse away leaving AT + gear.
+// The gear then opens a dropdown (below) holding the actual preset
+// buttons + custom range — the same nodes, just reparented, so all
+// existing setTimeFilter()/setCustomRange() logic keeps working untouched.
+let tfScrolled = false;
+function setTfScrolled(scrolled) {
+  if (scrolled === tfScrolled) return;
+  tfScrolled = scrolled;
+  const wrap        = document.getElementById('tb-time-filter');
+  const dropdown     = document.getElementById('tf-scroll-dropdown');
+  const presetWrap    = document.getElementById('tf-preset-wrap');
+  const customPanel   = document.getElementById('tf-custom-panel');
+  const gearBtn        = document.getElementById('tf-gear-btn');
+  if (!wrap || !dropdown || !presetWrap || !customPanel || !gearBtn) return;
+
+  if (scrolled) {
+    wrap.classList.add('tf-scrolled');
+    setTimeout(() => {
+      if (!tfScrolled) return; // scrolled back up before the collapse finished
+      dropdown.appendChild(presetWrap);
+      dropdown.appendChild(customPanel);
+    }, 300);
+  } else {
+    dropdown.classList.remove('open');
+    gearBtn.classList.remove('active');
+    wrap.insertBefore(presetWrap, gearBtn);
+    wrap.appendChild(customPanel);
+    wrap.classList.remove('tf-scrolled');
+  }
+}
+document.addEventListener('click', (e) => {
+  if (!tfScrolled) return;
+  const wrap = document.getElementById('tb-time-filter');
+  const dropdown = document.getElementById('tf-scroll-dropdown');
+  if (!wrap || !dropdown || !dropdown.classList.contains('open')) return;
+  if (!wrap.contains(e.target)) {
+    dropdown.classList.remove('open');
+    const gearBtn = document.getElementById('tf-gear-btn');
+    if (gearBtn) gearBtn.classList.remove('active');
+  }
+});
 
 function setCustomRange() {
   const from = document.getElementById('tf-from').value;
