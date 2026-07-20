@@ -460,18 +460,36 @@
   .stats-hero{margin-bottom:2rem;display:grid}
   .hero-pnl-wrap{display:none}
   .hero-small-grid{display:grid;grid-template-columns:168px 168px;gap:6px;align-items:center;justify-self:start}
-  /* Compact KPI strip — lives in tb-left's normal flex flow (same mechanism
-     as .tb-page-title: max-width/opacity/translateY), revealed on Home-page
-     scroll. Being a normal flex child (not position:absolute) means it can
-     never end up mispositioned or clipped regardless of viewport width. */
+  /* Compact KPI strip — lives directly in .topbar (a sibling of .tb-left, not
+     a child of it) and is position:absolute so it's fully decoupled from
+     .tb-left's flex flow — it can never get shoved sideways by the time
+     filter, buttons, etc.
+     Its left/right edges are calc()'d to land exactly on the content edges
+     of .hero-donut-row (topbar's own padding + .app's padding + .stats-hero's
+     padding, mirrored on both sides — plus the right-panel width on the
+     right, via --tb-stats-rp, when the panel is actually in the grid), and
+     it shares the same 4-column-equal-width grid + gap as .hero-donut-row,
+     so every value sits centered directly under its matching donut. */
   .stats-compact{
-    display:flex;align-items:center;gap:clamp(12px,1.6vw,20px);
-    max-width:0;opacity:0;overflow:hidden;
+    --tb-stats-rp: clamp(280px, 22vw, 380px); /* right-panel width — matches .app-columns grid col; zeroed out below 1441px, see media query */
+    position:absolute;
+    top:0;bottom:0;
+    left:calc(clamp(.75rem, 1.5vw, 1.25rem) + clamp(1rem, 2vw, 2rem) + 1.25rem);
+    right:calc(clamp(.75rem, 1.5vw, 1.25rem) + clamp(1rem, 2vw, 2rem) + 1.25rem + var(--tb-stats-rp));
+    display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;
+    align-items:center;justify-items:center;
+    opacity:0;
     transform:translateY(10px);
-    transition:max-width .3s cubic-bezier(.4,0,.2,1), opacity .22s, transform .25s cubic-bezier(.4,0,.2,1);
+    transition:opacity .22s, transform .25s cubic-bezier(.4,0,.2,1);
     pointer-events:none;
   }
-  .stats-compact.visible{ max-width:640px;opacity:1;transform:translateY(0);pointer-events:auto;margin-left:6px; }
+  @media(max-width:1440px){
+    /* Right panel exits the grid at this breakpoint (becomes a drawer) —
+       .app / .hero-donut-row expand to fill the freed-up width, so the
+       strip's right edge must stop accounting for the panel width too. */
+    .stats-compact{ --tb-stats-rp: 0px; }
+  }
+  .stats-compact.visible{ opacity:1;transform:translateY(0);pointer-events:auto; }
   .tb-stat-item{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
   /* Label, value and underline sizes are all derived from the topbar's own height
      (--tb-h, set on .topbar) via clamp(), so if the topbar height ever changes
@@ -1206,29 +1224,6 @@
         <!-- Populated on scroll (home page): holds tf-preset-wrap + tf-custom-panel as a dropdown -->
         <div class="tf-scroll-dropdown" id="tf-scroll-dropdown"></div>
       </div>
-      <!-- Compact KPI strip — Home page only, revealed on scroll (see .stats-compact CSS + scroll listener) -->
-      <div class="stats-compact" id="stats-compact">
-        <div class="tb-stat-item">
-          <span class="stat-label">Profit Factor</span>
-          <span class="stat-val neu" id="s-pf-c">—</span>
-          <span class="tb-stat-line"></span>
-        </div>
-        <div class="tb-stat-item">
-          <span class="stat-label" id="lbl-avg-c">Avg Per Trade</span>
-          <span class="stat-val neu" id="s-avg-c">$0</span>
-          <span class="tb-stat-line"></span>
-        </div>
-        <div class="tb-stat-item">
-          <span class="stat-label" id="lbl-wr-c">Win Rate</span>
-          <span class="stat-val neu" id="s-wr-c">0%</span>
-          <span class="tb-stat-line"></span>
-        </div>
-        <div class="tb-stat-item">
-          <span class="stat-label" id="lbl-pnl-c">P&amp;L</span>
-          <span class="stat-val neu" id="s-pnl-c">$0</span>
-          <span class="tb-stat-line"></span>
-        </div>
-      </div>
       <!-- Calendar filters — shown only on Calendar page -->
       <div id="tb-cal-filters" style="display:none;align-items:center;gap:8px">
         <input id="cal-filt-sym" type="text" placeholder="Symbol" oninput="renderCalPage()"
@@ -1251,6 +1246,33 @@
           <option value="11">November</option>
           <option value="12">December</option>
         </select>
+      </div>
+    </div>
+    <!-- Compact KPI strip — Home page only, revealed on scroll (see .stats-compact CSS + scroll listener).
+         Lives directly in .topbar (NOT inside .tb-left) and is position:absolute so it never
+         participates in .tb-left's flex flow — it's laid out on its own 4-col grid that mirrors
+         .hero-donut-row's grid exactly, so each value sits centered under its matching donut
+         regardless of what .tb-left is doing (buttons, time filter, etc). -->
+    <div class="stats-compact" id="stats-compact">
+      <div class="tb-stat-item">
+        <span class="stat-label">Profit Factor</span>
+        <span class="stat-val neu" id="s-pf-c">—</span>
+        <span class="tb-stat-line"></span>
+      </div>
+      <div class="tb-stat-item">
+        <span class="stat-label" id="lbl-avg-c">Avg Per Trade</span>
+        <span class="stat-val neu" id="s-avg-c">$0</span>
+        <span class="tb-stat-line"></span>
+      </div>
+      <div class="tb-stat-item">
+        <span class="stat-label" id="lbl-wr-c">Win Rate</span>
+        <span class="stat-val neu" id="s-wr-c">0%</span>
+        <span class="tb-stat-line"></span>
+      </div>
+      <div class="tb-stat-item">
+        <span class="stat-label" id="lbl-pnl-c">P&amp;L</span>
+        <span class="stat-val neu" id="s-pnl-c">$0</span>
+        <span class="tb-stat-line"></span>
       </div>
     </div>
     <!-- Calendar sub-mode buttons — absolutely positioned above right edge of main panel -->
