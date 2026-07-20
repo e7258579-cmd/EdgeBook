@@ -124,7 +124,8 @@
 
   /* --- Topbar --- */
   .topbar{
-    position:fixed;top:0;left:var(--sb-w);right:0;height:52px;
+    --tb-h:52px;
+    position:fixed;top:0;left:var(--sb-w);right:0;height:var(--tb-h);
     background:var(--bg);border-bottom:1px solid var(--border);
     display:flex;align-items:center;justify-content:space-between;
     padding:0 clamp(.75rem, 1.5vw, 1.25rem);z-index:90;
@@ -472,16 +473,20 @@
   }
   .stats-compact.visible{ max-width:640px;opacity:1;transform:translateY(0);pointer-events:auto;margin-left:6px; }
   .tb-stat-item{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
+  /* Label, value and underline sizes are all derived from the topbar's own height
+     (--tb-h, set on .topbar) via clamp(), so if the topbar height ever changes
+     (breakpoints, theme tweaks) this strip resizes proportionally with it instead
+     of relying on hand-picked fixed px values. */
   .tb-stat-item .stat-label{
-    font-size:10px;color:var(--text2);letter-spacing:.02em;font-weight:700;
+    font-size:clamp(9px, calc(var(--tb-h) * 0.19), 11px);color:var(--text2);letter-spacing:.02em;font-weight:700;
     font-family:'CircularXXWeb-Bold',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
     white-space:nowrap;
   }
-  .tb-stat-item .stat-val{font-size:14px;line-height:1;white-space:nowrap}
+  .tb-stat-item .stat-val{font-size:clamp(13px, calc(var(--tb-h) * 0.27), 15px);line-height:1;white-space:nowrap}
   /* Underline stands in for the donut — same red/green language as the value text.
      :has() lets us key off the .pos/.neg/.neu class the JS already sets on .stat-val,
-     no extra JS wiring needed. */
-  .tb-stat-line{width:28px;height:2px;border-radius:2px;background:var(--border2)}
+     no extra JS wiring needed. Its width/height also scale with --tb-h. */
+  .tb-stat-line{width:clamp(22px, calc(var(--tb-h) * 0.54), 28px);height:clamp(2px, calc(var(--tb-h) * 0.038), 3px);border-radius:2px;background:var(--border2)}
   .tb-stat-item:has(.stat-val.pos) .tb-stat-line{background:var(--green)}
   .tb-stat-item:has(.stat-val.neg) .tb-stat-line{background:var(--red)}
   .stat-card{background:transparent;border:none;border-radius:0;padding:0;text-align:center;box-shadow:none}
