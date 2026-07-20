@@ -80,13 +80,12 @@ function drawDonut(id, posVal, negVal, posColor, negColor, commVal, hoverLabels)
             valEl.className = hoverLabels.default.cls;
             valEl.style.color = '';
             if (lblEl) lblEl.textContent = hoverLabels.default.lbl;
-          if (lblEl) lblEl.style.fontSize = '';
           } else {
             const gross = posVal - negVal;
             valEl.textContent = fmtNum(gross);
             valEl.className = 'stat-val ' + (gross > 0 ? 'pos' : gross < 0 ? 'neg' : 'neu');
             valEl.style.color = '';
-            if (lblEl) { lblEl.textContent = 'P&L'; lblEl.style.fontSize = ''; }
+            if (lblEl) lblEl.textContent = 'P&L';
           }
           return;
         }
@@ -102,15 +101,15 @@ function drawDonut(id, posVal, negVal, posColor, negColor, commVal, hoverLabels)
           if (idx === 0) {
             valEl.textContent = fmtNum(posVal);
             valEl.style.color = posColor;
-            if (lblEl) { lblEl.textContent = 'Profit'; lblEl.style.fontSize = '12px'; }
+            if (lblEl) lblEl.textContent = 'Profit';
           } else if (idx === 1) {
             valEl.textContent = fmtNum(-negVal);
             valEl.style.color = negColor;
-            if (lblEl) { lblEl.textContent = 'Loss'; lblEl.style.fontSize = '12px'; }
+            if (lblEl) lblEl.textContent = 'Loss';
           } else {
             valEl.textContent = '-' + fmtNum(comm);
             valEl.style.color = '#EF9F27';
-            if (lblEl) { lblEl.textContent = 'Fees'; lblEl.style.fontSize = '12px'; }
+            if (lblEl) lblEl.textContent = 'Fees';
           }
           valEl.className = 'stat-val';
         }
@@ -192,6 +191,7 @@ function updateStats() {
     ]
   };
 
+  // Hero
   // Hero
   setHtml('s-pnl', tipVal(pnlTxt, totalPnl), pnlCls); drawDonut('d-pnl',totalPos,totalNeg,'#8dc572','#D85A30',totalComm);
   setHtml('s-wr',  wrTxt, wrCls);                      drawDonut('d-wr', winCount,lossCount,'#8dc572','#D85A30',0,wrHover);
