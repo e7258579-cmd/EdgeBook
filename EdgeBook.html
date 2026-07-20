@@ -1776,7 +1776,12 @@ window.addEventListener('scroll', () => {
   const homeTab = document.getElementById('tab-home');
   if (homeTab && homeTab.style.display !== 'none') {
     const hero = document.getElementById('stats-hero');
-    const scrolled = !hero || hero.getBoundingClientRect().bottom < 52;
+    // Trigger the moment the hero's TOP edge starts sliding under the topbar —
+    // not when its bottom fully clears it. Using .bottom here would leave the
+    // (tall) donut card visibly half-clipped by the topbar for the whole
+    // scroll span of its own height, and could even be unreachable on short
+    // pages that don't have enough content to scroll that far.
+    const scrolled = !hero || hero.getBoundingClientRect().top < 52;
     if (typeof setTfScrolled === 'function') setTfScrolled(scrolled);
     const statsCompact = document.getElementById('stats-compact');
     if (statsCompact) statsCompact.classList.toggle('visible', scrolled);
