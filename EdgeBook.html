@@ -1415,15 +1415,32 @@
 
     </div>
 
-    <!-- Cumulative P&L chart: separate card below -->
-    <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;flex:1;min-height:0;padding:1.25rem;display:flex;flex-direction:column">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;direction:ltr">
-        <div class="page-title-sm">Cumulative P&amp;L</div>
-        <a class="all-trades-link" onclick="showPage('stats')">Statistics</a>
+    <!-- Cumulative P&L chart + Wins vs Losses chart: side by side, fixed height so
+         they no longer inflate on page/mode switches (was flex:1 off an unbounded
+         ancestor height, which fed back into the chart's own size on every re-render) -->
+    <div style="display:flex;gap:.5rem;align-items:stretch;flex-shrink:0">
+
+      <!-- Left: Cumulative P&L -->
+      <div style="flex:2;min-width:0;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;padding:1.25rem;display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;direction:ltr">
+          <div class="page-title-sm">Cumulative P&amp;L</div>
+          <a class="all-trades-link" onclick="showPage('stats')">Statistics</a>
+        </div>
+        <div style="height:260px;position:relative">
+          <canvas id="equity-chart" style="width:100%!important;height:100%!important"></canvas>
+        </div>
       </div>
-      <div style="flex:1;position:relative;min-height:0">
-        <canvas id="equity-chart" style="width:100%!important;height:100%!important"></canvas>
+
+      <!-- Right: Wins vs Losses (avg + max hold time, wins vs losses) -->
+      <div style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;padding:1.25rem;display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;direction:ltr">
+          <div class="page-title-sm">Wins vs Losses</div>
+        </div>
+        <div style="height:260px;position:relative">
+          <canvas id="winloss-chart"></canvas>
+        </div>
       </div>
+
     </div>
 
   </div>
@@ -1901,7 +1918,7 @@ function showPage(p) {
     renderLog();
     flashActiveFilters();
   }
-  if (p==='home')  { renderHomeList(); renderStats(); renderWeekCalendar(); renderEquityChart(); }
+  if (p==='home')  { renderHomeList(); renderStats(); renderWeekCalendar(); renderEquityChart(); renderWinLossChart(); }
   if (p==='cal')   { initCalYearDropdown(); renderCalPage();
     // Grid mode has overflow:hidden — scroll never fires — set topbar title immediately
     // History mode is scrollable so the scroll listener handles it naturally

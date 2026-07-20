@@ -185,7 +185,7 @@ function refreshAll() {
   const stats   = document.getElementById('tab-stats');
   const cal     = document.getElementById('tab-cal');
   const journal = document.getElementById('tab-journal');
-  if (home    && home.style.display    !== 'none') { renderHomeList(); renderStats(); renderWeekCalendar(); renderEquityChart(); }
+  if (home    && home.style.display    !== 'none') { renderHomeList(); renderStats(); renderWeekCalendar(); renderEquityChart(); renderWinLossChart(); }
   if (log     && log.style.display     !== 'none') { renderLog(); }
   if (stats   && stats.style.display   !== 'none') { renderStats(); }
   if (cal     && cal.style.display     !== 'none') { renderCalPage(); }
