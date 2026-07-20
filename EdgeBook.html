@@ -1901,7 +1901,7 @@ function showPage(p) {
     renderLog();
     flashActiveFilters();
   }
-  if (p==='home')  { renderHomeList(); renderStats(); renderWeekCalendar(); }
+  if (p==='home')  { renderHomeList(); renderStats(); renderWeekCalendar(); renderEquityChart(); }
   if (p==='cal')   { initCalYearDropdown(); renderCalPage();
     // Grid mode has overflow:hidden — scroll never fires — set topbar title immediately
     // History mode is scrollable so the scroll listener handles it naturally

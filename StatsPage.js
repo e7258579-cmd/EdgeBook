@@ -402,7 +402,7 @@ function renderStats() {
     </div>`).join('')
   }</div>`;
 
-  renderEquityChart(); renderDayStats(); renderMoodStats(); renderHoldTimeChart(); renderPriceRangeChart(); renderHourlyChart();
+  renderDayStats(); renderMoodStats(); renderHoldTimeChart(); renderPriceRangeChart(); renderHourlyChart();
 
   // Apply saved card layout (order + width) now that all cards are populated.
   // Lives in statsLayout.js — generic layout module, no trading logic.
@@ -781,6 +781,125 @@ function renderHoldTimeChart() {
 }
 
 let priceRangeChartInstance = null;
+
+let winLossChartInstance = null;
+// Home-page "Wins vs Losses" chart — same visual language as renderHoldTimeChart's
+// diverging horizontal bars (colors, radius, fonts, grid), extended with two more
+// bars (Max Win / Max Loss) sitting right outside their matching Avg bars.
+function renderWinLossChart() {
+  const canvas = document.getElementById('winloss-chart');
+  if (!canvas) return;
+  if (winLossChartInstance) { winLossChartInstance.destroy(); winLossChartInstance = null; }
+
+  function toMins(dur) {
+    if (!dur) return null;
+    const h = dur.match(/(\d+)h/), m = dur.match(/(\d+)m/);
+    return (h ? parseInt(h[1])*60 : 0) + (m ? parseInt(m[1]) : 0);
+  }
+  function fmtMins(m) {
+    if (!m) return '0m';
+    if (m < 60) return Math.round(m) + 'm';
+    const h = Math.floor(m/60), rem = Math.round(m%60);
+    return rem > 0 ? `${h}h ${rem}m` : `${h}h`;
+  }
+
+  const ft = getFilteredTrades();
+  const winMins  = ft.filter(t => t.pnl > 0).map(t => toMins(t.duration)).filter(v => v !== null);
+  const lossMins = ft.filter(t => t.pnl < 0).map(t => toMins(t.duration)).filter(v => v !== null);
+  const avgWin  = winMins.length  ? Math.round(winMins.reduce((a,v)=>a+v,0)  / winMins.length)  : 0;
+  const avgLoss = lossMins.length ? Math.round(lossMins.reduce((a,v)=>a+v,0) / lossMins.length) : 0;
+  const maxWin  = winMins.length  ? Math.max(...winMins)  : 0;
+  const maxLoss = lossMins.length ? Math.max(...lossMins) : 0;
+
+  const siteFont = "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif";
+  const tickColor = getComputedStyle(document.documentElement).getPropertyValue('--text3').trim() || '#aaa';
+  const maxVal = Math.max(avgWin, avgLoss, maxWin, maxLoss, 1);
+
+  // Categories, outer→inner on each side, so Max sits right next to its Avg
+  const labels = ['Max Loss', 'Avg Loss', 'Avg Win', 'Max Win'];
+
+  winLossChartInstance = new Chart(canvas.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Wins',
+          data: [0, 0, avgWin, maxWin],
+          backgroundColor: ['transparent', 'transparent', '#8dc572cc', '#8dc572'],
+          borderRadius: 6, borderSkipped: false, barPercentage: 0.5,
+        },
+        {
+          label: 'Losses',
+          data: [-maxLoss, -avgLoss, 0, 0],
+          backgroundColor: ['#D85A30', '#D85A30cc', 'transparent', 'transparent'],
+          borderRadius: 6, borderSkipped: false, barPercentage: 0.5,
+        }
+      ]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const v = Math.abs(ctx.raw);
+              return v ? '  ' + fmtMins(v) : null;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(128,128,128,.1)' },
+          min: -maxVal * 1.35,
+          max:  maxVal * 1.35,
+          ticks: {
+            color: tickColor,
+            font: { family: siteFont, size: 11 },
+            callback: v => v === 0 ? '0' : fmtMins(Math.abs(v))
+          }
+        },
+        y: {
+          stacked: false,
+          grid: { display: false },
+          ticks: { color: tickColor, font: { family: siteFont, size: 12 } }
+        }
+      }
+    },
+    plugins: [{
+      id: 'divLabels',
+      afterDatasetsDraw(chart) {
+        const { ctx } = chart;
+        ctx.save();
+        ctx.font = `600 12px ${siteFont}`;
+        ctx.textBaseline = 'middle';
+
+        // Win labels (right of green bars) — indexes 2 (avg), 3 (max)
+        [[2, avgWin], [3, maxWin]].forEach(([idx, val]) => {
+          if (!val) return;
+          const bar = chart.getDatasetMeta(0).data[idx];
+          ctx.fillStyle = '#8dc572';
+          ctx.textAlign = 'left';
+          ctx.fillText(fmtMins(val), bar.x + 8, bar.y);
+        });
+
+        // Loss labels (left of red bars) — indexes 1 (avg), 0 (max)
+        [[1, avgLoss], [0, maxLoss]].forEach(([idx, val]) => {
+          if (!val) return;
+          const bar = chart.getDatasetMeta(1).data[idx];
+          ctx.fillStyle = '#D85A30';
+          ctx.textAlign = 'right';
+          ctx.fillText(fmtMins(val), bar.x - 8, bar.y);
+        });
+        ctx.restore();
+      }
+    }]
+  });
+}
 function renderPriceRangeChart() {
   const canvas = document.getElementById('pricerange-chart');
   if (!canvas) return;
