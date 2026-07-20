@@ -459,18 +459,18 @@
   .stats-hero{margin-bottom:2rem;display:grid}
   .hero-pnl-wrap{display:none}
   .hero-small-grid{display:grid;grid-template-columns:168px 168px;gap:6px;align-items:center;justify-self:start}
-  /* Compact KPI strip — lives in the topbar, revealed on Home-page scroll.
-     Animation mirrors .tb-page-title (max-width/opacity/transform), so it
-     matches the same "content scrolls away → summary appears in topbar"
-     language used on every other tab. */
+  /* Compact KPI strip — lives in tb-left's normal flex flow (same mechanism
+     as .tb-page-title: max-width/opacity/translateY), revealed on Home-page
+     scroll. Being a normal flex child (not position:absolute) means it can
+     never end up mispositioned or clipped regardless of viewport width. */
   .stats-compact{
-    display:flex;align-items:center;gap:clamp(14px,2vw,26px);
-    position:absolute;right:clamp(280px,22vw,380px);top:50%;
-    transform:translate(0,calc(-50% + 8px));
-    opacity:0;pointer-events:none;
-    transition:opacity .22s, transform .25s cubic-bezier(.4,0,.2,1);
+    display:flex;align-items:center;gap:clamp(12px,1.6vw,20px);
+    max-width:0;opacity:0;overflow:hidden;
+    transform:translateY(10px);
+    transition:max-width .3s cubic-bezier(.4,0,.2,1), opacity .22s, transform .25s cubic-bezier(.4,0,.2,1);
+    pointer-events:none;
   }
-  .stats-compact.visible{ opacity:1; pointer-events:auto; transform:translate(0,-50%); }
+  .stats-compact.visible{ max-width:640px;opacity:1;transform:translateY(0);pointer-events:auto;margin-left:6px; }
   .tb-stat-item{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
   .tb-stat-item .stat-label{
     font-size:10px;color:var(--text2);letter-spacing:.02em;font-weight:700;
@@ -1180,8 +1180,8 @@
       <span class="tb-page-title" id="tb-page-title"></span>
       <!-- Global time filter — hidden on Calendar page -->
       <div id="tb-time-filter" style="display:flex;align-items:center;gap:8px;position:relative">
-        <button class="tf-btn active" onclick="setTimeFilter('all',this)">AT</button>
         <div class="tf-preset-wrap" id="tf-preset-wrap">
+          <button class="tf-btn active" onclick="setTimeFilter('all',this)">AT</button>
           <button class="tf-btn" onclick="setTimeFilter('week',this)">1W</button>
           <button class="tf-btn" onclick="setTimeFilter('month',this)">1M</button>
           <button class="tf-btn" onclick="setTimeFilter('year',this)">1Y</button>
@@ -1200,6 +1200,29 @@
         </div>
         <!-- Populated on scroll (home page): holds tf-preset-wrap + tf-custom-panel as a dropdown -->
         <div class="tf-scroll-dropdown" id="tf-scroll-dropdown"></div>
+      </div>
+      <!-- Compact KPI strip — Home page only, revealed on scroll (see .stats-compact CSS + scroll listener) -->
+      <div class="stats-compact" id="stats-compact">
+        <div class="tb-stat-item">
+          <span class="stat-label">Profit Factor</span>
+          <span class="stat-val neu" id="s-pf-c">—</span>
+          <span class="tb-stat-line"></span>
+        </div>
+        <div class="tb-stat-item">
+          <span class="stat-label" id="lbl-avg-c">Avg Per Trade</span>
+          <span class="stat-val neu" id="s-avg-c">$0</span>
+          <span class="tb-stat-line"></span>
+        </div>
+        <div class="tb-stat-item">
+          <span class="stat-label" id="lbl-wr-c">Win Rate</span>
+          <span class="stat-val neu" id="s-wr-c">0%</span>
+          <span class="tb-stat-line"></span>
+        </div>
+        <div class="tb-stat-item">
+          <span class="stat-label" id="lbl-pnl-c">P&amp;L</span>
+          <span class="stat-val neu" id="s-pnl-c">$0</span>
+          <span class="tb-stat-line"></span>
+        </div>
       </div>
       <!-- Calendar filters — shown only on Calendar page -->
       <div id="tb-cal-filters" style="display:none;align-items:center;gap:8px">
@@ -1277,29 +1300,6 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="9" x2="9" y2="21"/></svg>
         Table
       </button>
-    </div>
-    <!-- Compact KPI strip — Home page only, revealed on scroll (see .stats-compact CSS + scroll listener) -->
-    <div class="stats-compact" id="stats-compact">
-      <div class="tb-stat-item">
-        <span class="stat-label">Profit Factor</span>
-        <span class="stat-val neu" id="s-pf-c">—</span>
-        <span class="tb-stat-line"></span>
-      </div>
-      <div class="tb-stat-item">
-        <span class="stat-label" id="lbl-avg-c">Avg Per Trade</span>
-        <span class="stat-val neu" id="s-avg-c">$0</span>
-        <span class="tb-stat-line"></span>
-      </div>
-      <div class="tb-stat-item">
-        <span class="stat-label" id="lbl-wr-c">Win Rate</span>
-        <span class="stat-val neu" id="s-wr-c">0%</span>
-        <span class="tb-stat-line"></span>
-      </div>
-      <div class="tb-stat-item">
-        <span class="stat-label" id="lbl-pnl-c">P&amp;L</span>
-        <span class="stat-val neu" id="s-pnl-c">$0</span>
-        <span class="tb-stat-line"></span>
-      </div>
     </div>
     <div class="tb-right">
       <div id="acct-badge" class="acct-badge"></div>
@@ -1775,13 +1775,11 @@ window.addEventListener('scroll', () => {
 
   const homeTab = document.getElementById('tab-home');
   if (homeTab && homeTab.style.display !== 'none') {
-    const hero = document.getElementById('stats-hero');
-    // Trigger the moment the hero's TOP edge starts sliding under the topbar —
-    // not when its bottom fully clears it. Using .bottom here would leave the
-    // (tall) donut card visibly half-clipped by the topbar for the whole
-    // scroll span of its own height, and could even be unreachable on short
-    // pages that don't have enough content to scroll that far.
-    const scrolled = !hero || hero.getBoundingClientRect().top < 52;
+    const heroTitle = document.getElementById('lbl-pnl');
+    // Trigger the instant the donut cards' own titles ("P&L" etc.) scroll out
+    // from under the topbar — same idiom as log-page-title / cal-page-title /
+    // stats-page-title on every other tab.
+    const scrolled = !heroTitle || heroTitle.getBoundingClientRect().bottom < 52;
     if (typeof setTfScrolled === 'function') setTfScrolled(scrolled);
     const statsCompact = document.getElementById('stats-compact');
     if (statsCompact) statsCompact.classList.toggle('visible', scrolled);
