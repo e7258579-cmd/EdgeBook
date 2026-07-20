@@ -1322,47 +1322,44 @@
     </button>
   </div><!-- end KPI + trades -->
 
-    <!-- Equity Chart + Last Week: side by side -->
-    <div style="display:flex;align-items:stretch;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;flex:1;min-height:0">
+    <!-- Last 5 Days + Performance Rating: side by side, one card -->
+    <div style="display:flex;align-items:stretch;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;flex-shrink:0">
 
-      <!-- Left: Cumulative P&L chart -->
-      <div style="width:55%;flex-shrink:0;padding:1.25rem;display:flex;flex-direction:column">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;direction:ltr">
-          <div class="page-title-sm">Cumulative P&amp;L</div>
-          <a class="all-trades-link" onclick="showPage('stats')">Statistics</a>
-        </div>
-        <div style="flex:1;position:relative;min-height:0">
-          <canvas id="equity-chart" style="width:100%!important;height:100%!important"></canvas>
-        </div>
-      </div>
-
-      <!-- Separator -->
-      <div style="width:1px;background:var(--border);flex-shrink:0;align-self:stretch"></div>
-
-      <!-- Right: Last Week -->
+      <!-- Left: Last 5 Days -->
       <div style="flex:1;min-width:0;padding:1.25rem;display:flex;flex-direction:column;overflow-y:auto">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;direction:ltr">
           <div class="page-title-sm">Last 5 Days</div>
           <a class="all-trades-link" onclick="showPage('cal')">Calendar</a>
         </div>
         <div id="week-calendar"></div>
+      </div>
 
-        <!-- Divider -->
-        <div style="height:1px;background:var(--border);margin:.75rem 0;flex-shrink:0"></div>
+      <!-- Separator -->
+      <div style="width:1px;background:var(--border);flex-shrink:0;align-self:stretch"></div>
 
-        <!-- Avg Rating KPI -->
-        <div style="display:flex;flex-direction:column;flex:1;direction:ltr">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
-            <div class="page-title-sm">Performance Rating</div>
-          </div>
-          <div style="flex:1;display:flex;align-items:center;justify-content:center">
-            <span id="s-avg-rating" style="font-size:55px;line-height:1;letter-spacing:2px;color:var(--amber)">—</span>
-          </div>
+      <!-- Right: Performance Rating -->
+      <div style="flex:1;min-width:0;padding:1.25rem;display:flex;flex-direction:column;direction:ltr">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
+          <div class="page-title-sm">Performance Rating</div>
         </div>
-
+        <div style="flex:1;display:flex;align-items:center;justify-content:center">
+          <span id="s-avg-rating" style="font-size:55px;line-height:1;letter-spacing:2px;color:var(--amber)">—</span>
+        </div>
       </div>
 
     </div>
+
+    <!-- Cumulative P&L chart: separate card below -->
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;flex:1;min-height:0;padding:1.25rem;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;direction:ltr">
+        <div class="page-title-sm">Cumulative P&amp;L</div>
+        <a class="all-trades-link" onclick="showPage('stats')">Statistics</a>
+      </div>
+      <div style="flex:1;position:relative;min-height:0">
+        <canvas id="equity-chart" style="width:100%!important;height:100%!important"></canvas>
+      </div>
+    </div>
+
   </div>
 
   <!-- STATISTICS PAGE -->
