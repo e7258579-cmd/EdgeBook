@@ -280,12 +280,13 @@ function updateStats() {
   });
 }
 
-window.addEventListener('scroll', () => {
-  const hero = document.getElementById('stats-hero');
-  const compact = document.getElementById('stats-compact');
-  if (!hero || !compact) return;
-  compact.classList.toggle('visible', hero.getBoundingClientRect().bottom < 0);
-});
+// NOTE: the scroll listener that used to live here (toggling #stats-compact's
+// "visible" class based on #stats-hero leaving the viewport) has been removed.
+// It duplicated — and, because it registered after the main bootstrap script,
+// always overrode — the correct listener in EdgeBook.html that toggles the
+// same class based on #lbl-pnl scrolling under the topbar. Having two scroll
+// listeners fight over the same class meant the compact KPI bar only ever
+// appeared once the entire hero (all donuts) had scrolled fully off-screen.
 
 // ─── STATS CHARTS ──────────────────────────────────────────
 function kpiCircle(value, display, sub, forceNeutral, tip) {
