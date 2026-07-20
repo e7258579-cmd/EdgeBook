@@ -446,6 +446,7 @@
   }
 
   .app.home-active{height:100vh;overflow:hidden;padding-bottom:1.5rem;display:flex;flex-direction:column}
+  .app.home-scroll-active{min-height:100vh;padding-bottom:1.5rem;display:flex;flex-direction:column}
 
   /* OLD styles kept for compat */
   .header-right{text-align:left;font-size:13px;color:var(--text2)}
@@ -1261,7 +1262,7 @@
   <!-- MAIN -->
   <div class="main-wrap" id="main-wrap">
   <div class="app-columns">
-<div class="app home-active">
+<div class="app home-scroll-active">
 
   <!-- COMPACT STICKY BAR (on scroll) -->
   <div class="stats-compact" id="stats-compact">
@@ -1286,8 +1287,8 @@
   <!-- HOME PAGE -->
   <div id="tab-home" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:0.5rem">
 
-  <!-- HERO DONUT ROW: full width, enlarged, no card background -->
-  <div class="stats-hero" id="stats-hero" style="margin-bottom:0;flex-shrink:0">
+  <!-- HERO DONUT ROW: full width, enlarged, white card like other elements -->
+  <div class="stats-hero" id="stats-hero" style="margin-bottom:0;margin-top:.75rem;flex-shrink:0;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem">
     <div class="hero-donut-row">
       <div class="hero-donut-card">
         <div class="page-title-sm" id="lbl-pnl">P&amp;L</div>
@@ -1808,9 +1809,13 @@ function showPage(p) {
     const el = document.getElementById('tab-'+id);
     if (el) el.style.display = p===id ? pageDisplay[id] : 'none';
   });
-  // toggle home-active on .app for no-scroll layout (also for new trade page)
+  // home-active = New Trade page (fixed, no-scroll, unchanged);
+  // home-scroll-active = Home page (scrolls naturally, same element sizes)
   const appEl = document.querySelector('.app');
-  if (appEl) appEl.classList.toggle('home-active', p === 'home' || p === 'new');
+  if (appEl) {
+    appEl.classList.toggle('home-active', p === 'new');
+    appEl.classList.toggle('home-scroll-active', p === 'home');
+  }
   document.getElementById('stats-hero').style.display = p === 'home' ? '' : 'none';
   if (p==='log') {
     logBackPage = 'home';
