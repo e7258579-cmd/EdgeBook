@@ -32,16 +32,27 @@
   document.documentElement.setAttribute('data-theme', theme);
 })();
 
-// ─── MODULE INDEX ────────────────────────────────────────────────────────────
-// accounts.js     — account management
-// app.js          — trades[], save(), toast(), timeFilter, refreshAll(), showPage()
-// tradeForm.js    — openEdit(), saveTrade(), form handling
-// tradeList.js    — renderLog(), renderHomeList(), deleteTrade(), escHtml(), zoomImg(),
-//                   closeModal(), openDetail(), drillToLog(), goBackFromLog()
-// calendarPage.js — calendar rendering
-// statsPage.js    — all charts + analytics
-// googleSheets.js — GS sync modal
+// ─── MODULE INDEX (full load order) ─────────────────────────────────────────
+// styles.css       — all styling, linked in <head>
+// accounts.js      — account management
+// modeSafety.js    — mode-guard helpers
+// app.js           — trades[], save(), toast(), timeFilter, refreshAll()
+// pageShell.js     — (this file) showPage(), topbar-title scroll listener,
+//                    log-filter helpers, fmtDate(), safeIdFor(), toggleTradeRow()
+// tradeForm.js     — openEdit(), saveTrade(), form handling
+// journalPage.js   — journal tab rendering
+// tradeList.js     — renderLog(), renderHomeList(), deleteTrade(), escHtml(), zoomImg(),
+//                    closeModal(), openDetail(), drillToLog(), goBackFromLog()
+// calendarPage.js  — calendar rendering
+// StatsPage.js     — all charts + analytics
+// statsLayout.js   — stats page layout/drag behavior
+// sizingPage.js    — position-sizing tools
+// journalV2Data.js — journal v2 data layer
+// journalV2.js     — journal v2 rendering
+// googleSheets.js  — GS sync modal
 // importWizard.js — import wizard
+// tradeZeroSync.js — broker sync (referenced by EdgeBook.html; not part of this upload)
+// bootstrap.js     — final boot sequence, loads last
 // ─────────────────────────────────────────────────────────────────────────────
 
 window.addEventListener('scroll', () => {
