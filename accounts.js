@@ -150,6 +150,42 @@ function _oldAccountsDoc(acct) {
     .doc(acct);
 }
 
+// ─── MIGRATION STATUS FLAG ─────────────────────────────────
+// A single explicit meta document tracks whether migration has already run,
+// instead of inferring it from "does the new trades collection have any docs
+// for this account?" — that inference broke as soon as a user deleted every
+// trade in an account: zero docs looked identical to "never migrated", so
+// deleting down to zero re-triggered a full re-import of old data on the
+// next login/refresh. An explicit flag makes migration a true one-time event.
+function _migrationStatusDoc() {
+  return _db
+    .collection('users')
+    .doc(_currentUser.uid)
+    .collection('meta')
+    .doc('migration');
+}
+
+async function _isMigrated() {
+  try {
+    const snap = await _migrationStatusDoc().get();
+    return snap.exists && snap.data().migrated === true;
+  } catch(e) {
+    console.error('_isMigrated error:', e);
+    return false; // fail safe: if we can't tell, allow migration to run (it's idempotent-checked per account below)
+  }
+}
+
+async function _markMigrated() {
+  try {
+    await _migrationStatusDoc().set({
+      migrated: true,
+      migratedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  } catch(e) {
+    console.error('_markMigrated error:', e);
+  }
+}
+
 // ─── CORE FUNCTIONS ───────────────────────────────────────
 async function loadAccountTrades() {
   if (!_currentUser) return [];
@@ -233,13 +269,20 @@ async function switchAccount(acct) {
 
 // ─── MIGRATION: old structure → new per-document structure ──
 async function _migrateIfNeeded() {
+  // One-time gate: if we've already recorded a successful migration for this
+  // user, never attempt it again — regardless of how many trades currently
+  // exist (including zero, e.g. after the user deletes everything).
+  if (await _isMigrated()) return;
+
   for (const acct of ['live', 'demo']) {
-    // Check if any trades already exist in the new structure for this account
+    // Check if any trades already exist in the new structure for this account.
+    // (Kept as a per-account safety check for the *first* run only — it no
+    // longer controls whether migration re-runs on subsequent logins.)
     const newSnap = await _tradesCol()
       .where('account', '==', acct)
       .limit(1)
       .get();
-    if (!newSnap.empty) continue; // already migrated
+    if (!newSnap.empty) continue; // already has data in new structure
 
     let tradesToMigrate = [];
 
@@ -285,6 +328,10 @@ async function _migrateIfNeeded() {
     }
     console.log(`Migration complete for account: ${acct}`);
   }
+
+  // Record that migration has run — this is what prevents re-import after
+  // the user deletes all their trades in the future.
+  await _markMigrated();
 }
 
 // ─── AUTH STATE LISTENER (main entry point) ───────────────

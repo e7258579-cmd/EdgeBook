@@ -275,11 +275,28 @@ function onGroupCbChange(cb) {
 }
 
 // ── deleteGroup (lines 1634–1639 in source)
-function deleteGroup(idsStr) {
+// Same fix as deleteTrade/deleteSelected below — targeted deleteOneTrade()
+// calls, awaited, with optimistic UI + rollback on failure.
+async function deleteGroup(idsStr) {
   const ids = idsStr.split(',');
   if (!confirm(`Delete ${ids.length} trade${ids.length>1?'s':''}?`)) return;
+
+  const removed = trades.filter(t => ids.includes(String(t.id)));
   trades = trades.filter(t => !ids.includes(String(t.id)));
-  save(); renderLog(); renderHomeList();
+  renderLog();
+  renderHomeList();
+
+  try {
+    await Promise.all(ids.map(id => deleteOneTrade(id)));
+    if (typeof updateStats === 'function') updateStats();
+  } catch(e) {
+    console.error('deleteGroup error:', e);
+    trades = trades.concat(removed);
+    renderLog();
+    renderHomeList();
+    if (typeof toast === 'function') toast('⚠ שגיאה במחיקה — הטריידים שוחזרו');
+    else alert('שגיאה במחיקה — הטריידים שוחזרו');
+  }
 }
 
 // ── updateSelCount (lines 1641–1649 in source)
@@ -303,14 +320,35 @@ function toggleSelectAll(cb) {
 }
 
 // ── deleteSelected (lines 1659–1667 in source)
-function deleteSelected() {
+// Uses deleteOneTrade() (targeted single-document delete) instead of the old
+// filter+save() approach, which rewrote the *entire* trades collection for
+// the account (delete-all + re-write-all) on every deletion. That full
+// overwrite was async but never awaited here, so a refresh right after
+// deleting could catch Firestore mid-write and appear to "undo" the delete.
+// Optimistic UI: trades disappear immediately; if any delete actually fails
+// server-side, they're restored and the user is notified — nothing is ever
+// silently lost or silently un-deleted.
+async function deleteSelected() {
   const ids = [...document.querySelectorAll('.group-cb:checked')].flatMap(c => c.dataset.ids.split(','));
   if (!ids.length) { alert('No trades selected'); return; }
   if (!confirm(`Delete ${ids.length} trade${ids.length > 1 ? 's' : ''}?`)) return;
+
+  const removed = trades.filter(t => ids.includes(String(t.id)));
   trades = trades.filter(t => !ids.includes(String(t.id)));
-  save();
   renderLog();
   renderHomeList();
+
+  try {
+    await Promise.all(ids.map(id => deleteOneTrade(id)));
+    if (typeof updateStats === 'function') updateStats();
+  } catch(e) {
+    console.error('deleteSelected error:', e);
+    trades = trades.concat(removed);
+    renderLog();
+    renderHomeList();
+    if (typeof toast === 'function') toast('⚠ שגיאה במחיקה — הטריידים שוחזרו');
+    else alert('שגיאה במחיקה — הטריידים שוחזרו');
+  }
 }
 
 // ── renderHomeList (lines 3864–3921 in source)
@@ -409,12 +447,29 @@ function toggleExpandRow(safeId) {
 }
 
 // ── deleteTrade (from HTML step-4)
-function deleteTrade(id) {
+// See deleteSelected() above for why this uses deleteOneTrade() + await
+// instead of the old filter+save() (full-collection overwrite) approach.
+async function deleteTrade(id) {
   if (!confirm('Permanently delete this trade?')) return;
-  trades = trades.filter(t => String(t.id) !== String(id));
-  save();
+
+  const idx = trades.findIndex(t => String(t.id) === String(id));
+  if (idx === -1) return;
+  const removed = trades[idx];
+  trades.splice(idx, 1);
+
   const logVisible = document.getElementById('tab-log').style.display !== 'none';
   if (logVisible) renderLog(); else renderHomeList();
+
+  try {
+    await deleteOneTrade(id);
+    if (typeof updateStats === 'function') updateStats();
+  } catch(e) {
+    console.error('deleteTrade error:', e);
+    trades.splice(idx, 0, removed);
+    if (logVisible) renderLog(); else renderHomeList();
+    if (typeof toast === 'function') toast('⚠ שגיאה במחיקה — הטרייד שוחזר');
+    else alert('שגיאה במחיקה — הטרייד שוחזר');
+  }
 }
 
 // ── openDetail (from HTML step-4)
