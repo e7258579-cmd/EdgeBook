@@ -188,15 +188,21 @@ function renderCalPage() {
   // ── SINGLE scope: scrollable full-history view ────────────
   const dayNames7  = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const allDateKeys = Object.keys(dayMap).sort();
-  if (!allDateKeys.length) { gridEl.innerHTML = `<div class="empty">No trades found.</div>`; return; }
+  const ntdDateKeys = Object.keys(ntdMap);
+  if (!allDateKeys.length && !ntdDateKeys.length) { gridEl.innerHTML = `<div class="empty">No trades found.</div>`; return; }
 
   // Build cumulative map (used when calSubMode === 'cumulative') — uses gross P&L
+  // Deliberately trade-based only (ntd days have no P&L to accumulate).
   let runningTotal = 0;
   const cumMap = {};
   allDateKeys.forEach(d => { runningTotal += dayMap[d].pnl; cumMap[d] = runningTotal; });
 
-  // Generate month list from months that actually exist in dayMap, descending
-  const monthSet = new Set(allDateKeys.map(d => d.slice(0, 7)));
+  // Generate month list from months that have either real trades OR a marked
+  // no-trade-day, descending. Previously this only looked at dayMap (trades),
+  // so a month containing nothing but a no-trade-day entry never got a
+  // section rendered — the day existed in ntdMap but its month never made it
+  // into the list, so it was never reachable in the calendar view.
+  const monthSet = new Set([...allDateKeys, ...ntdDateKeys].map(d => d.slice(0, 7)));
   const monthList = [...monthSet]
     .sort((a, b) => b.localeCompare(a))
     .map(mk => ({ yr: parseInt(mk.slice(0, 4)), mo: parseInt(mk.slice(5, 7)) - 1 }));
