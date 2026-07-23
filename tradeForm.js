@@ -4,7 +4,11 @@
  *
  * Depends on globals defined in the main script block:
  *   trades, save(), toast(), today, showPage(),
- *   renderLog(), renderHomeList()
+ *   renderLog(), renderHomeList(), loadJournal()
+ *
+ * Depends on globals from journalPage.js (only for editNtdFromCalendar):
+ *   setJournalMode(), setNtdReason(), setNtdPositive(), setNtdMood(),
+ *   _updateNtdButtonState()
  *
  * All public functions are assigned to window so that
  * inline onclick="" attributes in the HTML continue to work
@@ -293,6 +297,36 @@ function openEdit(id) {
   showPage('new');
 }
 
+// ─── OPEN EDIT (No Trade Day) ──────────────────────────────
+// Called from the calendar's day panel (calendarPage.js) to edit an existing
+// No Trade Day entry. Lives here (not in journalPage.js) because it drives
+// this file's own modal — same role as openEdit() above, just for NTD
+// instead of a trade. The NTD-specific state (reason/positive/mood) and its
+// setters live in journalPage.js and are called here via their public API.
+function editNtdFromCalendar(dateStr) {
+  const entries = typeof loadJournal === 'function' ? loadJournal() : [];
+  const ntd = entries.find(e => e.type === 'ntd' && e.date === dateStr);
+  if (!ntd) return;
+
+  openNewTradeModal();
+
+  document.getElementById('f-date').value = dateStr; // setJournalMode('ntd') syncs jrn-ntd-date from this
+  setJournalMode('ntd');
+
+  // Lock the date to the day that was clicked — this edits *this* day's
+  // entry, it isn't a way to move it to a different date.
+  const ntdDateEl = document.getElementById('jrn-ntd-date');
+  if (ntdDateEl) { ntdDateEl.value = dateStr; ntdDateEl.disabled = true; }
+
+  setNtdReason(ntd.reason || '');
+  setNtdPositive(ntd.positive === true);
+  setNtdMood(ntd.mood || '');
+  const noteEl = document.getElementById('jrn-ntd-note');
+  if (noteEl) noteEl.value = ntd.note || '';
+
+  if (typeof _updateNtdButtonState === 'function') _updateNtdButtonState();
+}
+
 // ─── EXPOSE PUBLIC API ─────────────────────────────────────
 // Required so that inline onclick="" attributes in HTML resolve correctly.
 window.setMood           = setMood;
@@ -311,3 +345,4 @@ window.resetNewTradeForm = resetNewTradeForm;
 window.openNewTradeModal = openNewTradeModal;
 window.closeNewTradeModal= closeNewTradeModal;
 window.openEdit          = openEdit;
+window.editNtdFromCalendar = editNtdFromCalendar;

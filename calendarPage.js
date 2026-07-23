@@ -5,6 +5,7 @@
  * Depends on globals from the main script block (must be declared before this file loads):
  *   trades              — global array (read-only here; never mutated by calendar)
  *   getFilteredTrades() — used only by renderMonthlyCalendar()
+ *   loadJournal(), saveJournal(), toast() — app.js; used for No Trade Day entries
  *   localStorage        — native browser API (holiday persistence)
  *
  * Public API exposed on window (called from showPage(), refreshAll(), inline onclick):
@@ -15,6 +16,7 @@
  *   setCalMode(mode)         — legacy compat alias
  *   toggleHolidayMode()
  *   toggleHoliday(dateStr)
+ *   deleteNtdFromCalendar(dateStr) — delete a No Trade Day entry from the day panel
  *   getISOWeek(dt)           — pure helper; exposed for safety
  *
  * Load order: AFTER main </script> block, BEFORE the bottom bootstrap <script>.
@@ -739,6 +741,26 @@ function renderCalDayPanel(dateStr) {
     <div>${tradesHtml}</div>`;
 }
 
+// ─── DELETE NTD (from calendar day panel) ──────────────────
+// Pure calendar-side action — no trade-form modal involved, so it lives
+// here rather than in journalPage.js or tradeForm.js.
+function deleteNtdFromCalendar(dateStr) {
+  if (!confirm('Delete this No Trade Day entry?')) return;
+
+  const entries  = typeof loadJournal === 'function' ? loadJournal() : [];
+  const filtered = entries.filter(e => !(e.type === 'ntd' && e.date === dateStr));
+  if (filtered.length === entries.length) return; // nothing to delete
+
+  saveJournal(filtered);
+  if (typeof toast === 'function') toast('✓ No Trade Day deleted');
+
+  // Refresh both the calendar grid (month may now have nothing to show,
+  // see renderCalPage()'s monthSet) and the day panel itself (falls back
+  // to "No trades on this day").
+  renderCalPage();
+  renderCalDayPanel(dateStr);
+}
+
 function _rpRow(label, value) {
   return `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 0;border-bottom:1px solid var(--border)">
     <span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;font-weight:700">${label}</span>
@@ -762,3 +784,4 @@ window.initCalMonthDropdown  = initCalMonthDropdown;
 window.closeCalZoom          = closeCalZoom;
 window.selectCalDay          = selectCalDay;
 window.renderCalDayPanel     = renderCalDayPanel;
+window.deleteNtdFromCalendar = deleteNtdFromCalendar;

@@ -3,7 +3,7 @@
  *
  * Handles:
  *   - Trade Day / No Trade Day switcher
- *   - NTD form state + save
+ *   - NTD form state + save (upsert by date — see saveNtdDay)
  *   - Rules checklist rendering
  *   - Rules modal (add / delete)
  *
@@ -104,9 +104,10 @@ function saveNtdDay() {
   const note = (document.getElementById('jrn-ntd-note') || {}).value || '';
 
   const entries  = loadJournal();
+  const existing = entries.find(e => e.type === 'ntd' && e.date === date);
   const filtered = entries.filter(e => e.date !== date);
   filtered.push({
-    id:       Date.now(),
+    id:       existing ? existing.id : Date.now(), // preserve id when updating an existing entry
     date,
     type:     'ntd',
     reason:   _ntdReason,
@@ -115,7 +116,7 @@ function saveNtdDay() {
     note,
   });
   saveJournal(filtered);
-  toast('✓ No Trade Day saved!');
+  toast(existing ? '✓ No Trade Day updated!' : '✓ No Trade Day saved!');
   _resetNtdForm();
   closeNewTradeModal();
 }
@@ -126,6 +127,8 @@ function _resetNtdForm() {
   _ntdMood     = '';
   const noteEl = document.getElementById('jrn-ntd-note');
   if (noteEl) noteEl.value = '';
+  const dateEl = document.getElementById('jrn-ntd-date');
+  if (dateEl) dateEl.disabled = false; // re-enable in case editNtdFromCalendar() (tradeForm.js) had locked it
   ['technical','mental','other'].forEach(r => {
     const btn = document.getElementById('ntd-btn-' + r);
     if (btn) btn.classList.remove('active');
