@@ -164,6 +164,31 @@ function renderRulesChecklist() {
   }
 }
 
+// ─── RULES CHECKLIST COLLAPSE ──────────────────────────────
+// Collapses/expands just the list under the "My Rules" title — independent
+// of the right panel itself. Mirrors the sidebar's collapsed-state pattern
+// (toggle + localStorage persistence) at a smaller scale.
+function toggleRulesPanel() {
+  const body = document.getElementById('right-panel-rules-body');
+  const btn  = document.getElementById('rules-collapse-btn');
+  if (!body) return;
+  const collapsed = body.style.display !== 'none';
+  body.style.display = collapsed ? 'none' : '';
+  if (btn) btn.style.transform = collapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
+  try { localStorage.setItem('rules_panel_collapsed', collapsed ? '1' : '0'); } catch(e) {}
+}
+(function initRulesPanelCollapse() {
+  let collapsed = false;
+  try { collapsed = localStorage.getItem('rules_panel_collapsed') === '1'; } catch(e) {}
+  if (!collapsed) return;
+  // Apply on load; renderRulesChecklist() runs independently and doesn't
+  // touch display, so this persists across re-renders without a race.
+  const body = document.getElementById('right-panel-rules-body');
+  const btn  = document.getElementById('rules-collapse-btn');
+  if (body) body.style.display = 'none';
+  if (btn)  btn.style.transform = 'rotate(-90deg)';
+})();
+
 // ─── RULES MODAL ───────────────────────────────────────────
 let _rulesModalOpen = false;
 
@@ -412,6 +437,7 @@ window.setNtdPositive   = setNtdPositive;
 window.setNtdMood       = setNtdMood;
 window.saveNtdDay       = saveNtdDay;
 window.renderRulesChecklist = renderRulesChecklist;
+window.toggleRulesPanel = toggleRulesPanel;
 window.openRulesModal   = openRulesModal;
 window.closeRulesModal  = closeRulesModal;
 window.addRule          = addRule;
