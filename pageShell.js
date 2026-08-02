@@ -9,6 +9,9 @@
  *   clearLogFilters(), flashFilter(), flashActiveFilters()
  *   fmtDate()
  *   safeIdFor(), toggleTradeRow()
+ *   toggleRightPanelCollapse() — desktop-only (≥1441px) collapse-to-rail for
+ *     the right panel, mirroring toggleSidebar()/initSidebar() in app.js.
+ *     Distinct from toggleRightPanel() (≤1440px full drawer show/hide).
  *
  * Depends on globals defined in other modules (all loaded after this file,
  * so calls to them only run on user-triggered navigation, by which time
@@ -251,6 +254,41 @@ function fmtDate(d) {
 // and inline onclick="" handlers can resolve these without ReferenceError.
 window.showPage = showPage;
 window.fmtDate  = fmtDate;
+
+// ─── RIGHT PANEL COLLAPSE (desktop-only, ≥1441px) ───────────────────────────
+// Mirrors toggleSidebar()/initSidebar() in app.js: shrinks the panel to a
+// narrow rail via the --rp-w / --rp-w-collapsed grid column width and
+// persists the choice. Distinct from toggleRightPanel() (the ≤1440px full
+// drawer show/hide) — that one only fires below 1440px, this one only
+// matters above it, via the .rp-collapse-btn { display:none } media rule
+// in styles.css, so the two never overlap.
+function toggleRightPanelCollapse() {
+  const cols  = document.getElementById('app-columns');
+  const panel = document.getElementById('right-panel');
+  if (!cols || !panel) return;
+  const isCollapsed = cols.classList.toggle('rp-collapsed');
+  panel.classList.toggle('collapsed', isCollapsed);
+  try { localStorage.setItem('rp_collapsed', isCollapsed ? '1' : '0'); } catch(e) {}
+}
+(function initRightPanelCollapse() {
+  let collapsed = false;
+  try { collapsed = localStorage.getItem('rp_collapsed') === '1'; } catch(e) {}
+  if (!collapsed) return;
+  function apply() {
+    const cols  = document.getElementById('app-columns');
+    const panel = document.getElementById('right-panel');
+    if (cols)  cols.classList.add('rp-collapsed');
+    if (panel) panel.classList.add('collapsed');
+  }
+  // #right-panel is declared further down in the HTML than this <script> tag,
+  // so it doesn't exist in the DOM yet at parse time — wait for DOMContentLoaded.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', apply);
+  } else {
+    apply();
+  }
+})();
+window.toggleRightPanelCollapse = toggleRightPanelCollapse;
 
 
 // ─── CALENDAR STATE + RENDERING → extracted to calendarPage.js ──────────────
