@@ -391,8 +391,7 @@
   .rp-collapse-btn:hover{background:var(--bg2);color:var(--text)}
   .rp-collapse-btn svg{transition:transform .22s}
   .right-panel.collapsed .rp-collapse-btn{
-    position:absolute;top:calc(52px + 18px);left:50%;transform:translateX(-50%);
-    margin-bottom:0;
+    margin:0 auto 1rem;
   }
   .right-panel.collapsed .rp-collapse-btn svg{transform:rotate(180deg)}
   .rp-content{min-width:0}
