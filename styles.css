@@ -20,6 +20,8 @@
        clamp(min, preferred, max): shrinks on laptop, stays comfortable on desktop. */
     --sb-w: clamp(220px, 18vw, 290px);
     --sb-w-collapsed: 72px;
+    --rp-w: clamp(280px, 22vw, 380px);
+    --rp-w-collapsed: 56px;
   }
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg3);color:var(--text);min-height:100vh;font-size:15px;overflow-y:scroll}
 
@@ -343,10 +345,18 @@
   /* Two-column grid — fills full available width */
   .app-columns{
     display:grid;
-    grid-template-columns:minmax(0,1fr) clamp(280px, 22vw, 380px);
+    grid-template-columns:minmax(0,1fr) var(--rp-w);
     width:100%;
     min-height:100vh;
     align-items:start;
+    transition:grid-template-columns .22s cubic-bezier(.4,0,.2,1);
+  }
+  /* Right panel collapsed — mirrors .sidebar.collapsed: narrow rail, content hidden.
+     Only meaningful ≥1441px — below that the right panel leaves the grid entirely
+     (see the ≤1440px media query further down), so this never conflicts with the
+     laptop drawer (.right-panel.rp-open) behavior. */
+  .app-columns.rp-collapsed{
+    grid-template-columns:minmax(0,1fr) var(--rp-w-collapsed);
   }
   .app{
     min-width:0;
@@ -364,6 +374,64 @@
     top:0;
     height:100vh;
     overflow-y:auto;
+    overflow-x:hidden;
+  }
+  .rp-collapse-btn{
+    width:34px;height:34px;border-radius:9px;
+    border:1px solid var(--border);background:var(--bg);
+    cursor:pointer;display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;color:var(--text2);
+    transition:background .15s, color .15s;
+    margin-bottom:1rem;
+  }
+  .rp-collapse-btn:hover{background:var(--bg2);color:var(--text)}
+  .rp-collapse-btn svg{transition:transform .22s}
+  .right-panel.collapsed .rp-collapse-btn{
+    position:absolute;top:calc(52px + 18px);left:50%;transform:translateX(-50%);
+    margin-bottom:0;
+  }
+  .right-panel.collapsed .rp-collapse-btn svg{transform:rotate(180deg)}
+  .rp-content{min-width:0}
+  .right-panel.collapsed .rp-content{display:none}
+
+  /* ── Panel card — collapsible bordered card for right-panel widgets ──────
+     Mirrors the .sz-panel-card pattern on the EdgeAnalysis page (injected by
+     sizingPage.js) so right-panel widgets share the same visual language.
+     Kept here (not duplicated per-widget) since it's a general-purpose,
+     reusable shape — first used by the My Rules card. */
+  .rp-panel-card{
+    background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);
+  }
+  .rp-panel-card__header{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:1rem 1.25rem;cursor:pointer;user-select:none;
+    font-size:13px;font-weight:700;color:var(--text);letter-spacing:.03em;
+    border-radius:var(--radius);transition:background .15s;
+  }
+  .rp-panel-card__header:hover{background:var(--bg2)}
+  .rp-panel-card__header-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+  .rp-panel-card__edit-btn{
+    width:26px;height:26px;border-radius:7px;border:1px solid var(--border);
+    background:var(--bg2);cursor:pointer;display:flex;align-items:center;justify-content:center;
+    color:var(--text2);transition:background .15s;flex-shrink:0;
+  }
+  .rp-panel-card__edit-btn:hover{background:var(--border)}
+  .rp-panel-card__chevron{
+    font-size:10px;color:var(--text3);transition:transform .2s ease;flex-shrink:0;
+  }
+  .rp-panel-card.collapsed .rp-panel-card__chevron{transform:rotate(-90deg)}
+  .rp-panel-card__body{
+    overflow:hidden;max-height:2000px;
+    transition:max-height .25s ease, opacity .2s ease, padding .2s ease;
+    opacity:1;padding:0 1.25rem 1.1rem;
+  }
+  .rp-panel-card.collapsed .rp-panel-card__body{
+    max-height:0;opacity:0;padding-bottom:0;
+  }
+  @media(max-width:1440px){
+    /* Below this width the right panel is a full-width drawer (see further
+       down); the desktop-only collapse-to-rail control doesn't apply there. */
+    .rp-collapse-btn{display:none}
   }
   /* Responsive: collapse right panel on narrow screens */
   @media(max-width:1100px){
