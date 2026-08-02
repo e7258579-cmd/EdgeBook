@@ -376,6 +376,10 @@
     overflow-y:auto;
     overflow-x:hidden;
   }
+  .right-panel.collapsed{
+    padding-left:0;
+    padding-right:0;
+  }
   .rp-collapse-btn{
     width:34px;height:34px;border-radius:9px;
     border:1px solid var(--border);background:var(--bg);
@@ -392,7 +396,24 @@
   }
   .right-panel.collapsed .rp-collapse-btn svg{transform:rotate(180deg)}
   .rp-content{min-width:0}
-  .right-panel.collapsed .rp-content{display:none}
+  /* Collapsed state: hide full section content. My Rules gets a mini-icon
+     (below) that stays visible instead of vanishing entirely; other
+     sections (filters/cal-day/sizing) don't have icon versions yet, so
+     they're just hidden for now — same as the rest of .rp-content. */
+  .right-panel.collapsed .rp-panel-card{display:none}
+  .right-panel.collapsed #right-panel-filters,
+  .right-panel.collapsed #right-panel-cal-day,
+  .right-panel.collapsed #right-panel-sizing-cb{display:none !important}
+
+  .rp-mini-icon{
+    display:none;width:34px;height:34px;border-radius:9px;
+    border:1px solid var(--border);background:var(--bg);
+    cursor:pointer;align-items:center;justify-content:center;
+    color:var(--text2);margin:0 auto;
+    transition:background .15s, color .15s;
+  }
+  .rp-mini-icon:hover{background:var(--bg2);color:var(--text)}
+  .right-panel.collapsed .rp-mini-icon{display:flex}
 
   /* ── Panel card — collapsible bordered card for right-panel widgets ──────
      Mirrors the .sz-panel-card pattern on the EdgeAnalysis page (injected by
