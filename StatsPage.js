@@ -1314,7 +1314,6 @@ function renderDayStats() {
   }).join('');
 
   document.getElementById('day-stats').innerHTML = `
-    <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;padding:0 0 4px 0">P&L shown is Gross (before fees)</div>
     <div style="padding:.25rem 0">${bars}</div>`;
 }
 
