@@ -169,11 +169,8 @@ function renderCalPage() {
   const dayMap = {};
   getCalFilteredTrades().forEach(t => {
     if (!t.date) return;
-    if (!dayMap[t.date]) dayMap[t.date] = { pnl: 0, fees: 0, net: 0, count: 0 };
-    const _fee = typeof calcCommission === 'function' ? calcCommission(t) : 0;
+    if (!dayMap[t.date]) dayMap[t.date] = { pnl: 0, count: 0 };
     dayMap[t.date].pnl   = parseFloat((dayMap[t.date].pnl  + parseFloat(t.pnl)).toFixed(2));
-    dayMap[t.date].fees  = parseFloat((dayMap[t.date].fees  + _fee).toFixed(2));
-    dayMap[t.date].net   = parseFloat((dayMap[t.date].net   + parseFloat(t.pnl) - _fee).toFixed(2));
     dayMap[t.date].count += 1;
   });
 
@@ -355,8 +352,9 @@ function getISOWeek(dt) {
 // It was previously orphaned and is preserved as-is. Do not add a call without
 // verifying the intended render location and trigger point.
 // NOTE: This function aggregates monthMap[mk].pnl using gross P&L only (no fees).
-// If this function is ever activated, it must be updated to use Net P&L (pnl - calcCommission(t))
-// to stay consistent with the rest of the Calendar module.
+// The app shows gross P&L everywhere and fees are not calculated — if this
+// function is ever activated, it should stay gross-only, consistent with the
+// rest of the Calendar module.
 function renderMonthlyCalendar() {
   const el = document.getElementById('monthly-calendar');
   if (!el) return;
@@ -413,11 +411,8 @@ function openCalZoom(yr, mo) {
   const dayMap = {};
   trades.forEach(t => {
     if (!t.date) return;
-    if (!dayMap[t.date]) dayMap[t.date] = { pnl: 0, fees: 0, net: 0, count: 0 };
-    const _fee = typeof calcCommission === 'function' ? calcCommission(t) : 0;
+    if (!dayMap[t.date]) dayMap[t.date] = { pnl: 0, count: 0 };
     dayMap[t.date].pnl   = parseFloat((dayMap[t.date].pnl  + parseFloat(t.pnl)).toFixed(2));
-    dayMap[t.date].fees  = parseFloat((dayMap[t.date].fees  + _fee).toFixed(2));
-    dayMap[t.date].net   = parseFloat((dayMap[t.date].net   + parseFloat(t.pnl) - _fee).toFixed(2));
     dayMap[t.date].count += 1;
   });
 
@@ -638,8 +633,6 @@ function renderCalDayPanel(dateStr) {
 
   // Day summary
   const totalPnl    = dayTrades.reduce((s, t) => s + parseFloat(t.pnl || 0), 0);
-  const totalFees   = dayTrades.reduce((s, t) => s + (typeof calcCommission === 'function' ? calcCommission(t) : 0), 0);
-  const totalNetPnl = totalPnl - totalFees;
   const wins = dayTrades.filter(t => parseFloat(t.pnl) > 0).length;
 
   const tradesHtml = dayTrades.map((t, i) => {

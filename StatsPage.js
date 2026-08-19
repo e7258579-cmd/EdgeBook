@@ -34,7 +34,8 @@ let chartInstance = null;
 
 // ─── STATS ─────────────────────────────────────────────────
 const donutInstances = {};
-// calcCommission(t) is defined in app.js (global) — uses t.legs for accuracy.
+// Fees are no longer calculated anywhere in the app (Phase 1) — donuts always
+// render Wins/Losses only, no commission segment.
 
 function drawDonut(id, posVal, negVal, posColor, negColor, commVal, hoverLabels) {
   const canvas = document.getElementById(id);
@@ -165,8 +166,6 @@ function updateStats() {
   const totalNeg = Math.abs(losses.reduce((a,t)=>a+t.pnl,0));
   const pf = totalNeg ? totalPos / totalNeg : null;
 
-  const totalComm = ft.reduce((a,t) => a + calcCommission(t), 0);
-
   const setHtml = (id, html, cls) => { const e=document.getElementById(id); if(e){e.innerHTML=html;e.className=cls;} };
 
   const pnlTxt=fmtNum(totalPnl), pnlCls='stat-val '+(totalPnl>0?'pos':totalPnl<0?'neg':'neu');
@@ -191,7 +190,7 @@ function updateStats() {
 
   // Hero
   // Hero
-  setHtml('s-pnl', tipVal(pnlTxt, totalPnl), pnlCls); drawDonut('d-pnl',totalPos,totalNeg,'#8dc572','#D85A30',totalComm);
+  setHtml('s-pnl', tipVal(pnlTxt, totalPnl), pnlCls); drawDonut('d-pnl',totalPos,totalNeg,'#8dc572','#D85A30',0);
   setHtml('s-wr',  wrTxt, wrCls);                      drawDonut('d-wr', winCount,lossCount,'#8dc572','#D85A30',0,wrHover);
   setHtml('s-avg', tipVal(avgTxt, avg), avgCls);        drawDonut('d-avg',avgWin,avgLoss,'#8dc572','#D85A30',0,avgHover);
   setHtml('s-pf',  pfTxt, pfCls);                       drawDonut('d-pf', avgWin,avgLoss,'#8dc572','#D85A30');
@@ -231,7 +230,7 @@ function updateStats() {
   })();
 
   // Compact
-  setHtml('s-pnl-c', tipVal(pnlTxt, totalPnl), pnlCls); drawDonut('d-pnl-c',totalPos,totalNeg,'#8dc572','#D85A30',totalComm);
+  setHtml('s-pnl-c', tipVal(pnlTxt, totalPnl), pnlCls); drawDonut('d-pnl-c',totalPos,totalNeg,'#8dc572','#D85A30',0);
   setHtml('s-wr-c',  wrTxt, wrCls);                      drawDonut('d-wr-c', winCount,lossCount,'#8dc572','#D85A30',0,wrHover);
   setHtml('s-avg-c', tipVal(avgTxt, avg), avgCls);        drawDonut('d-avg-c',avgWin,avgLoss,'#8dc572','#D85A30',0,avgHover);
   setHtml('s-pf-c',  pfTxt, pfCls);                       drawDonut('d-pf-c', avgWin,avgLoss,'#8dc572','#D85A30');
@@ -365,7 +364,6 @@ function renderStats() {
   const wins = trades.filter(t => t.pnl > 0);
   const losses = trades.filter(t => t.pnl < 0);
   const total = trades.reduce((a,t) => a+t.pnl, 0);          // gross
-  const totalFees = trades.reduce((a,t) => a + calcCommission(t), 0);
   const avgWin = wins.length ? wins.reduce((a,t)=>a+t.pnl,0)/wins.length : 0;
   const avgLoss = losses.length ? losses.reduce((a,t)=>a+t.pnl,0)/losses.length : 0;
   const maxWin = wins.length ? Math.max(...wins.map(t=>t.pnl)) : 0;
@@ -380,7 +378,6 @@ function renderStats() {
     { label:'Total Trades',  val:n,             display:n.toLocaleString(),                                      tip:null,       sub:'',            neutral:true },
     { label:'Win Rate',      val:wr-50,          display:wr+'%',                                                  tip:null,       sub:'vs 50%'                   },
     { label:'Total P&L', val:total,     display:fmtNum(total),                                        tip:total,   sub:''                          },
-    { label:'Total Fees',    val:-totalFees,     display:'-'+fmtNum(totalFees).replace(/^[+-]/,''),               tip:-totalFees, sub:'',            neutral:true  },
     { label:'Avg Per Trade (Gross)', val:avgTrade, display:fmtNum(avgTrade),                                      tip:avgTrade,   sub:''                          },
     { label:'Avg Win (Gross)', val:avgWin,       display:fmtNum(avgWin),                                          tip:avgWin,     sub:'per winner'                },
     { label:'Avg Loss (Gross)', val:avgLoss,     display:fmtNum(-Math.abs(avgLoss)),                              tip:-Math.abs(avgLoss), sub:'per loser'         },
@@ -1771,4 +1768,3 @@ window.updateStats     = updateStats;
 window.renderStats     = renderStats;
 window.expandChart     = expandChart;
 window.closeChartModal = closeChartModal;
-// window.calcCommission is set in app.js

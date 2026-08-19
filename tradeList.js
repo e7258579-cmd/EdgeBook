@@ -486,8 +486,6 @@ function openDetail(id) {
     <div class="detail-row"><span class="detail-key">Take Profit</span><span>${t.tp ? '$'+Number(t.tp).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</span></div>
     <div class="detail-row"><span class="detail-key">R:R</span><span>${t.rr||'—'}</span></div>
     <div class="detail-row"><span class="detail-key">P&L Gross</span><span class="${t.pnl>0?'pos':t.pnl<0?'neg':''}" style="font-weight:600">${fmtFull(t.pnl)}</span></div>
-    <div class="detail-row"><span class="detail-key">Fees</span><span class="neg" style="font-weight:600">-$${(typeof calcCommission === 'function' ? calcCommission(t) : 0).toFixed(2)}</span></div>
-    <div class="detail-row"><span class="detail-key">P&L Net</span><span class="${(t.pnl-(typeof calcCommission === 'function' ? calcCommission(t) : 0))>0?'pos':(t.pnl-(typeof calcCommission === 'function' ? calcCommission(t) : 0))<0?'neg':''}" style="font-weight:600">${fmtFull(t.pnl-(typeof calcCommission === 'function' ? calcCommission(t) : 0))}</span></div>
     <div class="detail-row"><span class="detail-key">Mood</span><span>${t.mood||'—'}</span></div>
     <div class="detail-row"><span class="detail-key">Rating</span><span style="color:var(--amber)">${t.rating?'★'.repeat(t.rating)+'☆'.repeat(5-t.rating):'—'}</span></div>
     ${t.reason?'<div class="note-label">Setup / Reason</div><div class="note-box">'+escHtml(t.reason)+'</div>':''}
