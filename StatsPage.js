@@ -166,8 +166,6 @@ function updateStats() {
   const pf = totalNeg ? totalPos / totalNeg : null;
 
   const totalComm = ft.reduce((a,t) => a + calcCommission(t), 0);
-  // Headline P&L KPI is now GROSS (totalPnl, no fee deduction).
-  const totalNetPnl = totalPnl - totalComm; // kept for reference but not shown in donut
 
   const setHtml = (id, html, cls) => { const e=document.getElementById(id); if(e){e.innerHTML=html;e.className=cls;} };
 
@@ -222,13 +220,13 @@ function updateStats() {
     const barEl = document.getElementById('pnl-kpi-bar-fill');
     const cardEl = document.getElementById('pnl-kpi-card');
     if (!valEl) return;
-    valEl.textContent = fmtDollar(totalNetPnl, Math.abs(totalNetPnl) < 1000 ? 0 : 0);
-    valEl.className = 'pnl-kpi-val ' + (totalNetPnl > 0 ? 'pos' : totalNetPnl < 0 ? 'neg' : 'neu');
+    valEl.textContent = fmtDollar(totalPnl, Math.abs(totalPnl) < 1000 ? 0 : 0);
+    valEl.className = 'pnl-kpi-val ' + (totalPnl > 0 ? 'pos' : totalPnl < 0 ? 'neg' : 'neu');
     if (subEl) subEl.textContent = n + ' trade' + (n !== 1 ? 's' : '') + (winCount ? ' · ' + wr + '% win rate' : '');
     if (barEl) {
       const pct = totalNeg + totalPos > 0 ? Math.round(totalPos / (totalPos + totalNeg) * 100) : 50;
       barEl.style.width = pct + '%';
-      barEl.style.background = totalNetPnl >= 0 ? '#1D9E75' : '#D85A30';
+      barEl.style.background = totalPnl >= 0 ? '#1D9E75' : '#D85A30';
     }
   })();
 
@@ -368,7 +366,6 @@ function renderStats() {
   const losses = trades.filter(t => t.pnl < 0);
   const total = trades.reduce((a,t) => a+t.pnl, 0);          // gross
   const totalFees = trades.reduce((a,t) => a + calcCommission(t), 0);
-  const totalNet = total - totalFees;                         // net
   const avgWin = wins.length ? wins.reduce((a,t)=>a+t.pnl,0)/wins.length : 0;
   const avgLoss = losses.length ? losses.reduce((a,t)=>a+t.pnl,0)/losses.length : 0;
   const maxWin = wins.length ? Math.max(...wins.map(t=>t.pnl)) : 0;
@@ -382,7 +379,7 @@ function renderStats() {
   const kpis = [
     { label:'Total Trades',  val:n,             display:n.toLocaleString(),                                      tip:null,       sub:'',            neutral:true },
     { label:'Win Rate',      val:wr-50,          display:wr+'%',                                                  tip:null,       sub:'vs 50%'                   },
-    { label:'Total P&L (Net)', val:totalNet,     display:fmtNum(totalNet),                                        tip:totalNet,   sub:''                          },
+    { label:'Total P&L', val:total,     display:fmtNum(total),                                        tip:total,   sub:''                          },
     { label:'Total Fees',    val:-totalFees,     display:'-'+fmtNum(totalFees).replace(/^[+-]/,''),               tip:-totalFees, sub:'',            neutral:true  },
     { label:'Avg Per Trade (Gross)', val:avgTrade, display:fmtNum(avgTrade),                                      tip:avgTrade,   sub:''                          },
     { label:'Avg Win (Gross)', val:avgWin,       display:fmtNum(avgWin),                                          tip:avgWin,     sub:'per winner'                },
@@ -919,7 +916,7 @@ function renderPriceRangeChart() {
     if (!t.entry) return;
     const idx = buckets.findIndex(b => t.entry >= b.min && t.entry < b.max);
     if (idx < 0) return;
-    data[idx].pnl += (t.pnl - calcCommission(t)); // net
+    data[idx].pnl += t.pnl; // gross
     data[idx].count++;
     if (t.pnl > 0) data[idx].wins++;
     else if (t.pnl < 0) data[idx].losses++;
@@ -1088,7 +1085,7 @@ function renderHourlyChart() {
     if (!match) return;
     const h = parseInt(match[1]);
     if (h < 4 || h > 18) return;
-    buckets[h].pnl    += (t.pnl - calcCommission(t)); // net
+    buckets[h].pnl    += t.pnl; // gross
     buckets[h].count  += 1;
     buckets[h].trades.push(t);
     if (t.pnl > 0) buckets[h].wins++;
@@ -1096,7 +1093,7 @@ function renderHourlyChart() {
   });
 
   const labels  = HOURS.map(h => `${String(h).padStart(2,'0')}:00`);
-  const pnlData = HOURS.map(h => buckets[h].pnl); // net
+  const pnlData = HOURS.map(h => buckets[h].pnl); // gross
   const counts  = HOURS.map(h => buckets[h].count);
   const maxAbs  = Math.max(...pnlData.map(Math.abs), 1);
 
@@ -1184,7 +1181,7 @@ function renderHourlyChart() {
               <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:6px">${String(h).padStart(2,'0')}:00 – ${String(h+1).padStart(2,'0')}:00</div>
               <div style="display:flex;flex-direction:column;gap:4px">
                 <div style="display:flex;justify-content:space-between;gap:20px">
-                  <span style="font-size:12px;color:var(--text2)">P&L (Net)</span>
+                  <span style="font-size:12px;color:var(--text2)">P&L</span>
                   <span style="font-size:14px;font-weight:700;color:${pnlCls}">${sign}$${Math.abs(pnl).toLocaleString('en-US',{maximumFractionDigits:0})}</span>
                 </div>
                 <div style="height:1px;background:var(--border);margin:2px 0"></div>
@@ -1281,7 +1278,7 @@ function renderDayStats() {
     if (!t.date) return;
     const d = new Date(t.date + 'T00:00:00').getDay();
     ds[d].count++;
-    ds[d].pnl += (t.pnl - calcCommission(t)); // net
+    ds[d].pnl += t.pnl; // gross
     if (t.pnl > 0) ds[d].wins++;
   });
 
@@ -1317,7 +1314,7 @@ function renderDayStats() {
   }).join('');
 
   document.getElementById('day-stats').innerHTML = `
-    <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;padding:0 0 4px 0">P&L shown is Net (after fees)</div>
+    <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;padding:0 0 4px 0">P&L shown is Gross (before fees)</div>
     <div style="padding:.25rem 0">${bars}</div>`;
 }
 
@@ -1337,9 +1334,9 @@ function renderMoodStats() {
     if (!t.mood) return;
     if (!moodMap[t.mood]) moodMap[t.mood] = { pnls: [], wins: 0, losses: 0, count: 0, totalPnl: 0 };
     const m = moodMap[t.mood];
-    m.pnls.push(t.pnl - calcCommission(t));
+    m.pnls.push(t.pnl);
     m.count++;
-    m.totalPnl += (t.pnl - calcCommission(t));
+    m.totalPnl += t.pnl;
     if (t.pnl > 0) m.wins++; else if (t.pnl < 0) m.losses++;
   });
 
@@ -1437,7 +1434,7 @@ function renderMoodStats() {
               </div>
               <div style="display:flex;flex-direction:column;gap:4px">
                 <div style="display:flex;justify-content:space-between;gap:18px">
-                  <span style="font-size:11px;color:var(--text3)">Avg P&L (Net)</span>
+                  <span style="font-size:11px;color:var(--text3)">Avg P&L</span>
                   <span style="font-size:13px;font-weight:700;color:${pnlCls}">${sign}$${Math.abs(avgPnl).toFixed(0)}</span>
                 </div>
                 <div style="display:flex;justify-content:space-between;gap:18px">
@@ -1470,7 +1467,7 @@ function renderMoodStats() {
       },
       scales: {
         x: {
-          title: { display: true, text: 'Avg P&L (Net) ($)', color: tickColor, font: { size: 10 } },
+          title: { display: true, text: 'Avg P&L ($)', color: tickColor, font: { size: 10 } },
           grid: { color: 'rgba(128,128,128,.1)' },
           ticks: { color: tickColor, font: { size: 10 }, callback: v => (v>=0?'+':'')+`$${v}` }
         },
@@ -1529,20 +1526,20 @@ function showDrillModal(label, tradesArr) {
 
 // ─── CHART EXPAND MODAL ────────────────────────────────────
 const chartExpandDefs = {
-  hourly:    { title: 'Performance by Hour of Day (Net)' },
-  dayofweek: { title: 'Performance by Day of Week (Net)' },
-  mood:      { title: 'Performance by Mood (Net)' },
+  hourly:    { title: 'Performance by Hour of Day' },
+  dayofweek: { title: 'Performance by Day of Week' },
+  mood:      { title: 'Performance by Mood' },
   holdtime:  { title: 'Avg Hold Time: Wins vs Losses' },
-  pricerange:{ title: 'Performance by Price Range (Net)' }
+  pricerange:{ title: 'Performance by Price Range' }
 };
 
 function expandChart(key) {
   const titles = {
-    hourly:    'Performance by Hour of Day (Net)',
-    dayofweek: 'Performance by Day of Week (Net)',
-    mood:      'Performance by Mood (Net)',
+    hourly:    'Performance by Hour of Day',
+    dayofweek: 'Performance by Day of Week',
+    mood:      'Performance by Mood',
     holdtime:  'Avg Hold Time: Wins vs Losses',
-    pricerange:'Performance by Price Range (Net)'
+    pricerange:'Performance by Price Range'
   };
 
   document.getElementById('chart-modal-title').textContent = titles[key] || '';
@@ -1586,7 +1583,7 @@ function renderHourlyInto(canvasId) {
   if (!el) return;
   const HOURS = []; for (let h=4;h<=18;h++) HOURS.push(h);
   const buckets = {}; HOURS.forEach(h=>{buckets[h]={pnl:0,wins:0,losses:0,count:0,trades:[]};});
-  getFilteredTrades().forEach(t=>{if(!t.entryTime)return;const m=t.entryTime.match(/^(\d{1,2}):/);if(!m)return;const h=parseInt(m[1]);if(h<4||h>18)return;buckets[h].pnl+=(t.pnl-calcCommission(t));buckets[h].count++;buckets[h].trades.push(t);if(t.pnl>0)buckets[h].wins++;else if(t.pnl<0)buckets[h].losses++;});
+  getFilteredTrades().forEach(t=>{if(!t.entryTime)return;const m=t.entryTime.match(/^(\d{1,2}):/);if(!m)return;const h=parseInt(m[1]);if(h<4||h>18)return;buckets[h].pnl+=t.pnl;buckets[h].count++;buckets[h].trades.push(t);if(t.pnl>0)buckets[h].wins++;else if(t.pnl<0)buckets[h].losses++;});
   const pnlData    = HOURS.map(h=>buckets[h].pnl);
   const barColors  = pnlData.map(v=>v>0?'rgba(141,197,114,.85)':v<0?'rgba(216,90,48,.85)':'rgba(180,180,180,.3)');
   const barBorders = pnlData.map(v=>v>0?'#8dc572':v<0?'#D85A30':'#ccc');
@@ -1610,7 +1607,7 @@ function renderHourlyInto(canvasId) {
         legend: { display: false },
         tooltip: { callbacks: { label: ctx => {
           const h = HOURS[ctx.dataIndex]; const b = buckets[h]; const v = b.pnl;
-          return [`P&L (Net): ${v>=0?'+':''}$${Math.abs(v).toLocaleString('en-US',{maximumFractionDigits:0})}`, `Trades: ${b.count}`, `WR: ${b.count?Math.round(b.wins/b.count*100):0}%`];
+          return [`P&L: ${v>=0?'+':''}$${Math.abs(v).toLocaleString('en-US',{maximumFractionDigits:0})}`, `Trades: ${b.count}`, `WR: ${b.count?Math.round(b.wins/b.count*100):0}%`];
         }}}
       },
       scales: {
@@ -1644,7 +1641,7 @@ function renderDayStatsInto(elId) {
   if (!el) return;
   const days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const ds=Array(7).fill(null).map(()=>({count:0,pnl:0,wins:0}));
-  getFilteredTrades().forEach(t=>{if(!t.date)return;const d=new Date(t.date+'T00:00:00').getDay();ds[d].count++;ds[d].pnl+=(t.pnl-calcCommission(t));if(t.pnl>0)ds[d].wins++;});
+  getFilteredTrades().forEach(t=>{if(!t.date)return;const d=new Date(t.date+'T00:00:00').getDay();ds[d].count++;ds[d].pnl+=t.pnl;if(t.pnl>0)ds[d].wins++;});
   const active=days.map((name,i)=>({name,...ds[i]})).filter(d=>d.count>0);
   if(!active.length){el.innerHTML='<div class="empty">No data</div>';return;}
   const maxAbs=Math.max(...active.map(d=>Math.abs(d.pnl)),1);
@@ -1657,14 +1654,14 @@ function renderMoodInto(canvasId, legendElId) {
   const moodEmoji={'Focused':'😤','Calm':'😌','Stressed':'😰','Overconfident':'😎','Doubtful':'🤔','FOMO':'😱'};
   const moodColors={'Focused':{fill:'rgba(141,197,114,.75)',border:'#8dc572'},'Calm':{fill:'rgba(55,138,221,.75)',border:'#378ADD'},'Stressed':{fill:'rgba(216,90,48,.75)',border:'#D85A30'},'Overconfident':{fill:'rgba(155,89,182,.75)',border:'#9B59B6'},'Doubtful':{fill:'rgba(239,159,39,.75)',border:'#EF9F27'},'FOMO':{fill:'rgba(231,76,60,.75)',border:'#E74C3C'}};
   const moodMap={};
-  getFilteredTrades().forEach(t=>{if(!t.mood)return;if(!moodMap[t.mood])moodMap[t.mood]={pnls:[],wins:0,losses:0,count:0,totalPnl:0};const m=moodMap[t.mood];const net=t.pnl-calcCommission(t);m.pnls.push(net);m.count++;m.totalPnl+=net;if(t.pnl>0)m.wins++;else if(t.pnl<0)m.losses++;});
+  getFilteredTrades().forEach(t=>{if(!t.mood)return;if(!moodMap[t.mood])moodMap[t.mood]={pnls:[],wins:0,losses:0,count:0,totalPnl:0};const m=moodMap[t.mood];m.pnls.push(t.pnl);m.count++;m.totalPnl+=t.pnl;if(t.pnl>0)m.wins++;else if(t.pnl<0)m.losses++;});
   const moods=Object.keys(moodMap);
   if(!moods.length){el.style.display='none';return;}
   const maxCount=Math.max(...moods.map(m=>moodMap[m].count));
   const tickColor=getComputedStyle(document.documentElement).getPropertyValue('--text3').trim()||'#999';
   const ds=moods.map(mood=>{const m=moodMap[mood];const avgPnl=m.totalPnl/m.count;const wr=Math.round(m.wins/m.count*100);const r=12+(m.count/maxCount)*34;const col=moodColors[mood]||{fill:'rgba(150,150,150,.6)',border:'#999'};return{label:mood,data:[{x:avgPnl,y:wr,r}],backgroundColor:col.fill,borderColor:col.border,borderWidth:2};});
   if(expandChartInstance)expandChartInstance.destroy();
-  expandChartInstance=new Chart(el.getContext('2d'),{type:'bubble',data:{datasets:ds},options:{responsive:true,maintainAspectRatio:false,animation:{duration:700,easing:'easeOutElastic'},plugins:{legend:{display:false},tooltip:{callbacks:{title:ctx=>ctx[0]?.dataset?.label||'',label:ctx=>{const mood=ctx.dataset.label;const m=moodMap[mood];const avgPnl=m.totalPnl/m.count;const wr=Math.round(m.wins/m.count*100);return[`Avg P&L (Net): ${avgPnl>=0?'+':''}$${Math.abs(avgPnl).toFixed(0)}`,`Win Rate: ${wr}%`,`Trades: ${m.count}`,`▲${m.wins} ▼${m.losses}`];}}}},scales:{x:{title:{display:true,text:'Avg P&L (Net) ($)',color:tickColor,font:{size:11}},grid:{color:'rgba(128,128,128,.1)'},ticks:{color:tickColor,callback:v=>(v>=0?'+':'')+`$${v}`}},y:{title:{display:true,text:'Win Rate (%)',color:tickColor,font:{size:11}},min:0,max:100,grid:{color:'rgba(128,128,128,.1)'},ticks:{color:tickColor,callback:v=>v+'%'}}}},plugins:[{id:'moodLabels',afterDatasetsDraw(chart){const ctx2=chart.ctx;chart.data.datasets.forEach(ds2=>{const meta=chart.getDatasetMeta(chart.data.datasets.indexOf(ds2));if(meta.hidden)return;meta.data.forEach(pt=>{const emoji=moodEmoji[ds2.label]||'●';ctx2.save();ctx2.font=`${Math.max(14,pt.options.radius*.7)}px serif`;ctx2.textAlign='center';ctx2.textBaseline='middle';ctx2.fillText(emoji,pt.x,pt.y);ctx2.restore();});});}}]});
+  expandChartInstance=new Chart(el.getContext('2d'),{type:'bubble',data:{datasets:ds},options:{responsive:true,maintainAspectRatio:false,animation:{duration:700,easing:'easeOutElastic'},plugins:{legend:{display:false},tooltip:{callbacks:{title:ctx=>ctx[0]?.dataset?.label||'',label:ctx=>{const mood=ctx.dataset.label;const m=moodMap[mood];const avgPnl=m.totalPnl/m.count;const wr=Math.round(m.wins/m.count*100);return[`Avg P&L: ${avgPnl>=0?'+':''}$${Math.abs(avgPnl).toFixed(0)}`,`Win Rate: ${wr}%`,`Trades: ${m.count}`,`▲${m.wins} ▼${m.losses}`];}}}},scales:{x:{title:{display:true,text:'Avg P&L ($)',color:tickColor,font:{size:11}},grid:{color:'rgba(128,128,128,.1)'},ticks:{color:tickColor,callback:v=>(v>=0?'+':'')+`$${v}`}},y:{title:{display:true,text:'Win Rate (%)',color:tickColor,font:{size:11}},min:0,max:100,grid:{color:'rgba(128,128,128,.1)'},ticks:{color:tickColor,callback:v=>v+'%'}}}},plugins:[{id:'moodLabels',afterDatasetsDraw(chart){const ctx2=chart.ctx;chart.data.datasets.forEach(ds2=>{const meta=chart.getDatasetMeta(chart.data.datasets.indexOf(ds2));if(meta.hidden)return;meta.data.forEach(pt=>{const emoji=moodEmoji[ds2.label]||'●';ctx2.save();ctx2.font=`${Math.max(14,pt.options.radius*.7)}px serif`;ctx2.textAlign='center';ctx2.textBaseline='middle';ctx2.fillText(emoji,pt.x,pt.y);ctx2.restore();});});}}]});
   const lEl=document.getElementById(legendElId);
   if(lEl)lEl.innerHTML=moods.map(mood=>{const col=(moodColors[mood]||{border:'#999'}).border;const m=moodMap[mood];return`<span style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text2)"><span style="width:8px;height:8px;border-radius:50%;background:${col};display:inline-block"></span>${moodEmoji[mood]||''} ${mood} <span style="color:var(--text3)">(${m.count})</span></span>`;}).join('');
 }
@@ -1701,7 +1698,7 @@ function renderPriceRangeInto(canvasId) {
     if (!t.entry) return;
     const idx = ranges.findIndex(r=>t.entry>=r.min && t.entry<r.max);
     if (idx<0) return;
-    buckets[idx].pnl+=(t.pnl-calcCommission(t)); buckets[idx].count++;
+    buckets[idx].pnl+=t.pnl; buckets[idx].count++;
     if (t.pnl>0) buckets[idx].wins++;
   });
   const tickColor = getComputedStyle(document.documentElement).getPropertyValue('--text3').trim()||'#999';
@@ -1709,7 +1706,7 @@ function renderPriceRangeInto(canvasId) {
   expandChartInstance = new Chart(el.getContext('2d'), {
     type:'bar',
     data:{labels:ranges.map(r=>r.label),datasets:[{data:buckets.map(b=>b.pnl),backgroundColor:buckets.map(b=>b.pnl>0?'rgba(141,197,114,.8)':'rgba(216,90,48,.8)'),borderColor:buckets.map(b=>b.pnl>0?'#8dc572':'#D85A30'),borderWidth:1.5,borderRadius:6,borderSkipped:false}]},
-    options:{responsive:true,maintainAspectRatio:false,animation:{duration:500},plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>{const b=buckets[ctx.dataIndex];return[`P&L (Net): ${b.pnl>=0?'+':''}$${Math.abs(b.pnl).toFixed(0)}`,`Trades: ${b.count}`,`WR: ${b.count?Math.round(b.wins/b.count*100):0}%`];}}}},scales:{x:{grid:{display:false},ticks:{color:tickColor}},y:{grid:{color:'rgba(128,128,128,.1)'},ticks:{color:tickColor,callback:v=>(v>=0?'+':'')+`$${Math.abs(v)>=1000?(v/1000).toFixed(1)+'K':Math.abs(v)}`}}}}
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:500},plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>{const b=buckets[ctx.dataIndex];return[`P&L: ${b.pnl>=0?'+':''}$${Math.abs(b.pnl).toFixed(0)}`,`Trades: ${b.count}`,`WR: ${b.count?Math.round(b.wins/b.count*100):0}%`];}}}},scales:{x:{grid:{display:false},ticks:{color:tickColor}},y:{grid:{color:'rgba(128,128,128,.1)'},ticks:{color:tickColor,callback:v=>(v>=0?'+':'')+`$${Math.abs(v)>=1000?(v/1000).toFixed(1)+'K':Math.abs(v)}`}}}}
   });
 }
 
