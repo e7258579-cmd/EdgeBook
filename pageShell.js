@@ -188,8 +188,8 @@ function showPage(p) {
   // Hide the rp-toggle-btn when navigating away from sizing (log page manages its own visibility)
   const rpToggleBtn = document.getElementById('rp-toggle-btn');
   if (rpToggleBtn && p !== 'sizing' && p !== 'log' && p !== 'cal' && p !== 'new' && p !== 'home') rpToggleBtn.style.display = 'none';
-  const pageDisplay = { home: 'flex', log: 'block', cal: 'block', stats: 'block', new: 'flex', sizing: 'block', journal: 'block' };
-  ['home','log','cal','stats','new','sizing','journal'].forEach(id => {
+  const pageDisplay = { home: 'flex', log: 'block', cal: 'block', stats: 'block', new: 'flex', sizing: 'block', journal: 'block', settings: 'block' };
+  ['home','log','cal','stats','new','sizing','journal','settings'].forEach(id => {
     const el = document.getElementById('tab-'+id);
     if (el) el.style.display = p===id ? pageDisplay[id] : 'none';
   });
@@ -235,9 +235,10 @@ function showPage(p) {
   if (p==='stats') { renderStats(); if (typeof initStatsLayout === 'function') initStatsLayout(); }
   if (p==='sizing') { renderSizingPage(); }
   if (p==='journal') { if (typeof renderJournalPage === 'function') renderJournalPage(); }
+  if (p==='settings') { if (typeof renderSettingsPage === 'function') renderSettingsPage(); }
   if (p==='new' && !document.getElementById('f-sym').value)   { document.getElementById('f-date').value = new Date().toISOString().split('T')[0]; }
   // sync sidebar active state
-  ['home','log','cal','stats','sizing','journal'].forEach(id => {
+  ['home','log','cal','stats','sizing','journal','settings'].forEach(id => {
     const btn = document.getElementById('sb-'+id);
     if(btn) btn.classList.toggle('active', id===p);
   });

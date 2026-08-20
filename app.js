@@ -51,10 +51,21 @@ let trades = [];  // populated async by accounts.js after Firebase auth
 // Not persisted — intentionally resets to 'all' on every page load.
 let timeFilter = { mode: 'all', from: null, to: null };
 
-// ─── COMMISSION CALCULATOR — REMOVED (Phase 1) ──────────────
-// Fees/commission are no longer calculated anywhere in the app.
-// pnl is always shown as-is (gross). See Phase0_Audit_Findings.md
-// and EdgeBook_Work_Plan.md Phase 1 for context.
+// ─── COMMISSION CALCULATOR (single source of truth) ────────
+// Each trade stores t.legs = [{ side:'buy'|'sell', qty:number }, ...]
+// representing every real execution that composes the trade
+// (e.g. 100 buy + 100 buy + 200 sell = 3 legs).
+// Per-leg fee: qty < 200 → $0.99 flat; qty >= 200 → qty * 0.005.
+// pnl is ALWAYS stored gross; net = pnl - calcCommission(t).
+function calcCommission(t) {
+  if (!t || !Array.isArray(t.legs) || !t.legs.length) return 0;
+  return t.legs.reduce((sum, leg) => {
+    const q = Math.abs((leg && leg.qty) || 0);
+    if (!q) return sum;
+    return sum + (q < 200 ? 0.99 : q * 0.005);
+  }, 0);
+}
+window.calcCommission = calcCommission;
 
 function getFilteredTrades() {
   if (!Array.isArray(trades)) return [];
@@ -563,24 +574,6 @@ function seedTestData() {
   toast('✓ Added 120 realistic test trades!');
 }
 
-// ─── SETTINGS POPUP ───────────────────────────────────────
-function toggleSettingsPopup(e) {
-  e.stopPropagation();
-  const p = document.getElementById('settings-popup');
-  p.style.display = p.style.display === 'none' ? 'block' : 'none';
-}
-
-function closeSettingsPopup() {
-  document.getElementById('settings-popup').style.display = 'none';
-}
-
-document.addEventListener('click', e => {
-  const p = document.getElementById('settings-popup');
-  if (p && !p.contains(e.target) && !e.target.closest('.sb-item[onclick*="toggleSettingsPopup"]')) {
-    p.style.display = 'none';
-  }
-});
-
 // ─── MENU DROPDOWN ────────────────────────────────────────
 function toggleMenu() {
   const d = document.getElementById('menu-dropdown');
@@ -675,8 +668,6 @@ window.exportCSV            = exportCSV;
 window.importCSV            = importCSV;
 window.handleImport         = handleImport;
 window.seedTestData         = seedTestData;
-window.toggleSettingsPopup  = toggleSettingsPopup;
-window.closeSettingsPopup   = closeSettingsPopup;
 window.toggleMenu           = toggleMenu;
 window.toggleRightPanel     = toggleRightPanel;
 window.updateThemeButton    = updateThemeButton;
