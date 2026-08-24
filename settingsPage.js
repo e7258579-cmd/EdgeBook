@@ -10,16 +10,21 @@
  *                Reuses the existing toggleTheme()/updateThemeButton()
  *                functions from app.js unchanged — only the button markup
  *                moved, wired to the same #theme-icon / #theme-label ids.
+ *   Display    — $ P&L / Price Move metric toggle (Phase 4). Calls
+ *                setMetricMode() from metricEngine.js. Reuses the
+ *                existing .tf-btn pill-toggle style (same one used for
+ *                Long/Short in the trade form) rather than new CSS.
  *   Tools      — Import, Export, Generate Test Data, Trading Rules,
  *                Google Sheets — migrated from the old #settings-popup,
  *                calling the same existing functions.
  *
  * This establishes the pattern (grouped sections, one control per
- * preference) that Phase 3 (Gross/Net toggle) and Phase 4 (Price Move
- * toggle) will add to under a future "Display" section.
+ * preference) that Phase 3 (Gross/Net toggle) will add to, likely
+ * alongside the Display section below.
  *
  * Depends on globals already defined elsewhere (loaded before this file):
  *   toggleTheme(), MOON_PATH, SUN_PATH          — app.js
+ *   setMetricMode(), getMetricMode()             — metricEngine.js
  *   openImportWizard()                          — importWizard.js
  *   exportCSV(), seedTestData()                 — app.js
  *   openRulesModal()                            — (existing, unchanged)
@@ -33,7 +38,8 @@ function renderSettingsPage() {
   const el = document.getElementById('tab-settings');
   if (!el) return;
 
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const isDark      = document.documentElement.getAttribute('data-theme') === 'dark';
+  const isPriceMove = getMetricMode() === 'priceMove';
 
   el.innerHTML = `
     <div class="page-title" id="settings-page-title" style="margin-bottom:1.5rem">Settings</div>
@@ -44,6 +50,15 @@ function renderSettingsPage() {
         <svg id="theme-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">${isDark ? SUN_PATH : MOON_PATH}</svg>
         <span class="sb-label" id="theme-label">${isDark ? 'Light' : 'Dark'}</span>
       </button>
+    </div>
+
+    <div class="section" style="max-width:520px;margin-top:1.5rem">
+      <h2>Display</h2>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Applies to Statistics and Sizing/Analysis</div>
+      <div style="display:flex;gap:8px">
+        <button class="tf-btn${isPriceMove ? '' : ' active'}" onclick="setMetricMode('pnl')">$ P&amp;L</button>
+        <button class="tf-btn${isPriceMove ? ' active' : ''}" onclick="setMetricMode('priceMove')">Price Move</button>
+      </div>
     </div>
 
     <div class="section" style="max-width:520px;margin-top:1.5rem;padding:0.5rem 0">

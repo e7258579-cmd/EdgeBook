@@ -141,6 +141,12 @@ function fmtDollar(v, decimals=0) {
   return sign + '$' + abs.toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
+function fmtPriceMove(v) {
+  // Plain price delta — not a dollar amount, so no '$' sign.
+  const sign = v >= 0 ? '+' : '-';
+  return sign + Math.abs(v).toFixed(2);
+}
+
 function tipVal(shortTxt, fullVal) {
   return `<span title="${fmtFull(fullVal)}" style="cursor:default">${shortTxt}</span>`;
 }
@@ -364,6 +370,7 @@ function renderStats() {
   const wins = trades.filter(t => t.pnl > 0);
   const losses = trades.filter(t => t.pnl < 0);
   const total = trades.reduce((a,t) => a+t.pnl, 0);          // gross
+  const totalPriceMove = trades.reduce((a,t) => a + getPriceMove(t), 0);
   const avgWin = wins.length ? wins.reduce((a,t)=>a+t.pnl,0)/wins.length : 0;
   const avgLoss = losses.length ? losses.reduce((a,t)=>a+t.pnl,0)/losses.length : 0;
   const maxWin = wins.length ? Math.max(...wins.map(t=>t.pnl)) : 0;
@@ -373,12 +380,25 @@ function renderStats() {
   const pf = totalNeg ? totalPos / totalNeg : null;
   const wr = Math.round(wins.length/n*100);
   const avgTrade = total/n;
+  const avgPriceMove = totalPriceMove/n;
+
+  // Phase 4 — Price Move metric: Total P&L and Avg/Trade follow the global
+  // metricMode toggle (Settings → Display). Everything else on this page
+  // (Win Rate, Avg Win/Loss, Profit Factor, Best/Worst Trade) stays $-only.
+  const metricMode      = getMetricMode();
+  const isPriceMove     = metricMode === 'priceMove';
+  const totalKpiLabel   = isPriceMove ? 'Total Price Move'        : 'Total P&L';
+  const totalKpiVal     = isPriceMove ? totalPriceMove            : total;
+  const totalKpiDisplay = isPriceMove ? fmtPriceMove(totalPriceMove) : fmtNum(total);
+  const avgKpiLabel     = isPriceMove ? 'Avg Price Move / Trade'  : 'Avg Per Trade (Gross)';
+  const avgKpiVal       = isPriceMove ? avgPriceMove              : avgTrade;
+  const avgKpiDisplay   = isPriceMove ? fmtPriceMove(avgPriceMove)  : fmtNum(avgTrade);
 
   const kpis = [
     { label:'Total Trades',  val:n,             display:n.toLocaleString(),                                      tip:null,       sub:'',            neutral:true },
     { label:'Win Rate',      val:wr-50,          display:wr+'%',                                                  tip:null,       sub:'vs 50%'                   },
-    { label:'Total P&L', val:total,     display:fmtNum(total),                                        tip:total,   sub:''                          },
-    { label:'Avg Per Trade (Gross)', val:avgTrade, display:fmtNum(avgTrade),                                      tip:avgTrade,   sub:''                          },
+    { label:totalKpiLabel, val:totalKpiVal,     display:totalKpiDisplay,                                        tip:isPriceMove?null:total,   sub:''                          },
+    { label:avgKpiLabel, val:avgKpiVal, display:avgKpiDisplay,                                      tip:isPriceMove?null:avgTrade,   sub:''                          },
     { label:'Avg Win (Gross)', val:avgWin,       display:fmtNum(avgWin),                                          tip:avgWin,     sub:'per winner'                },
     { label:'Avg Loss (Gross)', val:avgLoss,     display:fmtNum(-Math.abs(avgLoss)),                              tip:-Math.abs(avgLoss), sub:'per loser'         },
     { label:'Profit Factor', val:pf?pf-1:0,      display:pf?pf.toFixed(2):'∞',                                   tip:null,       sub:pf&&pf>=1?'good':'low'      },
@@ -1082,10 +1102,10 @@ function renderHourlyChart() {
     if (!match) return;
     const h = parseInt(match[1]);
     if (h < 4 || h > 18) return;
-    buckets[h].pnl    += t.pnl; // gross
+    buckets[h].pnl    += getMetricValue(t); // P&L or Price Move, per global mode
     buckets[h].count  += 1;
     buckets[h].trades.push(t);
-    if (t.pnl > 0) buckets[h].wins++;
+    if (t.pnl > 0) buckets[h].wins++;   // win/loss always reflects real $ P&L
     else if (t.pnl < 0) buckets[h].losses++;
   });
 
@@ -1171,15 +1191,14 @@ function renderHourlyChart() {
             const b   = buckets[h];
             const pnl = b.pnl;
             const pnlCls = pnl > 0 ? '#8dc572' : pnl < 0 ? '#D85A30' : 'var(--text3)';
-            const sign   = pnl > 0 ? '+' : pnl < 0 ? '-' : '';
             const wr     = b.count ? Math.round(b.wins / b.count * 100) : 0;
 
             tooltipEl.innerHTML = `
               <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:6px">${String(h).padStart(2,'0')}:00 – ${String(h+1).padStart(2,'0')}:00</div>
               <div style="display:flex;flex-direction:column;gap:4px">
                 <div style="display:flex;justify-content:space-between;gap:20px">
-                  <span style="font-size:12px;color:var(--text2)">P&L</span>
-                  <span style="font-size:14px;font-weight:700;color:${pnlCls}">${sign}$${Math.abs(pnl).toLocaleString('en-US',{maximumFractionDigits:0})}</span>
+                  <span style="font-size:12px;color:var(--text2)">${getMetricLabel()}</span>
+                  <span style="font-size:14px;font-weight:700;color:${pnlCls}">${fmtMetricShort(pnl)}</span>
                 </div>
                 <div style="height:1px;background:var(--border);margin:2px 0"></div>
                 <div style="display:flex;justify-content:space-between;gap:20px">
@@ -1229,7 +1248,7 @@ function renderHourlyChart() {
           const v = data.datasets[0].data[i];
           if (!v) return;
           const isPos = v >= 0;
-          const label = (isPos ? '+' : '-') + '$' + (Math.abs(v) >= 1000 ? (Math.abs(v)/1000).toFixed(1)+'K' : Math.abs(v).toFixed(0));
+          const label = fmtMetricShort(v);
           ctx.save();
           ctx.font = '600 10px CircularXXWeb-Bold,-apple-system,sans-serif';
           ctx.fillStyle = isPos ? '#8dc572' : '#D85A30';
@@ -1275,8 +1294,8 @@ function renderDayStats() {
     if (!t.date) return;
     const d = new Date(t.date + 'T00:00:00').getDay();
     ds[d].count++;
-    ds[d].pnl += t.pnl; // gross
-    if (t.pnl > 0) ds[d].wins++;
+    ds[d].pnl += getMetricValue(t); // P&L or Price Move, per global mode
+    if (t.pnl > 0) ds[d].wins++;   // win/loss always reflects real $ P&L
   });
 
   // Only show trading days (skip days with 0 trades)
@@ -1293,7 +1312,7 @@ function renderDayStats() {
     const pct = Math.abs(d.pnl) / maxAbsPnl * 100;
     const isPos = d.pnl >= 0;
     const color = isPos ? 'var(--green)' : 'var(--red)';
-    const pnlStr = (isPos ? '+' : '-') + '$' + Math.abs(d.pnl).toLocaleString('en-US', {maximumFractionDigits:0});
+    const pnlStr = fmtMetricShort(d.pnl);
     const wr = d.count ? Math.round(d.wins / d.count * 100) : 0;
 
     return `
@@ -1328,11 +1347,13 @@ function renderMoodStats() {
   const moodMap = {};
   getFilteredTrades().forEach(t => {
     if (!t.mood) return;
-    if (!moodMap[t.mood]) moodMap[t.mood] = { pnls: [], wins: 0, losses: 0, count: 0, totalPnl: 0 };
+    if (!moodMap[t.mood]) moodMap[t.mood] = { pnls: [], metricVals: [], wins: 0, losses: 0, count: 0, totalPnl: 0, totalMetric: 0 };
     const m = moodMap[t.mood];
     m.pnls.push(t.pnl);
+    m.metricVals.push(getMetricValue(t));
     m.count++;
     m.totalPnl += t.pnl;
+    m.totalMetric += getMetricValue(t);
     if (t.pnl > 0) m.wins++; else if (t.pnl < 0) m.losses++;
   });
 
@@ -1359,13 +1380,13 @@ function renderMoodStats() {
 
   const bubbleData = moods.map(mood => {
     const m = moodMap[mood];
-    const avgPnl = m.totalPnl / m.count;
+    const avgMetric = m.totalMetric / m.count;
     const wr     = Math.round(m.wins / m.count * 100);
     const r      = 10 + (m.count / maxCount) * 28; // radius 10–38px
     const col    = moodColors[mood] || defaultColor;
     return {
       label: mood,
-      data: [{ x: avgPnl, y: wr, r }],
+      data: [{ x: avgMetric, y: wr, r }],
       backgroundColor: col.fill,
       borderColor:     col.border,
       borderWidth: 2,
@@ -1414,14 +1435,13 @@ function renderMoodStats() {
             if (!dp) return;
             const mood  = dp.dataset.label;
             const m     = moodMap[mood];
-            const avgPnl = m.totalPnl / m.count;
+            const avgMetric = m.totalMetric / m.count;
             const wr    = Math.round(m.wins / m.count * 100);
             const emoji = moodEmoji[mood] || '●';
-            const pnlCls = avgPnl >= 0 ? '#8dc572' : '#D85A30';
-            const sign   = avgPnl >= 0 ? '+' : '-';
-            // Spread: std deviation of PnL
-            const mean  = avgPnl;
-            const std   = Math.sqrt(m.pnls.reduce((s,v)=>s+Math.pow(v-mean,2),0)/m.pnls.length);
+            const pnlCls = avgMetric >= 0 ? '#8dc572' : '#D85A30';
+            // Spread: std deviation of the current metric
+            const mean  = avgMetric;
+            const std   = Math.sqrt(m.metricVals.reduce((s,v)=>s+Math.pow(v-mean,2),0)/m.metricVals.length);
 
             tooltipEl.innerHTML = `
               <div style="display:flex;align-items:center;gap:7px;margin-bottom:7px">
@@ -1430,8 +1450,8 @@ function renderMoodStats() {
               </div>
               <div style="display:flex;flex-direction:column;gap:4px">
                 <div style="display:flex;justify-content:space-between;gap:18px">
-                  <span style="font-size:11px;color:var(--text3)">Avg P&L</span>
-                  <span style="font-size:13px;font-weight:700;color:${pnlCls}">${sign}$${Math.abs(avgPnl).toFixed(0)}</span>
+                  <span style="font-size:11px;color:var(--text3)">Avg ${getMetricLabel()}</span>
+                  <span style="font-size:13px;font-weight:700;color:${pnlCls}">${fmtMetricShort(avgMetric)}</span>
                 </div>
                 <div style="display:flex;justify-content:space-between;gap:18px">
                   <span style="font-size:11px;color:var(--text3)">Win Rate</span>
@@ -1445,7 +1465,7 @@ function renderMoodStats() {
                 <div style="display:flex;gap:10px">
                   <span style="font-size:10px;color:#8dc572">▲ ${m.wins} W</span>
                   <span style="font-size:10px;color:#D85A30">▼ ${m.losses} L</span>
-                  <span style="font-size:10px;color:var(--text3)">σ $${std.toFixed(0)}</span>
+                  <span style="font-size:10px;color:var(--text3)">σ ${fmtMetricShort(std).replace(/^[+-]/,'')}</span>
                 </div>
               </div>`;
 
@@ -1463,9 +1483,9 @@ function renderMoodStats() {
       },
       scales: {
         x: {
-          title: { display: true, text: 'Avg P&L ($)', color: tickColor, font: { size: 10 } },
+          title: { display: true, text: getMetricMode()==='priceMove' ? 'Avg Price Move' : 'Avg P&L ($)', color: tickColor, font: { size: 10 } },
           grid: { color: 'rgba(128,128,128,.1)' },
-          ticks: { color: tickColor, font: { size: 10 }, callback: v => (v>=0?'+':'')+`$${v}` }
+          ticks: { color: tickColor, font: { size: 10 }, callback: v => fmtMetricShort(v) }
         },
         y: {
           title: { display: true, text: 'Win Rate (%)', color: tickColor, font: { size: 10 } },
@@ -1579,7 +1599,7 @@ function renderHourlyInto(canvasId) {
   if (!el) return;
   const HOURS = []; for (let h=4;h<=18;h++) HOURS.push(h);
   const buckets = {}; HOURS.forEach(h=>{buckets[h]={pnl:0,wins:0,losses:0,count:0,trades:[]};});
-  getFilteredTrades().forEach(t=>{if(!t.entryTime)return;const m=t.entryTime.match(/^(\d{1,2}):/);if(!m)return;const h=parseInt(m[1]);if(h<4||h>18)return;buckets[h].pnl+=t.pnl;buckets[h].count++;buckets[h].trades.push(t);if(t.pnl>0)buckets[h].wins++;else if(t.pnl<0)buckets[h].losses++;});
+  getFilteredTrades().forEach(t=>{if(!t.entryTime)return;const m=t.entryTime.match(/^(\d{1,2}):/);if(!m)return;const h=parseInt(m[1]);if(h<4||h>18)return;buckets[h].pnl+=getMetricValue(t);buckets[h].count++;buckets[h].trades.push(t);if(t.pnl>0)buckets[h].wins++;else if(t.pnl<0)buckets[h].losses++;});
   const pnlData    = HOURS.map(h=>buckets[h].pnl);
   const barColors  = pnlData.map(v=>v>0?'rgba(141,197,114,.85)':v<0?'rgba(216,90,48,.85)':'rgba(180,180,180,.3)');
   const barBorders = pnlData.map(v=>v>0?'#8dc572':v<0?'#D85A30':'#ccc');
@@ -1603,7 +1623,7 @@ function renderHourlyInto(canvasId) {
         legend: { display: false },
         tooltip: { callbacks: { label: ctx => {
           const h = HOURS[ctx.dataIndex]; const b = buckets[h]; const v = b.pnl;
-          return [`P&L: ${v>=0?'+':''}$${Math.abs(v).toLocaleString('en-US',{maximumFractionDigits:0})}`, `Trades: ${b.count}`, `WR: ${b.count?Math.round(b.wins/b.count*100):0}%`];
+          return [`${getMetricLabel()}: ${fmtMetricShort(v)}`, `Trades: ${b.count}`, `WR: ${b.count?Math.round(b.wins/b.count*100):0}%`];
         }}}
       },
       scales: {
@@ -1618,7 +1638,7 @@ function renderHourlyInto(canvasId) {
         chart.getDatasetMeta(0).data.forEach((bar, i) => {
           const v = data.datasets[0].data[i]; if (!v) return;
           const isPos = v >= 0;
-          const label = (isPos?'+':'-')+'$'+(Math.abs(v)>=1000?(Math.abs(v)/1000).toFixed(1)+'K':Math.abs(v).toFixed(0));
+          const label = fmtMetricShort(v);
           ctx.save();
           ctx.font = '600 10px CircularXXWeb-Bold,-apple-system,sans-serif';
           ctx.fillStyle = isPos ? '#8dc572' : '#D85A30';
@@ -1637,11 +1657,11 @@ function renderDayStatsInto(elId) {
   if (!el) return;
   const days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const ds=Array(7).fill(null).map(()=>({count:0,pnl:0,wins:0}));
-  getFilteredTrades().forEach(t=>{if(!t.date)return;const d=new Date(t.date+'T00:00:00').getDay();ds[d].count++;ds[d].pnl+=t.pnl;if(t.pnl>0)ds[d].wins++;});
+  getFilteredTrades().forEach(t=>{if(!t.date)return;const d=new Date(t.date+'T00:00:00').getDay();ds[d].count++;ds[d].pnl+=getMetricValue(t);if(t.pnl>0)ds[d].wins++;});
   const active=days.map((name,i)=>({name,...ds[i]})).filter(d=>d.count>0);
   if(!active.length){el.innerHTML='<div class="empty">No data</div>';return;}
   const maxAbs=Math.max(...active.map(d=>Math.abs(d.pnl)),1);
-  el.innerHTML=`<div style="padding:.5rem 0">${active.map(d=>{const pct=Math.abs(d.pnl)/maxAbs*100;const isPos=d.pnl>=0;const color=isPos?'var(--green)':'var(--red)';const pnlStr=(isPos?'+':'-')+'$'+Math.abs(d.pnl).toLocaleString('en-US',{maximumFractionDigits:0});const wr=d.count?Math.round(d.wins/d.count*100):0;return `<div style="display:grid;grid-template-columns:48px 1fr 90px 66px;align-items:center;gap:14px;padding:8px 0"><span style="font-size:13px;font-weight:700;color:var(--text2);text-align:right">${d.name}</span><div style="position:relative;height:26px;background:var(--bg3);border-radius:4px;overflow:hidden"><div style="position:absolute;left:0;top:0;height:100%;width:${pct}%;background:${color};border-radius:4px;opacity:.85"></div><div style="position:absolute;inset:0;display:flex;align-items:center;padding:0 8px"><span style="font-size:12px;font-weight:700;color:var(--text)">${pnlStr}</span></div></div><span style="font-size:12px;color:var(--text3);text-align:right">${d.count} trade${d.count!==1?'s':''}</span><span style="font-size:12px;font-weight:600;color:${wr>=50?'var(--green)':'var(--red)'};text-align:right">${wr}% WR</span></div>`;}).join('')}</div>`;
+  el.innerHTML=`<div style="padding:.5rem 0">${active.map(d=>{const pct=Math.abs(d.pnl)/maxAbs*100;const isPos=d.pnl>=0;const color=isPos?'var(--green)':'var(--red)';const pnlStr=fmtMetricShort(d.pnl);const wr=d.count?Math.round(d.wins/d.count*100):0;return `<div style="display:grid;grid-template-columns:48px 1fr 90px 66px;align-items:center;gap:14px;padding:8px 0"><span style="font-size:13px;font-weight:700;color:var(--text2);text-align:right">${d.name}</span><div style="position:relative;height:26px;background:var(--bg3);border-radius:4px;overflow:hidden"><div style="position:absolute;left:0;top:0;height:100%;width:${pct}%;background:${color};border-radius:4px;opacity:.85"></div><div style="position:absolute;inset:0;display:flex;align-items:center;padding:0 8px"><span style="font-size:12px;font-weight:700;color:var(--text)">${pnlStr}</span></div></div><span style="font-size:12px;color:var(--text3);text-align:right">${d.count} trade${d.count!==1?'s':''}</span><span style="font-size:12px;font-weight:600;color:${wr>=50?'var(--green)':'var(--red)'};text-align:right">${wr}% WR</span></div>`;}).join('')}</div>`;
 }
 
 function renderMoodInto(canvasId, legendElId) {
@@ -1650,14 +1670,14 @@ function renderMoodInto(canvasId, legendElId) {
   const moodEmoji={'Focused':'😤','Calm':'😌','Stressed':'😰','Overconfident':'😎','Doubtful':'🤔','FOMO':'😱'};
   const moodColors={'Focused':{fill:'rgba(141,197,114,.75)',border:'#8dc572'},'Calm':{fill:'rgba(55,138,221,.75)',border:'#378ADD'},'Stressed':{fill:'rgba(216,90,48,.75)',border:'#D85A30'},'Overconfident':{fill:'rgba(155,89,182,.75)',border:'#9B59B6'},'Doubtful':{fill:'rgba(239,159,39,.75)',border:'#EF9F27'},'FOMO':{fill:'rgba(231,76,60,.75)',border:'#E74C3C'}};
   const moodMap={};
-  getFilteredTrades().forEach(t=>{if(!t.mood)return;if(!moodMap[t.mood])moodMap[t.mood]={pnls:[],wins:0,losses:0,count:0,totalPnl:0};const m=moodMap[t.mood];m.pnls.push(t.pnl);m.count++;m.totalPnl+=t.pnl;if(t.pnl>0)m.wins++;else if(t.pnl<0)m.losses++;});
+  getFilteredTrades().forEach(t=>{if(!t.mood)return;if(!moodMap[t.mood])moodMap[t.mood]={pnls:[],metricVals:[],wins:0,losses:0,count:0,totalPnl:0,totalMetric:0};const m=moodMap[t.mood];m.pnls.push(t.pnl);m.metricVals.push(getMetricValue(t));m.count++;m.totalPnl+=t.pnl;m.totalMetric+=getMetricValue(t);if(t.pnl>0)m.wins++;else if(t.pnl<0)m.losses++;});
   const moods=Object.keys(moodMap);
   if(!moods.length){el.style.display='none';return;}
   const maxCount=Math.max(...moods.map(m=>moodMap[m].count));
   const tickColor=getComputedStyle(document.documentElement).getPropertyValue('--text3').trim()||'#999';
-  const ds=moods.map(mood=>{const m=moodMap[mood];const avgPnl=m.totalPnl/m.count;const wr=Math.round(m.wins/m.count*100);const r=12+(m.count/maxCount)*34;const col=moodColors[mood]||{fill:'rgba(150,150,150,.6)',border:'#999'};return{label:mood,data:[{x:avgPnl,y:wr,r}],backgroundColor:col.fill,borderColor:col.border,borderWidth:2};});
+  const ds=moods.map(mood=>{const m=moodMap[mood];const avgMetric=m.totalMetric/m.count;const wr=Math.round(m.wins/m.count*100);const r=12+(m.count/maxCount)*34;const col=moodColors[mood]||{fill:'rgba(150,150,150,.6)',border:'#999'};return{label:mood,data:[{x:avgMetric,y:wr,r}],backgroundColor:col.fill,borderColor:col.border,borderWidth:2};});
   if(expandChartInstance)expandChartInstance.destroy();
-  expandChartInstance=new Chart(el.getContext('2d'),{type:'bubble',data:{datasets:ds},options:{responsive:true,maintainAspectRatio:false,animation:{duration:700,easing:'easeOutElastic'},plugins:{legend:{display:false},tooltip:{callbacks:{title:ctx=>ctx[0]?.dataset?.label||'',label:ctx=>{const mood=ctx.dataset.label;const m=moodMap[mood];const avgPnl=m.totalPnl/m.count;const wr=Math.round(m.wins/m.count*100);return[`Avg P&L: ${avgPnl>=0?'+':''}$${Math.abs(avgPnl).toFixed(0)}`,`Win Rate: ${wr}%`,`Trades: ${m.count}`,`▲${m.wins} ▼${m.losses}`];}}}},scales:{x:{title:{display:true,text:'Avg P&L ($)',color:tickColor,font:{size:11}},grid:{color:'rgba(128,128,128,.1)'},ticks:{color:tickColor,callback:v=>(v>=0?'+':'')+`$${v}`}},y:{title:{display:true,text:'Win Rate (%)',color:tickColor,font:{size:11}},min:0,max:100,grid:{color:'rgba(128,128,128,.1)'},ticks:{color:tickColor,callback:v=>v+'%'}}}},plugins:[{id:'moodLabels',afterDatasetsDraw(chart){const ctx2=chart.ctx;chart.data.datasets.forEach(ds2=>{const meta=chart.getDatasetMeta(chart.data.datasets.indexOf(ds2));if(meta.hidden)return;meta.data.forEach(pt=>{const emoji=moodEmoji[ds2.label]||'●';ctx2.save();ctx2.font=`${Math.max(14,pt.options.radius*.7)}px serif`;ctx2.textAlign='center';ctx2.textBaseline='middle';ctx2.fillText(emoji,pt.x,pt.y);ctx2.restore();});});}}]});
+  expandChartInstance=new Chart(el.getContext('2d'),{type:'bubble',data:{datasets:ds},options:{responsive:true,maintainAspectRatio:false,animation:{duration:700,easing:'easeOutElastic'},plugins:{legend:{display:false},tooltip:{callbacks:{title:ctx=>ctx[0]?.dataset?.label||'',label:ctx=>{const mood=ctx.dataset.label;const m=moodMap[mood];const avgMetric=m.totalMetric/m.count;const wr=Math.round(m.wins/m.count*100);return[`Avg ${getMetricLabel()}: ${fmtMetricShort(avgMetric)}`,`Win Rate: ${wr}%`,`Trades: ${m.count}`,`▲${m.wins} ▼${m.losses}`];}}}},scales:{x:{title:{display:true,text:getMetricMode()==='priceMove'?'Avg Price Move':'Avg P&L ($)',color:tickColor,font:{size:11}},grid:{color:'rgba(128,128,128,.1)'},ticks:{color:tickColor,callback:v=>fmtMetricShort(v)}},y:{title:{display:true,text:'Win Rate (%)',color:tickColor,font:{size:11}},min:0,max:100,grid:{color:'rgba(128,128,128,.1)'},ticks:{color:tickColor,callback:v=>v+'%'}}}},plugins:[{id:'moodLabels',afterDatasetsDraw(chart){const ctx2=chart.ctx;chart.data.datasets.forEach(ds2=>{const meta=chart.getDatasetMeta(chart.data.datasets.indexOf(ds2));if(meta.hidden)return;meta.data.forEach(pt=>{const emoji=moodEmoji[ds2.label]||'●';ctx2.save();ctx2.font=`${Math.max(14,pt.options.radius*.7)}px serif`;ctx2.textAlign='center';ctx2.textBaseline='middle';ctx2.fillText(emoji,pt.x,pt.y);ctx2.restore();});});}}]});
   const lEl=document.getElementById(legendElId);
   if(lEl)lEl.innerHTML=moods.map(mood=>{const col=(moodColors[mood]||{border:'#999'}).border;const m=moodMap[mood];return`<span style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text2)"><span style="width:8px;height:8px;border-radius:50%;background:${col};display:inline-block"></span>${moodEmoji[mood]||''} ${mood} <span style="color:var(--text3)">(${m.count})</span></span>`;}).join('');
 }

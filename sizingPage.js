@@ -291,10 +291,11 @@ function _drawSizingChart(canvasId, tooltipElId, tradeSubset, instanceRef) {
 }
 
 // ─── Summary stats bar for each bucket ───────────────────────────────────────
-function _bucketStats(trades) {
+function _bucketStats(trades, useMetricMode) {
   if (!trades.length) return { n: 0, pnl: 0, wr: 0, avg: 0 };
-  const pnl  = trades.reduce((a, t) => a + t.pnl, 0);
-  const wins = trades.filter(t => t.pnl > 0).length;
+  const valFn = (useMetricMode && typeof getMetricValue === 'function') ? getMetricValue : (t => t.pnl);
+  const pnl  = trades.reduce((a, t) => a + valFn(t), 0);
+  const wins = trades.filter(t => t.pnl > 0).length; // win/loss always reflects real $ P&L
   const wr   = Math.round(wins / trades.length * 100);
   const avg  = pnl / trades.length;
   return { n: trades.length, pnl, wr, avg };
@@ -1095,17 +1096,22 @@ function _sizingPageHTML(accountSize, threshold, exposurePct, baselineDate, risk
 }
 
 // ─── Render KPI bar for a bucket ─────────────────────────────────────────────
-function _renderKPIBar(elId, stats) {
+function _renderKPIBar(elId, stats, useMetricMode) {
   const el = document.getElementById(elId);
   if (!el) return;
   if (!stats.n) {
     el.innerHTML = `<span style="font-size:12px;color:var(--text3);padding:.25rem 0">No trades in this bucket</span>`;
     return;
   }
+  const isPriceMove = !!(useMetricMode && typeof getMetricMode === 'function' && getMetricMode() === 'priceMove');
   const pnlCls = stats.pnl > 0 ? 'pos' : stats.pnl < 0 ? 'neg' : 'neu';
   const avgCls = stats.avg > 0 ? 'pos' : stats.avg < 0 ? 'neg' : 'neu';
   const wrCls  = stats.wr >= 50 ? 'pos' : 'neg';
-  const fmt    = v => (v >= 0 ? '+' : '') + '$' + Math.abs(Math.round(v)).toLocaleString('en-US');
+  const fmt    = isPriceMove
+    ? (v => (typeof fmtMetricShort === 'function' ? fmtMetricShort(v) : v.toFixed(2)))
+    : (v => (v >= 0 ? '+' : '') + '$' + Math.abs(Math.round(v)).toLocaleString('en-US'));
+  const totalLabel = isPriceMove ? 'Total Price Move' : 'Total P&amp;L';
+  const avgLabel   = isPriceMove ? 'Avg Price Move / Trade' : 'Avg / Trade';
 
   el.innerHTML = `
     <div class="sz-kpi">
@@ -1113,7 +1119,7 @@ function _renderKPIBar(elId, stats) {
       <div class="sz-kpi-val neu">${stats.n}</div>
     </div>
     <div class="sz-kpi">
-      <div class="sz-kpi-label">Total P&amp;L</div>
+      <div class="sz-kpi-label">${totalLabel}</div>
       <div class="sz-kpi-val ${pnlCls}">${fmt(stats.pnl)}</div>
     </div>
     <div class="sz-kpi">
@@ -1121,7 +1127,7 @@ function _renderKPIBar(elId, stats) {
       <div class="sz-kpi-val ${wrCls}">${stats.wr}%</div>
     </div>
     <div class="sz-kpi">
-      <div class="sz-kpi-label">Avg / Trade</div>
+      <div class="sz-kpi-label">${avgLabel}</div>
       <div class="sz-kpi-val ${avgCls}">${fmt(stats.avg)}</div>
     </div>
   `;
@@ -1852,8 +1858,8 @@ function _szRenderBuckets(accountSize) {
     return _posSize(t) / equity > pctFraction;
   });
 
-  _renderKPIBar('sz-kpi-good', _bucketStats(goodTrades));
-  _renderKPIBar('sz-kpi-over', _bucketStats(overTrades));
+  _renderKPIBar('sz-kpi-good', _bucketStats(goodTrades, true), true);
+  _renderKPIBar('sz-kpi-over', _bucketStats(overTrades, true), true);
 
   _renderChartArea(
     'sz-good-chart-area', 'sz-canvas-good', 'sz-tooltip-good',
@@ -1865,7 +1871,7 @@ function _szRenderBuckets(accountSize) {
   );
 
   // All-trades reference chart
-  _renderKPIBar('sz-kpi-all', _bucketStats(filteredTrades));
+  _renderKPIBar('sz-kpi-all', _bucketStats(filteredTrades, true), true);
   _renderChartArea(
     'sz-all-chart-area', 'sz-canvas-all', 'sz-tooltip-all',
     filteredTrades, _szAllRef
@@ -2154,7 +2160,7 @@ function _szBuildTable(rows, mode, containerId) {
     { id: 'qty',       label: 'Qty',        td: r => `<td class="td-num">${r.t.qty ? r.t.qty.toLocaleString() : '—'}</td>` },
     { id: 'posSize',   label: 'Pos Size $', td: r => `<td class="td-num">${r.posSize ? '$'+Math.round(r.posSize).toLocaleString('en-US') : '—'}</td>` },
     { id: 'equity',    label: 'Equity $',   td: r => `<td class="td-num td-dim">${r.equity ? '$'+Math.round(r.equity).toLocaleString('en-US') : '—'}</td>` },
-    { id: 'pnl',       label: 'P&L',  td: r => { const v = r.t.pnl||0; const c = v>0?'td-pos':v<0?'td-neg':''; const s = v>=0?'+':'-'; return `<td class="td-num ${c}">${s}$${Math.abs(v).toFixed(2)}</td>`; } },
+    { id: 'pnl',       label: (typeof getMetricMode === 'function' && getMetricMode() === 'priceMove') ? 'Price Move' : 'P&L',  td: r => { const v = (typeof getMetricValue === 'function') ? getMetricValue(r.t) : (r.t.pnl||0); const c = v>0?'td-pos':v<0?'td-neg':''; const disp = (typeof fmtMetricShort === 'function') ? fmtMetricShort(v) : (v>=0?'+':'-')+'$'+Math.abs(v).toFixed(2); return `<td class="td-num ${c}">${disp}</td>`; } },
     { id: 'pnlPct',    label: 'P&L %',      td: r => { if (r.pnlPct===null) return '<td class="td-dim">—</td>'; const c = r.pnlPct>=0?'td-pos':'td-neg'; return `<td class="td-num ${c}">${r.pnlPct>=0?'+':''}${r.pnlPct.toFixed(2)}%</td>`; } },
   ];
 
@@ -2191,7 +2197,7 @@ function _szBuildTable(rows, mode, containerId) {
     if (id === 'entry')          return r.t.entry || 0;
     if (id === 'exit')           return r.t.exit  || 0;
     if (id === 'qty')            return r.t.qty   || 0;
-    if (id === 'pnl')            return r.t.pnl   || 0;
+    if (id === 'pnl')            return (typeof getMetricValue === 'function') ? getMetricValue(r.t) : (r.t.pnl || 0);
     if (id === 'pnlPct')         return r.pnlPct  || 0;
     if (id === 'posSize')        return r.posSize;
     if (id === 'equity')         return r.equity;
