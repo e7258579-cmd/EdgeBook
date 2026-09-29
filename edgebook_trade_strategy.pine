@@ -1,0 +1,565 @@
+//@version=5
+// ============================================================
+// EdgeBook Strategy — V04
+// The indicator "DEBUG 6" V18, as a strategy.
+//
+// THE RULE OF THIS FILE
+//   The SIGNALS (state machine: keyLevel -> breakout -> pullback ->
+//   entry -> exits) are exactly the indicator's. They never look at
+//   orders, position size or the account. Orders are only a SIDE EFFECT
+//   of a signal. So the strategy and the indicator must mark the same
+//   bars; if they ever don't, that is a bug, not a setting.
+//
+// V04 vs V03: the four "stale reclaim levels" lines were removed from the
+// breakout block, so the signals match the indicator copy that does not
+// have them. It is the ONLY signal-logic difference between V03 and that
+// indicator, verified line by line.
+//
+// ORDER LAYER (the only things added on top of V18)
+//   - Entry signal  -> buy 25 shares (input), capped by what the account
+//     can buy.
+//   - Exit signal   -> close the position. If the entry and the exit
+//     happen on the SAME bar (the indicator can do that), the pending
+//     buy is cancelled instead: nothing was ever held.
+//   - End of window -> the position is closed at the first bar outside
+//     the trading window. This closes the ORDER only; the state machine
+//     is untouched, so the signals stay identical to the indicator.
+//   - Sync          -> if the state machine says "no position" but one
+//     exists, it is closed on the next bar (safety net).
+//
+// MARKERS: thin arrows (the indicator uses boxed labels), with tooltips
+// carrying the same values. Green up = entry, colored down = exit
+// (color = exit reason). The built-in TradingView order markers
+// ("Long +25", "-25 stop...") are not drawn by this script.
+//
+// COMMISSION: $0.49 per order. Right for under 100 shares. For 100+
+// shares TradeZero charges $0.005 per share and a strategy cannot switch
+// tiers by itself: set Properties > Commission > "Cash per contract" =
+// 0.005 if you raise the size to 100+.
+//
+// FILLS: process_orders_on_close = true - orders fill at the CLOSE of the
+// bar that produced the signal, the same bar/price the arrows use.
+// ============================================================
+
+strategy("EdgeBook Strategy",
+     overlay                 = true,
+     max_labels_count        = 500,
+     initial_capital         = 500,
+     commission_type         = strategy.commission.cash_per_order,
+     commission_value        = 0.49,
+     calc_on_every_tick      = true,
+     process_orders_on_close = true)
+
+// ─── Inputs — mirrors v10 exactly, same names/defaults ─────────
+// NEW — replaced ratio/average-based filter with absolute volume
+// thresholds, matching the simpler approach used by real scanner
+// tools (e.g. "5 min volume OVER 10,000" + "daily volume OVER X").
+// No averages, no pacing math, no hidden layers — what you see is
+// what triggers it. Defaults below are placeholders, same as every
+// other parameter — calibrate against real examples.
+input_5min_vol_threshold = input.int(50000, "5-min rolling volume threshold (shares)", minval = 0)
+input_daily_vol_threshold = input.int(200000, "Daily cumulative volume threshold (shares)", minval = 0)
+input_entry_trigger_ref       = input.string("Open", "Entry trigger: break of pullback candle's...", options = ["High", "Open", "Close"])
+// NOTE: the old flat "invalidation buffer below keyLevel" parameter was
+// removed here — replaced entirely by input_retracement_pct below,
+// which is a more precise, leg-relative invalidation test.
+input_hold_seconds            = input.float(1.0, "Hold confirmation (seconds)", minval = 0, step = 0.5)
+input_gap_threshold_pct       = input.float(10.0, "Gap day threshold (%)", minval = 0, step = 1)
+input_regular_hours_session   = input.session("0930-1600", "Regular hours session window")
+input_position_shares         = input.int(25, "Position size (shares)", minval = 1, tooltip = "Commission in this file assumes under 100 shares ($0.49 per order). For 100+ shares set Properties > Commission to Cash per contract = 0.005.")
+
+// ─── Session windows ─────────────────────────────────────────
+inPreMarket    = time(timeframe.period, "0400-0929", "America/New_York")
+inRegularHours = time(timeframe.period, input_regular_hours_session, "America/New_York")
+inFirst5min    = not na(time(timeframe.period, "0930-0935", "America/New_York"))
+inActiveWindow = not na(inPreMarket) or not na(inRegularHours)
+
+// ─── State ───────────────────────────────────────────────────
+var string STATE_SEARCHING       = "SEARCHING"
+var string STATE_PULLBACK_ACTIVE = "PULLBACK_ACTIVE"
+var string STATE_IN_POSITION     = "IN_POSITION"   // NEW — DEBUG 6
+var string state          = STATE_SEARCHING
+var float  premarketHigh   = na
+var float  sessionHigh     = na
+var float  first5minHigh   = na
+var float keyLevel = na   // FIXED — was missing var, reset to NaN every bar
+
+// NEW — DEBUG 6: position-tracking state, mirrors v10 exactly
+var float entryPrice           = na
+var float stopPrice             = na
+var float highestSinceEntry      = na
+var int   stallRangeStartTime     = na
+var int   entryBar                = na   // bar where the entry signal fired
+var bool  closeSentThisBar        = false   // order layer: a close order was already sent on this bar
+// NEW — tiered stall detector, same "strict → loose → strict" ladder
+// idea as the EMA trail ladder (discussed, not yet built): early in a
+// trade (unproven) and very late (possible exhaustion), be strict —
+// tight range, short wait. In the middle (already-proven move,
+// healthy consolidation likely), be loose — give it room.
+input_stall_tier1_pct           = input.float(10.0, "Stall tiers: strict below this % move", minval = 1.0, step = 1.0)
+input_stall_tier2_pct           = input.float(30.0, "Stall tiers: strict again above this % move", minval = 5.0, step = 1.0)
+input_stall_range_tight_pct    = input.float(0.2, "Stall range — strict tier (%)", minval = 0.05, step = 0.05) / 100
+input_stall_range_loose_pct    = input.float(0.6, "Stall range — loose tier (%)", minval = 0.1, step = 0.1) / 100
+input_stall_duration_tight_min = input.float(1.0, "Stall duration — strict tier (min)", minval = 0.25, step = 0.25)
+input_stall_duration_loose_min = input.float(5.0, "Stall duration — loose tier (min)", minval = 0.5, step = 0.5)
+
+// NEW — refined pullback validity, replacing the old "close < keyLevel"
+// invalidation with two more precise tests against the actual breakout
+// LEG (the run of green candles that made the breakout), not just the
+// original keyLevel floor:
+//   1. Retracement: pullback low must not give back more than X% of
+//      the leg's own range (default 50%) — tighter than the old "give
+//      back the whole thing" test.
+//   2. Volume: total pullback volume (all bars, not just red ones)
+//      must stay BELOW the leg's total volume — sellers weaker than
+//      the buyers who made the breakout, not stronger.
+input_retracement_pct = input.float(50.0, "Max pullback retracement of breakout leg (%)", minval = 10.0, maxval = 90.0, step = 5.0)
+
+// NEW — diagnostic toggle: fully bypass the "close > keyLevel" gate.
+// When on, ANY green candle (still subject to volume + window) counts
+// as a breakout, regardless of whether it broke a prior high. keyLevel
+// still PLOTS as normal for visual comparison — it's just not enforced
+// as a condition. Off by default; this is a test, not a new default.
+input_disable_keylevel_check = input.bool(false, "TEST: disable keyLevel check entirely")
+
+// NEW — alternate entry path: EMA9 consolidation. When enabled, this
+// REPLACES the keyLevel-based breakout condition (a toggle/choice, not
+// a simultaneous second path) — arming instead on "price consolidating
+// above EMA9" rather than "broke a fixed prior high." Reuses the SAME
+// leg/retracement/volume machinery as the keyLevel path (dynamic leg
+// extension on new highs, volume-gated invalidation), just anchored to
+// EMA9 instead of a fixed price level — this is deliberately NOT a
+// separate rebuild, per your steer to avoid extra
+// state-machine complexity.
+input_ema9_consolidation_enabled = input.bool(false, "Use EMA9 consolidation entry (instead of keyLevel)")
+input_ema9_tolerance_pct          = input.float(3.0, "EMA9 floor tolerance (%)", minval = 0.5, maxval = 10.0, step = 0.5)
+
+// NEW — per your point #2: lock EMA9 mode (same lock/unlock mechanism
+// as point #1 — requires a keyLevel reclaim) if recent 5-min volume has
+// declined significantly vs. a longer baseline, even without a failed
+// trade. Compares the same rollingVol5min against a longer (20-bar)
+// average, scaled the same way, so it's an apples-to-apples ratio.
+input_vol_decline_lookback = input.int(20, "Volume decline: longer average lookback (bars)", minval = 10, maxval = 60)
+input_vol_decline_pct       = input.float(50.0, "Lock EMA9 if 5-min volume falls below this % of the longer average", minval = 10.0, maxval = 90.0, step = 5.0)
+// ★ FIX — per real-world test: a SINGLE quiet bar was locking EMA9
+// mode almost immediately in any normal trend (volume naturally
+// oscillates bar-to-bar), making it nearly as restrictive as pure
+// keyLevel — defeating the whole point. Now requires a SUSTAINED
+// decline (consecutive bars), not one bar, before locking.
+input_vol_decline_bars      = input.int(3, "Volume decline: consecutive bars required before locking", minval = 1, maxval = 10)
+// NEW — kill switch for JUST this mechanism (point #2), since it's
+// currently locking far more than intended and the root cause isn't
+// pinned down yet. Point #1 (failure-lock) is untouched and stays on.
+input_vol_decline_lock_enabled = input.bool(false, "Enable volume-decline auto-lock (currently buggy — off by default)")
+var int volDeclineCount = 0
+var string armedVia = ""   // "keyLevel" or "ema9" — which path armed the current setup
+// NEW — per your point #1: after an EMA9-armed setup FAILS, don't allow
+// another EMA9 attempt at roughly the same level — require price to
+// reclaim the harder keyLevel resistance first. na = unlocked (normal
+// EMA9 mode); a real number = locked, waiting for that level to break.
+var float ema9LockLevel = na
+var float legLow          = na
+var float legHigh          = na
+// NEW — option 2: the lock anchors to the high of the most recent
+// breakout LEG, not the all-day keyLevel (which can be polluted by an
+// old spike/wick far above current price). Unlike legHigh, this is NOT
+// cleared on invalidation — only at the start of a new day.
+var float lastLegHigh      = na
+var float legVolume         = na
+var float lastGreenLegVolume = na   // NEW — volume of just the single, most recent green candle in the leg (the breakout candle itself) — NOT the whole leg's summed volume
+// pullbackVolume removed — was cumulative, replaced with a strict
+// per-candle comparison below (this bar's own volume vs the benchmark)
+
+// NEW — Scalp Exit mode: manual market-regime toggle (the "hot/cold"
+// idea deferred twice earlier in this project — now built). Fires
+// BEFORE the stall detector when active, since it's meant to be more
+// aggressive/faster in weak markets, not a replacement for it.
+input_weak_market_mode = input.bool(false, "Weak market mode (enables Scalp Exit)")
+input_scalp_exit_bars  = input.int(2, "Scalp Exit: consecutive bars without new high", minval = 1, maxval = 10)
+
+// NEW — visibility toggles, one per category, so the chart can be
+// decluttered without losing any of the underlying logic. All default
+// to true (current behavior unchanged until you turn one off).
+input_show_pbstart    = input.bool(true, "Show: PB start labels", group = "Visibility")
+input_show_reclaim    = input.bool(true, "Show: reclaim@ labels", group = "Visibility")
+input_show_invalid    = input.bool(true, "Show: INVALID labels", group = "Visibility")
+input_show_vw_diag    = input.bool(true, "Show: V/W diagnostic markers", group = "Visibility")
+input_show_keylevel_plot = input.bool(true, "Show: keyLevel line", group = "Visibility")
+input_show_vwap_plot    = input.bool(true, "Show: VWAP line", group = "Visibility")
+input_show_ema9_plot    = input.bool(true, "Show: EMA9 line", group = "Visibility")
+input_show_bgcolor     = input.bool(true, "Show: state background color", group = "Visibility")
+var int noNewHighCount = 0
+var float barCloseHighest = na   // separate from highestSinceEntry (tick-based) — this one only updates on bar close, so the "did THIS bar make a new high" check compares against the value as it stood BEFORE this bar (same fix pattern as keyLevel's order-of-operations bug)
+
+var float lastRedHigh  = na
+var float lastRedLow   = na
+var float lastRedClose = na
+var float lastRedOpen  = na
+var int   aboveSince    = na
+
+var float cumVolToday = 0.0
+var float todaysOpen  = na
+// Top-level `var` so these survive outside the isconfirmed block below,
+// for use in the entry tooltip later in the script.
+var bool  dailyVolOK          = false
+var bool  vol5minOK           = false
+var bool  isGapDay            = false
+var float gapPctVal           = na
+var bool  blockedByVolume      = false
+var bool  blockedByWindow      = false
+
+prevDayClose = request.security(syminfo.tickerid, "D", close[1], lookahead = barmerge.lookahead_off)
+vwapValue    = ta.vwap(hlc3)   // resets per session automatically, called unconditionally per Pine convention
+rollingVol5min = ta.sma(volume, 5) * 5   // sum of last 5 bars' volume (1-min chart = 5 min) — also called unconditionally
+longerAvgVol5min = ta.sma(volume, input_vol_decline_lookback) * 5   // NEW — "what a normal 5-bar sum looks like" based on a longer baseline, same units as rollingVol5min
+ema9 = ta.ema(close, 9)   // NEW — DEBUG 6, called unconditionally (required for correct recursive calc)
+ema20 = ta.ema(close, 20)   // NEW — for the tiered exit trail ladder
+newDay = ta.change(time("D")) != 0   // once per bar, outside any block (same result as before)
+
+if barstate.isconfirmed
+    if newDay
+        cumVolToday := volume
+        todaysOpen  := open
+        // NEW — a lock or leg from a previous day must never carry over
+        lastLegHigh   := na
+        ema9LockLevel := na
+        volDeclineCount := 0
+    else
+        cumVolToday := cumVolToday + volume
+
+    gapPctVal := prevDayClose > 0 ? (todaysOpen - prevDayClose) / prevDayClose : 0.0
+    isGapDay  := math.abs(gapPctVal) >= (input_gap_threshold_pct / 100)
+
+    // Volume filter — pace + 20-day average (fixed version, ported from debug session)
+    // NEW — two absolute volume thresholds, no ratios/averages
+    dailyVolOK := cumVolToday >= input_daily_vol_threshold
+    vol5minOK  := rollingVol5min >= input_5min_vol_threshold
+    volumeOK    = dailyVolOK and vol5minOK
+
+    // keyLevel snapshot — PRIOR bars' highs only (breakout-can't-eat-its-own-high fix)
+    if state == STATE_SEARCHING
+        keyLevel := not na(inPreMarket) ? math.max(nz(premarketHigh), nz(sessionHigh)) : math.max(nz(first5minHigh), nz(premarketHigh), nz(sessionHigh))
+        // NEW — per your point #2: proactively lock EMA9 mode (same
+        // lock as point #1) if recent volume has faded significantly
+        // for several bars IN A ROW (not just one), even without a
+        // failed trade. Only sets the lock if it isn't already set.
+        volDeclinedThisBar = input_ema9_consolidation_enabled and input_vol_decline_lock_enabled and longerAvgVol5min > 0 and rollingVol5min < longerAvgVol5min * (input_vol_decline_pct / 100)
+        volDeclineCount := volDeclinedThisBar ? volDeclineCount + 1 : 0
+        if na(ema9LockLevel) and not na(lastLegHigh) and volDeclineCount >= input_vol_decline_bars
+            ema9LockLevel := lastLegHigh   // option 2: anchor to the last leg's high, not keyLevel
+
+    is_green = close > open
+    is_red   = close < open
+
+    // NEW — diagnostic only: on any bar where PRICE alone would have
+    // broken out (green + close > keyLevel) but the overall breakout
+    // didn't fire, mark WHICH other gate blocked it. Uses plotchar,
+    // not label.new — doesn't touch the 500-label budget, and fires
+    // even while state stays SEARCHING the whole time (the exact
+    // blind spot from the BIAF screenshot with zero labels at all).
+    priceWouldBreak = state == STATE_SEARCHING and is_green and not na(keyLevel) and close > keyLevel
+    blockedByVolume := priceWouldBreak and not volumeOK and inActiveWindow
+    blockedByWindow  := priceWouldBreak and volumeOK and not inActiveWindow
+
+    // NEW — the breakout CONDITION itself branches on the toggle. Both
+    // still require volumeOK + inActiveWindow — only the price test differs:
+    //   keyLevel path (default):  close > keyLevel (or bypassed via the TEST toggle)
+    //   ema9 path:                 close > ema9 — "trading above its own EMA9"
+    // NEW — when EMA9 mode is locked (after a prior EMA9 failure at
+    // this level), fall back to requiring the harder keyLevel break
+    // instead of the easier "above EMA9" test — until that happens,
+    // EMA9 mode is temporarily unavailable.
+    breakoutCondition = input_ema9_consolidation_enabled ? (not na(ema9LockLevel) ? close > ema9LockLevel : close > ema9) : (input_disable_keylevel_check or close > keyLevel)
+
+    if state == STATE_SEARCHING and is_green and breakoutCondition and volumeOK and inActiveWindow
+        wasLocked = not na(ema9LockLevel)   // captured before clearing, just for the label below
+        state := STATE_PULLBACK_ACTIVE
+        armedVia := input_ema9_consolidation_enabled ? "ema9" : "keyLevel"
+        ema9LockLevel := na   // any successful breakout clears a prior lock, if there was one
+        volDeclineCount := 0
+        aboveSince := na
+        // V04 NOTE: the red-candle levels are deliberately NOT cleared here,
+        // to match the indicator copy that does not have the "stale reclaim
+        // levels" fix. Effect: a breakout that follows a finished trade
+        // inherits that trade's trigger/stop until a new red pullback bar
+        // replaces them. To add the fix back (and update the indicator the
+        // same way), insert here:
+        //     lastRedHigh := na, lastRedLow := na, lastRedClose := na, lastRedOpen := na
+        // (one assignment per line).
+        // NEW — measure the breakout LEG: walk backward through the
+        // consecutive run of green candles ending at (and including)
+        // this breakout bar, capped at 15 bars as a safety bound.
+        // Same leg-measurement logic for BOTH paths — only what counts
+        // as the invalidation floor differs (see the pullback block).
+        legLowTmp  = high
+        legHighTmp = high
+        legVolTmp  = 0.0
+        li = 0
+        while li < 15 and close[li] > open[li]
+            legLowTmp  := math.min(legLowTmp, low[li])
+            legHighTmp := math.max(legHighTmp, high[li])
+            legVolTmp  := legVolTmp + volume[li]
+            li := li + 1
+        legLow         := legLowTmp
+        legHigh         := legHighTmp
+        lastLegHigh     := legHighTmp
+        legVolume        := legVolTmp
+        lastGreenLegVolume := volume   // this bar IS the breakout candle — its own volume, not the leg sum
+        // NEW — intermediate label, same as DEBUG 3
+        if input_show_pbstart
+            label.new(bar_index, high, text=(armedVia == "ema9" ? "PB start (EMA9)" : "PB start\nkL=" + str.tostring(keyLevel, "#.##")) + (input_disable_keylevel_check and armedVia == "keyLevel" ? "\n(keyLevel BYPASSED)" : "") + (wasLocked ? "\n(cleared lock)" : ""), style=label.style_label_down, color=color.orange, textcolor=color.white, size=size.small)
+
+    else if state == STATE_PULLBACK_ACTIVE
+        // ★ FIX — a candle that makes a NEW HIGH is extending the
+        // breakout leg, not pulling back at all — it must not be
+        // checked against retracement/volume invalidation. Only a bar
+        // that FAILS to make a new high is genuine pullback material.
+        if high > legHigh
+            legHigh             := high
+            lastLegHigh         := high
+            legLow               := math.min(legLow, low)
+            legVolume            := legVolume + volume
+            lastGreenLegVolume    := volume   // this bar is now "the most recent green candle" benchmark
+            // pullbackVolume deliberately NOT touched — this bar isn't pullback
+
+        else
+            // NEW — runs on every bar that did NOT make a new high,
+            // red or a small non-breaking green bar alike — both count
+            // toward pullback volume and get checked against the
+            // retracement floor.
+            // ★ FIX — per your correction: compare THIS SINGLE candle's
+            // volume against the benchmark, not a cumulative running
+            // total — and ONLY for red candles. A green pause candle
+            // can never trigger this now, by construction (is_red is
+            // part of the condition itself, not just a side branch).
+            //
+            // NEW — the floor test branches by armedVia:
+            //   keyLevel path: retracement OR strong-sell-volume, either alone invalidates (unchanged)
+            //   ema9 path: floor breach AND strong-sell-volume BOTH required —
+            //     a single candle poking below EMA9 on weak volume is a
+            //     shakeout, not a real breakdown, and must NOT invalidate
+            //     alone (this is the whole point of the EMA9 path).
+            strongSellVolume = is_red and volume > lastGreenLegVolume
+            invalidByRetracement = armedVia == "keyLevel" and low < (legHigh - (legHigh - legLow) * (input_retracement_pct / 100))
+            invalidByVolume        = armedVia == "ema9" ? (low < ema9 * (1 - input_ema9_tolerance_pct / 100) and strongSellVolume) : strongSellVolume
+
+            if is_red
+                lastRedHigh  := high
+                lastRedLow   := low
+                lastRedClose := close
+                lastRedOpen  := open
+                aboveSince   := na   // the level just moved, any prior hold-timer is stale
+                // NEW — intermediate label, shows the level THIS red candle sets,
+                // per the currently selected entry_trigger_ref (High/Open/Close)
+                thisLevel = armedVia == "ema9" ? lastRedHigh : (input_entry_trigger_ref == "Close" ? lastRedClose : input_entry_trigger_ref == "Open" ? lastRedOpen : lastRedHigh)
+                if input_show_reclaim
+                    label.new(bar_index, low, text="reclaim@" + str.tostring(thisLevel, "#.##"), style=label.style_label_up, color=color.gray, textcolor=color.white, size=size.tiny)
+
+            if invalidByRetracement or invalidByVolume
+                invalidReason = invalidByRetracement ? "50%+ retrace" : armedVia == "ema9" ? "EMA9 floor + vol" : "sell vol > buy vol"
+                state       := STATE_SEARCHING
+                keyLevel    := na
+                lastRedHigh  := na
+                lastRedLow   := na
+                lastRedClose := na
+                lastRedOpen  := na
+                aboveSince   := na
+                legLow          := na
+                legHigh          := na
+                legVolume         := na
+                lastGreenLegVolume := na
+                // NEW — per your point #1: if it was the EMA9 path that
+                // just failed, lock it — require a real keyLevel break
+                // before EMA9 mode can arm again.
+                // ★ FIX — this used to read keyLevel AFTER it was already
+                // reset to na a few lines above, so the failure lock was
+                // silently a no-op. Now anchors to lastLegHigh (option 2),
+                // which is deliberately not cleared here.
+                if armedVia == "ema9"
+                    ema9LockLevel := lastLegHigh
+                armedVia            := ""
+                // pullbackVolume no longer tracked — see comment above
+                // NEW — intermediate label, same as DEBUG 3, now with reason
+                if input_show_invalid
+                    label.new(bar_index, low, text="INVALID\n" + invalidReason, style=label.style_label_up, color=color.red, textcolor=color.white, size=size.small)
+
+    // running highs — updated AFTER this bar's own check (production order)
+    if not na(inPreMarket) and na(inPreMarket[1])
+        premarketHigh := high
+    else if not na(inPreMarket)
+        premarketHigh := math.max(nz(premarketHigh), high)
+
+    if not na(inRegularHours) and na(inRegularHours[1])
+        sessionHigh := high
+    else if not na(inRegularHours)
+        sessionHigh := math.max(nz(sessionHigh), high)
+
+    if inFirst5min and not inFirst5min[1]
+        first5minHigh := high
+    else if inFirst5min
+        first5minHigh := math.max(nz(first5minHigh), high)
+
+    // NEW — Scalp Exit: bar-close "no new high" counter, only tracked
+    // while IN_POSITION and weak-market mode is on. Checks THIS bar's
+    // high against the running max as it stood BEFORE this bar (same
+    // check-then-update order as the keyLevel fix), then updates.
+    if state == STATE_IN_POSITION and input_weak_market_mode
+        if not na(barCloseHighest) and high > barCloseHighest
+            noNewHighCount := 0
+        else
+            noNewHighCount := noNewHighCount + 1
+        barCloseHighest := na(barCloseHighest) ? high : math.max(barCloseHighest, high)
+
+// ─── Per-tick — entry trigger, hold timer, VWAP gate ───────────
+// NEW — per your instruction: the EMA9 path always triggers on a break
+// of the last red candle's HIGH specifically, regardless of the
+// High/Open/Close toggle (that toggle only applies to the keyLevel path).
+entryTriggerLevel = armedVia == "ema9" ? lastRedHigh : (input_entry_trigger_ref == "Close" ? lastRedClose : input_entry_trigger_ref == "Open" ? lastRedOpen : lastRedHigh)
+
+if state == STATE_PULLBACK_ACTIVE and not na(entryTriggerLevel) and inActiveWindow
+    if close > entryTriggerLevel
+        if na(aboveSince)
+            aboveSince := time
+        holdMs = input_hold_seconds * 1000 * (isGapDay ? 2 : 1)
+        if (time - aboveSince) >= holdMs and close > vwapValue
+            // ─── ENTRY FIRES ───
+            // SIGNAL - identical to the indicator. Thin arrow (the indicator
+            // uses a boxed label) with the same tooltip values.
+            tt = "keyLevel: " + str.tostring(keyLevel, "#.##") +
+                 "\nentryTriggerLevel: " + str.tostring(entryTriggerLevel, "#.##") +
+                 "\nentry price: " + str.tostring(close, "#.##")
+            label.new(bar_index, low, text = "", style = label.style_arrowup, color = color.lime, size = size.normal, tooltip = tt)
+            // ORDER - a side effect only. Never changes the state machine.
+            qty = math.min(input_position_shares, math.floor(strategy.equity / close))
+            if qty > 0
+                strategy.entry("Long", strategy.long, qty = qty)
+            entryBar               := bar_index
+            entryPrice             := close
+            stopPrice              := lastRedLow
+            highestSinceEntry      := entryPrice
+            stallRangeStartTime    := na
+            noNewHighCount         := 0
+            barCloseHighest        := na
+            state                  := STATE_IN_POSITION
+    else
+        aboveSince := na
+
+// NEW — DEBUG 6: per-tick exit logic, only while IN_POSITION.
+// Order matters — first match wins, mirrors v10/main spec §4 exactly:
+// (1) protective stop, (2) EMA9 trail, (3) stall detector.
+// ORDER-LAYER SAFETY NET (never touches the state machine): the state
+// machine is the truth. If it says "not in a position" but one exists
+// (e.g. a same-bar entry that was cancelled still got filled), close it.
+if state != STATE_IN_POSITION and strategy.position_size > 0 and bar_index > entryBar
+    strategy.close("Long", comment = "sync")
+
+// EXIT SIGNALS - identical to the indicator: evaluated whenever the state
+// machine is IN_POSITION, whether or not an order exists.
+closeSentThisBar := false
+if state == STATE_IN_POSITION
+    // ★ FIX (stall detector — same order-of-operations family as the
+    // keyLevel bug): the range check below used to run AFTER this line
+    // had already folded the current price into highestSinceEntry, so a
+    // bar making a NEW HIGH satisfied `close <= highestSinceEntry` and
+    // counted as "hesitation". The stall clock never reset during a
+    // rally and fired at the top (exitPrice == highestSinceEntry).
+    // Now: snapshot the high first, and treat "closed above the previous
+    // high" as NOT a stall.
+    prevHighestSinceEntry = highestSinceEntry
+    highestSinceEntry := math.max(highestSinceEntry, close)
+    madeNewHigh = close > prevHighestSinceEntry
+    progressPct = entryPrice > 0 ? (highestSinceEntry - entryPrice) / entryPrice * 100 : 0   // moved up — needed by the tooltip regardless of which exit reason fires
+
+    exitReason = ""
+    // (1) Protective stop
+    if close <= stopPrice
+        exitReason := not na(inPreMarket) ? "stop_hit_premarket" : "stop_hit_regular_hours_backend_handles"
+    // (1.5) NEW — Scalp Exit (weak-market mode only): faster/more
+    // aggressive than EMA9 trail or the stall detector — fires after
+    // N consecutive bars with no new high. Checked BEFORE EMA9 trail
+    // on purpose: the whole point is to exit before EMA9 trail would
+    // have caught it, on days when momentum fades faster than usual.
+    else if input_weak_market_mode and noNewHighCount >= input_scalp_exit_bars
+        exitReason := "scalp_exit"
+    // (2) NEW — tiered EMA trail: same strict/loose zones as the stall
+    // detector (reuses input_stall_tier1_pct/tier2_pct so both ladders
+    // stay in sync) — EMA9 (tight) in the strict zones, EMA20 (looser,
+    // gives room) in the 10–30% "already proven" middle zone. Guard:
+    // only once the active EMA has climbed past stopPrice.
+    else
+        trailInStrictTier = progressPct < input_stall_tier1_pct or progressPct >= input_stall_tier2_pct
+        activeTrailEMA = trailInStrictTier ? ema9 : ema20
+        trailFired = not na(activeTrailEMA) and activeTrailEMA > stopPrice and close < activeTrailEMA
+        if trailFired
+            exitReason := trailInStrictTier ? "ema9_trail" : "ema20_trail"
+        // (3) Stall detector — tiered: strict early, loose mid, strict
+        // late — nested here so it's only checked when the trail above
+        // did NOT fire (correct priority: stop > scalp > trail > stall).
+        else
+            inStrictTier = trailInStrictTier   // same tier boundaries, reused
+            activeStallRangePct = inStrictTier ? input_stall_range_tight_pct : input_stall_range_loose_pct
+            activeStallDurationMin = inStrictTier ? input_stall_duration_tight_min : input_stall_duration_loose_min
+            rangeLow = highestSinceEntry * (1 - activeStallRangePct)
+            inRange   = not madeNewHigh and close >= rangeLow
+            if inRange
+                if na(stallRangeStartTime)
+                    stallRangeStartTime := time
+                else if (time - stallRangeStartTime) >= activeStallDurationMin * 60000
+                    exitReason := "stall_detected"
+            else
+                stallRangeStartTime := na
+
+    if exitReason != ""
+        exitColor = exitReason == "stall_detected" ? color.orange : exitReason == "ema9_trail" ? color.blue : exitReason == "ema20_trail" ? color.aqua : exitReason == "scalp_exit" ? color.fuchsia : color.red
+        exitTt = "reason: " + exitReason +
+                 "\nentryPrice: " + str.tostring(entryPrice, "#.##") +
+                 "\nstopPrice: " + str.tostring(stopPrice, "#.##") +
+                 "\nhighestSinceEntry: " + str.tostring(highestSinceEntry, "#.##") +
+                 "\nema9: " + str.tostring(ema9, "#.##") +
+                 "\nema20: " + str.tostring(ema20, "#.##") +
+                 "\nnoNewHighCount: " + str.tostring(noNewHighCount) + " (weak_market_mode: " + str.tostring(input_weak_market_mode) + ")" +
+                 "\nprogressPct: " + str.tostring(progressPct, "#.#") + "% (stall tier: " + (progressPct < input_stall_tier1_pct or progressPct >= input_stall_tier2_pct ? "strict" : "loose") + ")" +
+                 "\nexitPrice: " + str.tostring(close, "#.##") +
+                 "\nP&L (pre-fees, per share): " + str.tostring(close - entryPrice, "#.##")
+        label.new(bar_index, high, text = "", style = label.style_arrowdown, color = color.new(exitColor, 0), size = size.normal, tooltip = exitTt)
+        // ORDER - a side effect only.
+        if bar_index == entryBar
+            strategy.cancel("Long")   // entry and exit on the SAME bar: nothing was ever held
+        else if strategy.position_size > 0
+            strategy.close("Long", comment = exitReason)
+        closeSentThisBar := true
+        state := STATE_SEARCHING
+
+// ─── END OF WINDOW (order layer only) ──────────────────────────
+// Nothing is held outside the trading window. This closes the ORDER only;
+// the state machine is untouched, so the signals stay identical.
+if strategy.position_size > 0 and not inActiveWindow and not closeSentThisBar
+    strategy.close("Long", comment = "end_of_window")
+    label.new(bar_index, high, text = "", style = label.style_arrowdown, color = color.gray, size = size.normal, tooltip = "reason: end_of_window\nexitPrice: " + str.tostring(close, "#.##"))
+
+// ─── Plots — minimal, just enough spatial context ──────────────
+plot(input_show_keylevel_plot and state == STATE_SEARCHING ? keyLevel : na, title = "keyLevel", color = color.fuchsia, style = plot.style_stepline, linewidth = 3)
+plot(input_show_vwap_plot ? vwapValue : na, title = "VWAP", color = color.new(color.blue, 40), linewidth = 1)
+plot(input_show_ema9_plot ? ema9 : na, title = "EMA9", color = color.new(color.aqua, 20), linewidth = 1)
+bgcolor(input_show_bgcolor and state == STATE_PULLBACK_ACTIVE ? color.new(color.orange, 90) : input_show_bgcolor and state == STATE_IN_POSITION ? color.new(color.teal, 85) : na)
+
+// NEW — diagnostic: shows exactly when/why EMA9 mode is locked, so
+// this doesn't need to be inferred from "why aren't there entries"
+// ever again. "L" below the bar = locked at this moment; hover isn't
+// needed, but the state is also in the Data Window (ema9LockLevel plot).
+plotchar(input_show_vw_diag and input_ema9_consolidation_enabled and not na(ema9LockLevel), title = "EMA9 mode locked", char = "L", location = location.belowbar, color = color.maroon, size = size.tiny)
+plot(ema9LockLevel, title = "ema9LockLevel (diagnostic)", display = display.data_window)
+
+// NEW — diagnostic markers: price broke keyLevel but something else
+// blocked it. "V" (purple) = volume filter blocked it. "W" (yellow) =
+// outside active window blocked it. These are the ONLY markers that
+// can appear without a state transition ever happening — exactly
+// what's needed to explain a "silent" rally with zero PB-start labels.
+plotchar(input_show_vw_diag and blockedByVolume, title = "Blocked by volume", char = "V", location = location.belowbar, color = color.purple, size = size.tiny)
+plotchar(input_show_vw_diag and blockedByWindow, title = "Blocked by window", char = "W", location = location.belowbar, color = color.yellow, size = size.tiny)
+
+// NEW — invisible on the chart itself (display.data_window only),
+// but shows up in the Data Window panel so you can check the raw
+// numbers at any bar, even ones with no tooltip (no entry fired).
+plot(cumVolToday, title = "cumVolToday", display = display.data_window)
+plot(rollingVol5min, title = "rollingVol5min", display = display.data_window)
