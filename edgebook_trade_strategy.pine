@@ -1,6 +1,6 @@
 //@version=5
 // ============================================================
-// EdgeBook Strategy — V04
+// EdgeBook Strategy — V05
 // The indicator "DEBUG 6" V18, as a strategy.
 //
 // THE RULE OF THIS FILE
@@ -10,10 +10,19 @@
 //   of a signal. So the strategy and the indicator must mark the same
 //   bars; if they ever don't, that is a bug, not a setting.
 //
-// V04 vs V03: the four "stale reclaim levels" lines were removed from the
-// breakout block, so the signals match the indicator copy that does not
-// have them. It is the ONLY signal-logic difference between V03 and that
-// indicator, verified line by line.
+// V05 vs V04 (built on V03 logic):
+//   - The four "stale reclaim levels" lines are back in the breakout block
+//     (V03 behavior). The matching indicator is V18 (518 lines).
+//   - Inputs cleaned: everything not being calibrated right now is a
+//     constant in the code (same default values, same logic), not a setting.
+//   - One flexible "Trading hours" field (several ranges allowed) replaces
+//     the old "regular hours" input. It ONLY limits when trades may open
+//     and forces an exit outside it. keyLevel still uses the highs of the
+//     fixed pre-market / regular / first-5-min windows, including highs
+//     made outside the trading hours.
+//   - EMA9 consolidation entry is now ON by default (still a toggle, to
+//     compare both paths). NOTE: the indicator still defaults to OFF, so
+//     set it the same way in both when comparing signals.
 //
 // ORDER LAYER (the only things added on top of V18)
 //   - Entry signal  -> buy 25 shares (input), capped by what the account
@@ -57,22 +66,27 @@ strategy("EdgeBook Strategy",
 // No averages, no pacing math, no hidden layers — what you see is
 // what triggers it. Defaults below are placeholders, same as every
 // other parameter — calibrate against real examples.
-input_5min_vol_threshold = input.int(50000, "5-min rolling volume threshold (shares)", minval = 0)
-input_daily_vol_threshold = input.int(200000, "Daily cumulative volume threshold (shares)", minval = 0)
-input_entry_trigger_ref       = input.string("Open", "Entry trigger: break of pullback candle's...", options = ["High", "Open", "Close"])
+// Not being calibrated right now: fixed constants (same values as before).
+// Move one back to an input.* line when it is its turn to be calibrated.
+input_5min_vol_threshold  = 50000      // 5-min rolling volume threshold (shares)
+input_daily_vol_threshold = 200000     // daily cumulative volume threshold (shares)
+input_entry_trigger_ref   = "Open"     // entry trigger: "High" / "Open" / "Close" of the last red candle
 // NOTE: the old flat "invalidation buffer below keyLevel" parameter was
 // removed here — replaced entirely by input_retracement_pct below,
 // which is a more precise, leg-relative invalidation test.
 input_hold_seconds            = input.float(1.0, "Hold confirmation (seconds)", minval = 0, step = 0.5)
-input_gap_threshold_pct       = input.float(10.0, "Gap day threshold (%)", minval = 0, step = 1)
-input_regular_hours_session   = input.session("0930-1600", "Regular hours session window")
+input_gap_threshold_pct       = 10.0   // gap day threshold (%); gap days double the hold time
+input_trading_hours = input.string("0400-1600", "Trading hours (New York time)",
+     tooltip = "When new trades may OPEN, and when an open trade is force-closed. Several ranges allowed, separated by commas, e.g. 0400-0930,1300-1500. Format HHMM-HHMM. Does NOT change keyLevel: highs made outside these hours still count.")
 input_position_shares         = input.int(25, "Position size (shares)", minval = 1, tooltip = "Commission in this file assumes under 100 shares ($0.49 per order). For 100+ shares set Properties > Commission to Cash per contract = 0.005.")
 
 // ─── Session windows ─────────────────────────────────────────
+// Fixed windows: used ONLY to measure the highs that build keyLevel.
 inPreMarket    = time(timeframe.period, "0400-0929", "America/New_York")
-inRegularHours = time(timeframe.period, input_regular_hours_session, "America/New_York")
+inRegularHours = time(timeframe.period, "0930-1600", "America/New_York")
 inFirst5min    = not na(time(timeframe.period, "0930-0935", "America/New_York"))
-inActiveWindow = not na(inPreMarket) or not na(inRegularHours)
+// Your window: the ONLY thing that limits trading.
+inActiveWindow = not na(time(timeframe.period, input_trading_hours, "America/New_York"))
 
 // ─── State ───────────────────────────────────────────────────
 var string STATE_SEARCHING       = "SEARCHING"
@@ -96,12 +110,12 @@ var bool  closeSentThisBar        = false   // order layer: a close order was al
 // trade (unproven) and very late (possible exhaustion), be strict —
 // tight range, short wait. In the middle (already-proven move,
 // healthy consolidation likely), be loose — give it room.
-input_stall_tier1_pct           = input.float(10.0, "Stall tiers: strict below this % move", minval = 1.0, step = 1.0)
-input_stall_tier2_pct           = input.float(30.0, "Stall tiers: strict again above this % move", minval = 5.0, step = 1.0)
-input_stall_range_tight_pct    = input.float(0.2, "Stall range — strict tier (%)", minval = 0.05, step = 0.05) / 100
-input_stall_range_loose_pct    = input.float(0.6, "Stall range — loose tier (%)", minval = 0.1, step = 0.1) / 100
-input_stall_duration_tight_min = input.float(1.0, "Stall duration — strict tier (min)", minval = 0.25, step = 0.25)
-input_stall_duration_loose_min = input.float(5.0, "Stall duration — loose tier (min)", minval = 0.5, step = 0.5)
+input_stall_tier1_pct          = 10.0   // stall tiers: strict below this % move
+input_stall_tier2_pct          = 30.0   // stall tiers: strict again above this % move
+input_stall_range_tight_pct    = 0.2 / 100   // stall range, strict tier (0.2%)
+input_stall_range_loose_pct    = 0.6 / 100   // stall range, loose tier (0.6%)
+input_stall_duration_tight_min = 1.0   // stall duration, strict tier (min)
+input_stall_duration_loose_min = 5.0   // stall duration, loose tier (min)
 
 // NEW — refined pullback validity, replacing the old "close < keyLevel"
 // invalidation with two more precise tests against the actual breakout
@@ -120,7 +134,7 @@ input_retracement_pct = input.float(50.0, "Max pullback retracement of breakout 
 // as a breakout, regardless of whether it broke a prior high. keyLevel
 // still PLOTS as normal for visual comparison — it's just not enforced
 // as a condition. Off by default; this is a test, not a new default.
-input_disable_keylevel_check = input.bool(false, "TEST: disable keyLevel check entirely")
+input_disable_keylevel_check = false   // TEST switch, fixed off
 
 // NEW — alternate entry path: EMA9 consolidation. When enabled, this
 // REPLACES the keyLevel-based breakout condition (a toggle/choice, not
@@ -131,7 +145,7 @@ input_disable_keylevel_check = input.bool(false, "TEST: disable keyLevel check e
 // EMA9 instead of a fixed price level — this is deliberately NOT a
 // separate rebuild, per your steer to avoid extra
 // state-machine complexity.
-input_ema9_consolidation_enabled = input.bool(false, "Use EMA9 consolidation entry (instead of keyLevel)")
+input_ema9_consolidation_enabled = input.bool(true, "Use EMA9 consolidation entry (off = keyLevel breakout)")
 input_ema9_tolerance_pct          = input.float(3.0, "EMA9 floor tolerance (%)", minval = 0.5, maxval = 10.0, step = 0.5)
 
 // NEW — per your point #2: lock EMA9 mode (same lock/unlock mechanism
@@ -139,18 +153,18 @@ input_ema9_tolerance_pct          = input.float(3.0, "EMA9 floor tolerance (%)",
 // declined significantly vs. a longer baseline, even without a failed
 // trade. Compares the same rollingVol5min against a longer (20-bar)
 // average, scaled the same way, so it's an apples-to-apples ratio.
-input_vol_decline_lookback = input.int(20, "Volume decline: longer average lookback (bars)", minval = 10, maxval = 60)
-input_vol_decline_pct       = input.float(50.0, "Lock EMA9 if 5-min volume falls below this % of the longer average", minval = 10.0, maxval = 90.0, step = 5.0)
+input_vol_decline_lookback = 20   // volume decline: longer average lookback (bars)
+input_vol_decline_pct       = 50.0   // lock EMA9 if 5-min volume falls below this % of the longer average
 // ★ FIX — per real-world test: a SINGLE quiet bar was locking EMA9
 // mode almost immediately in any normal trend (volume naturally
 // oscillates bar-to-bar), making it nearly as restrictive as pure
 // keyLevel — defeating the whole point. Now requires a SUSTAINED
 // decline (consecutive bars), not one bar, before locking.
-input_vol_decline_bars      = input.int(3, "Volume decline: consecutive bars required before locking", minval = 1, maxval = 10)
+input_vol_decline_bars      = 3   // consecutive bars required before locking
 // NEW — kill switch for JUST this mechanism (point #2), since it's
 // currently locking far more than intended and the root cause isn't
 // pinned down yet. Point #1 (failure-lock) is untouched and stays on.
-input_vol_decline_lock_enabled = input.bool(false, "Enable volume-decline auto-lock (currently buggy — off by default)")
+input_vol_decline_lock_enabled = false   // volume-decline auto-lock: fixed off (known buggy)
 var int volDeclineCount = 0
 var string armedVia = ""   // "keyLevel" or "ema9" — which path armed the current setup
 // NEW — per your point #1: after an EMA9-armed setup FAILS, don't allow
@@ -174,8 +188,8 @@ var float lastGreenLegVolume = na   // NEW — volume of just the single, most r
 // idea deferred twice earlier in this project — now built). Fires
 // BEFORE the stall detector when active, since it's meant to be more
 // aggressive/faster in weak markets, not a replacement for it.
-input_weak_market_mode = input.bool(false, "Weak market mode (enables Scalp Exit)")
-input_scalp_exit_bars  = input.int(2, "Scalp Exit: consecutive bars without new high", minval = 1, maxval = 10)
+input_weak_market_mode = false   // weak market mode / Scalp Exit: fixed off
+input_scalp_exit_bars  = 2   // Scalp Exit: consecutive bars without new high
 
 // NEW — visibility toggles, one per category, so the chart can be
 // decluttered without losing any of the underlying logic. All default
@@ -278,14 +292,12 @@ if barstate.isconfirmed
         ema9LockLevel := na   // any successful breakout clears a prior lock, if there was one
         volDeclineCount := 0
         aboveSince := na
-        // V04 NOTE: the red-candle levels are deliberately NOT cleared here,
-        // to match the indicator copy that does not have the "stale reclaim
-        // levels" fix. Effect: a breakout that follows a finished trade
-        // inherits that trade's trigger/stop until a new red pullback bar
-        // replaces them. To add the fix back (and update the indicator the
-        // same way), insert here:
-        //     lastRedHigh := na, lastRedLow := na, lastRedClose := na, lastRedOpen := na
-        // (one assignment per line).
+        // FIX (stale reclaim levels): a new breakout must not inherit the
+        // trigger/stop of a previous, finished trade.
+        lastRedHigh  := na
+        lastRedLow   := na
+        lastRedClose := na
+        lastRedOpen  := na
         // NEW — measure the breakout LEG: walk backward through the
         // consecutive run of green candles ending at (and including)
         // this breakout bar, capped at 15 bars as a safety bound.
