@@ -79,8 +79,8 @@ input_gap_threshold_pct       = 10.0   // gap day threshold (%); gap days double
 input_trading_hours = input.string("0400-1600", "Trading hours (New York time)",
      tooltip = "When new trades may OPEN, and when an open trade is force-closed. Several ranges allowed, separated by commas, e.g. 0400-0930,1300-1500. Format HHMM-HHMM. Does NOT change keyLevel: highs made outside these hours still count.")
 input_use_date_range = input.bool(false, "Limit trading to a date range", group = "Date range")
-input_date_from = input.time(timestamp("2026-01-01 00:00 America/New_York"), "From date (included)", group = "Date range")
-input_date_to   = input.time(timestamp("2026-12-31 00:00 America/New_York"), "To date (included)", group = "Date range", tooltip = "Works together with Trading hours: a trade may open only on a day inside the range AND inside the hours. Days outside the range are skipped entirely (keyLevel is still measured). Dates are New York days.")
+input_date_from = input.time(timestamp("America/New_York", 2026, 1, 1, 0, 0), "From date (included)", group = "Date range")
+input_date_to   = input.time(timestamp("America/New_York", 2026, 12, 31, 0, 0), "To date (included)", group = "Date range", tooltip = "Works together with Trading hours: a trade may open only on a day inside the range AND inside the hours. Days outside the range are skipped entirely (keyLevel is still measured). Dates are New York days.")
 input_position_shares         = input.int(25, "Position size (shares)", minval = 1, tooltip = "Commission in this file assumes under 100 shares ($0.49 per order). For 100+ shares set Properties > Commission to Cash per contract = 0.005.")
 
 // ─── Session windows ─────────────────────────────────────────
