@@ -78,6 +78,8 @@ input_hold_seconds            = input.float(1.0, "Hold confirmation (seconds)", 
 input_gap_threshold_pct       = 10.0   // gap day threshold (%); gap days double the hold time
 input_trading_hours = input.string("0400-1600", "Trading hours (New York time)",
      tooltip = "When new trades may OPEN, and when an open trade is force-closed. Several ranges allowed, separated by commas, e.g. 0400-0930,1300-1500. Format HHMM-HHMM. Does NOT change keyLevel: highs made outside these hours still count.")
+input_trail_mode = input.string("Tiered (EMA9 / EMA20)", "Trail mode", options = ["Tiered (EMA9 / EMA20)", "Single EMA"], group = "Exit", tooltip = "Tiered: EMA9 below 10% / above 30% profit, EMA20 in between. Single EMA: always trail on the one EMA length below. The stall detector is not affected by this choice.")
+input_trail_ema_len = input.int(9, "Single EMA length (used only in Single EMA mode)", minval = 2, maxval = 200, group = "Exit")
 input_use_date_range = input.bool(false, "Limit trading to a date range", group = "Date range")
 input_date_from = input.time(timestamp("01 Jan 2026 00:00 -0500"), "From date (included)", group = "Date range")
 input_date_to   = input.time(timestamp("31 Dec 2026 00:00 -0500"), "To date (included)", group = "Date range", tooltip = "Works together with Trading hours: a trade may open only on a day inside the range AND inside the hours. Days outside the range are skipped entirely (keyLevel is still measured). Dates are New York days.")
@@ -232,6 +234,7 @@ rollingVol5min = ta.sma(volume, 5) * 5   // sum of last 5 bars' volume (1-min ch
 longerAvgVol5min = ta.sma(volume, input_vol_decline_lookback) * 5   // NEW — "what a normal 5-bar sum looks like" based on a longer baseline, same units as rollingVol5min
 ema9 = ta.ema(close, 9)   // NEW — DEBUG 6, called unconditionally (required for correct recursive calc)
 ema20 = ta.ema(close, 20)   // NEW — for the tiered exit trail ladder
+emaSingle = ta.ema(close, input_trail_ema_len)   // single-EMA trail mode, called unconditionally
 newDay = ta.change(time("D")) != 0   // once per bar, outside any block (same result as before)
 
 if barstate.isconfirmed
@@ -504,10 +507,11 @@ if state == STATE_IN_POSITION
     // only once the active EMA has climbed past stopPrice.
     else
         trailInStrictTier = progressPct < input_stall_tier1_pct or progressPct >= input_stall_tier2_pct
-        activeTrailEMA = trailInStrictTier ? ema9 : ema20
+        singleTrail = input_trail_mode == "Single EMA"
+        activeTrailEMA = singleTrail ? emaSingle : (trailInStrictTier ? ema9 : ema20)
         trailFired = not na(activeTrailEMA) and activeTrailEMA > stopPrice and close < activeTrailEMA
         if trailFired
-            exitReason := trailInStrictTier ? "ema9_trail" : "ema20_trail"
+            exitReason := singleTrail ? "ema" + str.tostring(input_trail_ema_len) + "_trail" : (trailInStrictTier ? "ema9_trail" : "ema20_trail")
         // (3) Stall detector — tiered: strict early, loose mid, strict
         // late — nested here so it's only checked when the trail above
         // did NOT fire (correct priority: stop > scalp > trail > stall).
@@ -526,13 +530,14 @@ if state == STATE_IN_POSITION
                 stallRangeStartTime := na
 
     if exitReason != ""
-        exitColor = exitReason == "stall_detected" ? color.orange : exitReason == "ema9_trail" ? color.blue : exitReason == "ema20_trail" ? color.aqua : exitReason == "scalp_exit" ? color.fuchsia : color.red
+        exitColor = exitReason == "stall_detected" ? color.orange : exitReason == "ema9_trail" ? color.blue : exitReason == "ema20_trail" ? color.aqua : (input_trail_mode == "Single EMA" and str.endswith(exitReason, "_trail")) ? color.blue : exitReason == "scalp_exit" ? color.fuchsia : color.red
         exitTt = "reason: " + exitReason +
                  "\nentryPrice: " + str.tostring(entryPrice, "#.##") +
                  "\nstopPrice: " + str.tostring(stopPrice, "#.##") +
                  "\nhighestSinceEntry: " + str.tostring(highestSinceEntry, "#.##") +
                  "\nema9: " + str.tostring(ema9, "#.##") +
                  "\nema20: " + str.tostring(ema20, "#.##") +
+                 "\ntrail: " + input_trail_mode + (input_trail_mode == "Single EMA" ? " (EMA" + str.tostring(input_trail_ema_len) + " = " + str.tostring(emaSingle, "#.##") + ")" : "") +
                  "\nnoNewHighCount: " + str.tostring(noNewHighCount) + " (weak_market_mode: " + str.tostring(input_weak_market_mode) + ")" +
                  "\nprogressPct: " + str.tostring(progressPct, "#.#") + "% (stall tier: " + (progressPct < input_stall_tier1_pct or progressPct >= input_stall_tier2_pct ? "strict" : "loose") + ")" +
                  "\nexitPrice: " + str.tostring(close, "#.##") +
