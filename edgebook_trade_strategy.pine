@@ -207,6 +207,7 @@ input_show_vw_diag    = input.bool(true, "Show: V/W diagnostic markers", group =
 input_show_keylevel_plot = input.bool(true, "Show: keyLevel line", group = "Visibility")
 input_show_vwap_plot    = input.bool(true, "Show: VWAP line", group = "Visibility")
 input_show_ema9_plot    = input.bool(true, "Show: EMA9 line", group = "Visibility")
+input_show_ema20_plot   = input.bool(true, "Show: EMA20 line", group = "Visibility")
 input_show_bgcolor     = input.bool(true, "Show: state background color", group = "Visibility")
 var int noNewHighCount = 0
 var float barCloseHighest = na   // separate from highestSinceEntry (tick-based) — this one only updates on bar close, so the "did THIS bar make a new high" check compares against the value as it stood BEFORE this bar (same fix pattern as keyLevel's order-of-operations bug)
@@ -561,7 +562,9 @@ if strategy.position_size > 0 and not inActiveWindow and not closeSentThisBar
 // ─── Plots — minimal, just enough spatial context ──────────────
 plot(input_show_keylevel_plot and state == STATE_SEARCHING ? keyLevel : na, title = "keyLevel", color = color.fuchsia, style = plot.style_stepline, linewidth = 3)
 plot(input_show_vwap_plot ? vwapValue : na, title = "VWAP", color = color.new(color.blue, 40), linewidth = 1)
-plot(input_show_ema9_plot ? ema9 : na, title = "EMA9", color = color.new(color.aqua, 20), linewidth = 1)
+plot(input_show_ema9_plot ? ema9 : na, title = "EMA9", color = color.orange, linewidth = 2)
+plot(input_show_ema20_plot ? ema20 : na, title = "EMA20", color = color.purple, linewidth = 2)
+plot(input_trail_mode == "Single EMA" ? emaSingle : na, title = "Trail EMA (single)", color = color.green, linewidth = 2)
 bgcolor(input_show_bgcolor and state == STATE_PULLBACK_ACTIVE ? color.new(color.orange, 90) : input_show_bgcolor and state == STATE_IN_POSITION ? color.new(color.teal, 85) : na)
 
 // NEW — diagnostic: shows exactly when/why EMA9 mode is locked, so
