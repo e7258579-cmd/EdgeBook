@@ -108,6 +108,7 @@ var float keyLevel = na   // FIXED — was missing var, reset to NaN every bar
 var float entryPrice           = na
 var float stopPrice             = na
 var float highestSinceEntry      = na
+var float stallHigh              = na   // reference high for the stall detector (close- or High-based)
 var int   stallRangeStartTime     = na
 var int   entryBar                = na   // bar where the entry signal fired
 var bool  closeSentThisBar        = false   // order layer: a close order was already sent on this bar
@@ -116,12 +117,20 @@ var bool  closeSentThisBar        = false   // order layer: a close order was al
 // trade (unproven) and very late (possible exhaustion), be strict —
 // tight range, short wait. In the middle (already-proven move,
 // healthy consolidation likely), be loose — give it room.
-input_stall_tier1_pct          = 10.0   // stall tiers: strict below this % move
-input_stall_tier2_pct          = 30.0   // stall tiers: strict again above this % move
-input_stall_range_tight_pct    = 0.2 / 100   // stall range, strict tier (0.2%)
-input_stall_range_loose_pct    = 0.6 / 100   // stall range, loose tier (0.6%)
-input_stall_duration_tight_min = 1.0   // stall duration, strict tier (min)
-input_stall_duration_loose_min = 5.0   // stall duration, loose tier (min)
+// Stall detector — being calibrated, so these are visible inputs.
+// A trade is "stalled" when price makes no new high and stays within the
+// range below the high for the whole duration. Strict tier = early (< tier 1)
+// and late (>= tier 2) in the trade; loose tier = the proven middle zone.
+// The tier boundaries also drive the tiered EMA trail.
+input_stall_tier1_pct          = input.float(10.0, "Strict tier below this % move", minval = 1.0, step = 1.0, group = "Stall")
+input_stall_tier2_pct          = input.float(30.0, "Strict tier again above this % move", minval = 5.0, step = 1.0, group = "Stall")
+input_stall_range_tight_pct    = input.float(0.5, "Range - strict tier (%)", minval = 0.05, step = 0.05, group = "Stall") / 100
+input_stall_range_loose_pct    = input.float(1.0, "Range - loose tier (%)", minval = 0.1, step = 0.1, group = "Stall") / 100
+input_stall_range_floor        = input.float(0.02, "Minimum range ($), floor under the % range", minval = 0.0, step = 0.01, group = "Stall", tooltip = "On cheap stocks a % range can be smaller than one cent. The range used is the larger of the % range and this floor.")
+input_stall_duration_tight_min = input.float(3.0, "Duration - strict tier (min)", minval = 0.25, step = 0.25, group = "Stall")
+input_stall_duration_loose_min = input.float(5.0, "Duration - loose tier (min)", minval = 0.5, step = 0.5, group = "Stall")
+input_stall_skip_entry_bar     = input.bool(true, "Stall clock starts after the entry bar", group = "Stall", tooltip = "On: the bar of the entry itself never counts toward the stall duration.")
+input_stall_use_bar_high       = input.bool(false, "Measure the high by bar High (off = by Close)", group = "Stall", tooltip = "Off: the reference high is the highest CLOSE since entry (previous behavior). On: the highest bar HIGH since entry.")
 
 // NEW — refined pullback validity, replacing the old "close < keyLevel"
 // invalidation with two more precise tests against the actual breakout
@@ -200,11 +209,11 @@ input_scalp_exit_bars  = 2   // Scalp Exit: consecutive bars without new high
 // NEW — visibility toggles, one per category, so the chart can be
 // decluttered without losing any of the underlying logic. All default
 // to true (current behavior unchanged until you turn one off).
-input_show_pbstart    = input.bool(true, "Show: PB start labels", group = "Visibility")
-input_show_reclaim    = input.bool(true, "Show: reclaim@ labels", group = "Visibility")
-input_show_invalid    = input.bool(true, "Show: INVALID labels", group = "Visibility")
-input_show_vw_diag    = input.bool(true, "Show: V/W diagnostic markers", group = "Visibility")
-input_show_keylevel_plot = input.bool(true, "Show: keyLevel line", group = "Visibility")
+input_show_pbstart    = input.bool(false, "Show: PB start labels", group = "Visibility")
+input_show_reclaim    = input.bool(false, "Show: reclaim@ labels", group = "Visibility")
+input_show_invalid    = input.bool(false, "Show: INVALID labels", group = "Visibility")
+input_show_vw_diag    = input.bool(false, "Show: V/W diagnostic markers", group = "Visibility")
+input_show_keylevel_plot = input.bool(false, "Show: keyLevel line", group = "Visibility")
 input_show_vwap_plot    = input.bool(true, "Show: VWAP line", group = "Visibility")
 input_show_ema9_plot    = input.bool(true, "Show: EMA9 line", group = "Visibility")
 input_show_ema20_plot   = input.bool(true, "Show: EMA20 line", group = "Visibility")
@@ -457,6 +466,7 @@ if state == STATE_PULLBACK_ACTIVE and not na(entryTriggerLevel) and inActiveWind
             entryPrice             := close
             stopPrice              := lastRedLow
             highestSinceEntry      := entryPrice
+            stallHigh              := entryPrice
             stallRangeStartTime    := na
             noNewHighCount         := 0
             barCloseHighest        := na
@@ -487,7 +497,11 @@ if state == STATE_IN_POSITION
     // high" as NOT a stall.
     prevHighestSinceEntry = highestSinceEntry
     highestSinceEntry := math.max(highestSinceEntry, close)
-    madeNewHigh = close > prevHighestSinceEntry
+    // Stall reference high: by Close (default) or by bar High, per input.
+    stallSrc = input_stall_use_bar_high ? high : close
+    prevStallHigh = stallHigh
+    stallHigh := math.max(stallHigh, stallSrc)
+    madeNewHigh = stallSrc > prevStallHigh
     progressPct = entryPrice > 0 ? (highestSinceEntry - entryPrice) / entryPrice * 100 : 0   // moved up — needed by the tooltip regardless of which exit reason fires
 
     exitReason = ""
@@ -520,8 +534,9 @@ if state == STATE_IN_POSITION
             inStrictTier = trailInStrictTier   // same tier boundaries, reused
             activeStallRangePct = inStrictTier ? input_stall_range_tight_pct : input_stall_range_loose_pct
             activeStallDurationMin = inStrictTier ? input_stall_duration_tight_min : input_stall_duration_loose_min
-            rangeLow = highestSinceEntry * (1 - activeStallRangePct)
-            inRange   = not madeNewHigh and close >= rangeLow
+            activeRange = math.max(stallHigh * activeStallRangePct, input_stall_range_floor)
+            rangeLow = stallHigh - activeRange
+            inRange   = not madeNewHigh and close >= rangeLow and (not input_stall_skip_entry_bar or bar_index > entryBar)
             if inRange
                 if na(stallRangeStartTime)
                     stallRangeStartTime := time
