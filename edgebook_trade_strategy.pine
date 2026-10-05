@@ -86,12 +86,17 @@ input_atr_mult = input.float(3.0, "ATR multiple (distance below the peak)", minv
 input_giveback_enabled = input.bool(false, "Peak trail: give back a % of the profit", group = "Peak trail", tooltip = "Exit floor = peak minus this % of the profit made at the peak (peak - entry). Same rules as the ATR floor. If both are on, the higher floor (closer to price) is used.")
 input_giveback_pct = input.float(25.0, "Max % of profit to give back", minval = 5.0, maxval = 90.0, step = 5.0, group = "Peak trail")
 input_peak_trail_min_profit = input.float(20.0, "Peak trail active only after profit of (%)", minval = 0.0, step = 5.0, group = "Peak trail", tooltip = "Below this profit (measured at the peak) the peak trail is off and the EMA trail / stall / stop work as before.")
+input_preopen_exit_enabled = input.bool(true, "Close any position before the regular open", group = "Pre-open protection", tooltip = "Safety net against being in a position when the regular session starts (09:30 New York). From the exit time until 09:30 an open position is closed, at the close of the bar that ends at the exit time, and no new entry is allowed. Entries are allowed again from 09:30.")
+input_preopen_exit_time = input.int(925, "Exit time (HHMM, New York)", minval = 400, maxval = 929, group = "Pre-open protection", tooltip = "For example 925 = 09:25. The exit is made at the close of the bar that ENDS at this time (on a 1-minute chart: the 09:24 bar, i.e. at 09:25:00).")
 input_use_date_range = input.bool(false, "Limit trading to a date range", group = "Date range")
 input_date_from = input.time(timestamp("01 Jan 2026 00:00 -0500"), "From date (included)", group = "Date range")
 input_date_to   = input.time(timestamp("31 Dec 2026 00:00 -0500"), "To date (included)", group = "Date range", tooltip = "Works together with Trading hours: a trade may open only on a day inside the range AND inside the hours. Days outside the range are skipped entirely (keyLevel is still measured). Dates are New York days.")
 input_position_shares         = input.int(25, "Position size (shares)", minval = 1, tooltip = "Commission in this file assumes under 100 shares ($0.49 per order). For 100+ shares set Properties > Commission to Cash per contract = 0.005.")
 
 // ─── Session windows ─────────────────────────────────────────
+nyHM(t) => hour(t, "America/New_York") * 100 + minute(t, "America/New_York")
+// Pre-open protection zone: from the exit time (bar END time) until 09:30.
+preOpenZone = input_preopen_exit_enabled and nyHM(time_close) >= input_preopen_exit_time and nyHM(time) < 930
 // Fixed windows: used ONLY to measure the highs that build keyLevel.
 inPreMarket    = time(timeframe.period, "0400-0929", "America/New_York")
 inRegularHours = time(timeframe.period, "0930-1600", "America/New_York")
@@ -454,7 +459,7 @@ if barstate.isconfirmed
 // High/Open/Close toggle (that toggle only applies to the keyLevel path).
 entryTriggerLevel = armedVia == "ema9" ? lastRedHigh : (input_entry_trigger_ref == "Close" ? lastRedClose : input_entry_trigger_ref == "Open" ? lastRedOpen : lastRedHigh)
 
-if state == STATE_PULLBACK_ACTIVE and not na(entryTriggerLevel) and inActiveWindow
+if state == STATE_PULLBACK_ACTIVE and not na(entryTriggerLevel) and inActiveWindow and not preOpenZone
     if close > entryTriggerLevel
         if na(aboveSince)
             aboveSince := time
@@ -523,6 +528,10 @@ if state == STATE_IN_POSITION
     exitPx = peakTouched ? math.min(open, peakFloor) : close
     if peakTouched
         exitReason := "peak_trail"
+    // (0.5) Pre-open protection: flat before the regular open. Evaluated on the
+    // closed bar only, so it behaves the same live and in the backtest.
+    else if preOpenZone and barstate.isconfirmed
+        exitReason := "pre_open_exit"
     // (1) Protective stop
     else if close <= stopPrice
         exitReason := not na(inPreMarket) ? "stop_hit_premarket" : "stop_hit_regular_hours_backend_handles"
@@ -564,7 +573,7 @@ if state == STATE_IN_POSITION
                 stallRangeStartTime := na
 
     if exitReason != ""
-        exitColor = exitReason == "peak_trail" ? color.yellow : exitReason == "stall_detected" ? color.orange : exitReason == "ema9_trail" ? color.blue : exitReason == "ema20_trail" ? color.aqua : (input_trail_mode == "Single EMA" and str.endswith(exitReason, "_trail")) ? color.blue : exitReason == "scalp_exit" ? color.fuchsia : color.red
+        exitColor = exitReason == "peak_trail" ? color.yellow : exitReason == "pre_open_exit" ? color.silver : exitReason == "stall_detected" ? color.orange : exitReason == "ema9_trail" ? color.blue : exitReason == "ema20_trail" ? color.aqua : (input_trail_mode == "Single EMA" and str.endswith(exitReason, "_trail")) ? color.blue : exitReason == "scalp_exit" ? color.fuchsia : color.red
         exitTt = "reason: " + exitReason +
                  "\nentryPrice: " + str.tostring(entryPrice, "#.##") +
                  "\nstopPrice: " + str.tostring(stopPrice, "#.##") +
