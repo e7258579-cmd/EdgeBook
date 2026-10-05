@@ -80,6 +80,12 @@ input_trading_hours = input.string("0400-1600", "Trading hours (New York time)",
      tooltip = "When new trades may OPEN, and when an open trade is force-closed. Several ranges allowed, separated by commas, e.g. 0400-0930,1300-1500. Format HHMM-HHMM. Does NOT change keyLevel: highs made outside these hours still count.")
 input_trail_mode = input.string("Tiered (EMA9 / EMA20)", "Trail mode", options = ["Tiered (EMA9 / EMA20)", "Single EMA"], group = "Exit", tooltip = "Tiered: EMA9 below 10% / above 30% profit, EMA20 in between. Single EMA: always trail on the one EMA length below. The stall detector is not affected by this choice.")
 input_trail_ema_len = input.int(9, "Single EMA length (used only in Single EMA mode)", minval = 2, maxval = 200, group = "Exit")
+input_atr_trail_enabled = input.bool(true, "Peak trail: ATR from the peak", group = "Peak trail", tooltip = "Exit floor = highest high since entry minus N x ATR. Becomes active only after the trade is up by the minimum profit below. Computed from CLOSED bars only and used like a stop order: if a bar's low touches it, the exit is at the floor price (or the open, if the bar gaps below it).")
+input_atr_len = input.int(14, "ATR length", minval = 2, maxval = 100, group = "Peak trail")
+input_atr_mult = input.float(3.0, "ATR multiple (distance below the peak)", minval = 0.5, step = 0.5, group = "Peak trail")
+input_giveback_enabled = input.bool(false, "Peak trail: give back a % of the profit", group = "Peak trail", tooltip = "Exit floor = peak minus this % of the profit made at the peak (peak - entry). Same rules as the ATR floor. If both are on, the higher floor (closer to price) is used.")
+input_giveback_pct = input.float(25.0, "Max % of profit to give back", minval = 5.0, maxval = 90.0, step = 5.0, group = "Peak trail")
+input_peak_trail_min_profit = input.float(20.0, "Peak trail active only after profit of (%)", minval = 0.0, step = 5.0, group = "Peak trail", tooltip = "Below this profit (measured at the peak) the peak trail is off and the EMA trail / stall / stop work as before.")
 input_use_date_range = input.bool(false, "Limit trading to a date range", group = "Date range")
 input_date_from = input.time(timestamp("01 Jan 2026 00:00 -0500"), "From date (included)", group = "Date range")
 input_date_to   = input.time(timestamp("31 Dec 2026 00:00 -0500"), "To date (included)", group = "Date range", tooltip = "Works together with Trading hours: a trade may open only on a day inside the range AND inside the hours. Days outside the range are skipped entirely (keyLevel is still measured). Dates are New York days.")
@@ -108,6 +114,8 @@ var float keyLevel = na   // FIXED — was missing var, reset to NaN every bar
 var float entryPrice           = na
 var float stopPrice             = na
 var float highestSinceEntry      = na
+var float peakHigh               = na   // highest bar high since entry (peak trail)
+var float peakFloor              = na   // peak-trail exit level, set at the close of a bar, used from the next bar
 var float stallHigh              = na   // reference high for the stall detector (close- or High-based)
 var int   stallRangeStartTime     = na
 var int   entryBar                = na   // bar where the entry signal fired
@@ -244,6 +252,7 @@ rollingVol5min = ta.sma(volume, 5) * 5   // sum of last 5 bars' volume (1-min ch
 longerAvgVol5min = ta.sma(volume, input_vol_decline_lookback) * 5   // NEW — "what a normal 5-bar sum looks like" based on a longer baseline, same units as rollingVol5min
 ema9 = ta.ema(close, 9)   // NEW — DEBUG 6, called unconditionally (required for correct recursive calc)
 ema20 = ta.ema(close, 20)   // NEW — for the tiered exit trail ladder
+atrVal = ta.atr(input_atr_len)   // peak trail, called unconditionally
 emaSingle = ta.ema(close, input_trail_ema_len)   // single-EMA trail mode, called unconditionally
 newDay = ta.change(time("D")) != 0   // once per bar, outside any block (same result as before)
 
@@ -467,6 +476,8 @@ if state == STATE_PULLBACK_ACTIVE and not na(entryTriggerLevel) and inActiveWind
             stopPrice              := lastRedLow
             highestSinceEntry      := entryPrice
             stallHigh              := entryPrice
+            peakHigh               := high
+            peakFloor              := na
             stallRangeStartTime    := na
             noNewHighCount         := 0
             barCloseHighest        := na
@@ -482,6 +493,7 @@ if state == STATE_PULLBACK_ACTIVE and not na(entryTriggerLevel) and inActiveWind
 // (e.g. a same-bar entry that was cancelled still got filled), close it.
 if state != STATE_IN_POSITION and strategy.position_size > 0 and bar_index > entryBar
     strategy.close("Long", comment = "sync")
+    strategy.cancel("PT")
 
 // EXIT SIGNALS - identical to the indicator: evaluated whenever the state
 // machine is IN_POSITION, whether or not an order exists.
@@ -505,8 +517,14 @@ if state == STATE_IN_POSITION
     progressPct = entryPrice > 0 ? (highestSinceEntry - entryPrice) / entryPrice * 100 : 0   // moved up — needed by the tooltip regardless of which exit reason fires
 
     exitReason = ""
+    // (0) Peak trail: the floor was fixed at the close of an earlier bar and
+    // acts like a stop order, so a touch by this bar's low is an exit.
+    peakTouched = not na(peakFloor) and low <= peakFloor
+    exitPx = peakTouched ? math.min(open, peakFloor) : close
+    if peakTouched
+        exitReason := "peak_trail"
     // (1) Protective stop
-    if close <= stopPrice
+    else if close <= stopPrice
         exitReason := not na(inPreMarket) ? "stop_hit_premarket" : "stop_hit_regular_hours_backend_handles"
     // (1.5) NEW — Scalp Exit (weak-market mode only): faster/more
     // aggressive than EMA9 trail or the stall detector — fires after
@@ -546,7 +564,7 @@ if state == STATE_IN_POSITION
                 stallRangeStartTime := na
 
     if exitReason != ""
-        exitColor = exitReason == "stall_detected" ? color.orange : exitReason == "ema9_trail" ? color.blue : exitReason == "ema20_trail" ? color.aqua : (input_trail_mode == "Single EMA" and str.endswith(exitReason, "_trail")) ? color.blue : exitReason == "scalp_exit" ? color.fuchsia : color.red
+        exitColor = exitReason == "peak_trail" ? color.yellow : exitReason == "stall_detected" ? color.orange : exitReason == "ema9_trail" ? color.blue : exitReason == "ema20_trail" ? color.aqua : (input_trail_mode == "Single EMA" and str.endswith(exitReason, "_trail")) ? color.blue : exitReason == "scalp_exit" ? color.fuchsia : color.red
         exitTt = "reason: " + exitReason +
                  "\nentryPrice: " + str.tostring(entryPrice, "#.##") +
                  "\nstopPrice: " + str.tostring(stopPrice, "#.##") +
@@ -556,22 +574,41 @@ if state == STATE_IN_POSITION
                  "\ntrail: " + input_trail_mode + (input_trail_mode == "Single EMA" ? " (EMA" + str.tostring(input_trail_ema_len) + " = " + str.tostring(emaSingle, "#.##") + ")" : "") +
                  "\nnoNewHighCount: " + str.tostring(noNewHighCount) + " (weak_market_mode: " + str.tostring(input_weak_market_mode) + ")" +
                  "\nprogressPct: " + str.tostring(progressPct, "#.#") + "% (stall tier: " + (progressPct < input_stall_tier1_pct or progressPct >= input_stall_tier2_pct ? "strict" : "loose") + ")" +
-                 "\nexitPrice: " + str.tostring(close, "#.##") +
-                 "\nP&L (pre-fees, per share): " + str.tostring(close - entryPrice, "#.##")
+                 "\npeakHigh: " + str.tostring(peakHigh, "#.##") + " | peakFloor: " + str.tostring(peakFloor, "#.##") +
+                 "\nexitPrice: " + str.tostring(exitPx, "#.##") +
+                 "\nP&L (pre-fees, per share): " + str.tostring(exitPx - entryPrice, "#.##")
         label.new(bar_index, high, text = "", style = label.style_arrowdown, color = color.new(exitColor, 0), size = size.normal, tooltip = exitTt)
         // ORDER - a side effect only.
         if bar_index == entryBar
             strategy.cancel("Long")   // entry and exit on the SAME bar: nothing was ever held
         else if strategy.position_size > 0
             strategy.close("Long", comment = exitReason)
+        strategy.cancel("PT")
+        peakFloor := na
         closeSentThisBar := true
         state := STATE_SEARCHING
+    else
+        // No exit on this bar: update the peak and the floor for the NEXT bar,
+        // from closed-bar data only, and (re)place it as a stop order.
+        if barstate.isconfirmed
+            peakHigh := math.max(peakHigh, high)
+            peakProfitPct = entryPrice > 0 ? (peakHigh - entryPrice) / entryPrice * 100 : 0
+            newFloor = float(na)
+            if peakProfitPct >= input_peak_trail_min_profit
+                atrFloor = input_atr_trail_enabled and not na(atrVal) ? peakHigh - input_atr_mult * atrVal : na
+                gbFloor  = input_giveback_enabled ? peakHigh - (peakHigh - entryPrice) * (input_giveback_pct / 100) : na
+                newFloor := math.max(nz(atrFloor, -1e10), nz(gbFloor, -1e10))
+                newFloor := newFloor < -1e9 ? na : newFloor
+            peakFloor := newFloor
+            if not na(peakFloor) and strategy.position_size > 0
+                strategy.exit("PT", "Long", stop = peakFloor, comment = "peak_trail")
 
 // ─── END OF WINDOW (order layer only) ──────────────────────────
 // Nothing is held outside the trading window. This closes the ORDER only;
 // the state machine is untouched, so the signals stay identical.
 if strategy.position_size > 0 and not inActiveWindow and not closeSentThisBar
     strategy.close("Long", comment = "end_of_window")
+    strategy.cancel("PT")
     label.new(bar_index, high, text = "", style = label.style_arrowdown, color = color.gray, size = size.normal, tooltip = "reason: end_of_window\nexitPrice: " + str.tostring(close, "#.##"))
 
 // ─── Plots — minimal, just enough spatial context ──────────────
