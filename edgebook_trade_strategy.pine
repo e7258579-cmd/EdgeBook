@@ -100,6 +100,7 @@ input_climax_wick_pct = input.float(50.0, "(4) Upper wick at least (% of the bar
 input_peak_trail_min_profit = input.float(20.0, "Peak trail active only after profit of (%)", minval = 0.0, step = 5.0, group = "Peak trail", tooltip = "Below this profit (measured at the peak) the peak trail is off and the EMA trail / stall / stop work as before.")
 input_preopen_exit_enabled = input.bool(true, "Close any position before the regular open", group = "Pre-open protection", tooltip = "Safety net against being in a position when the regular session starts (09:30 New York). From the exit time until 09:30 an open position is closed, at the close of the bar that ends at the exit time, and no new entry is allowed. Entries are allowed again from 09:30.")
 input_preopen_exit_time = input.int(925, "Exit time (HHMM, New York)", minval = 400, maxval = 929, group = "Pre-open protection", tooltip = "For example 925 = 09:25. The exit is made at the close of the bar that ENDS at this time (on a 1-minute chart: the 09:24 bar, i.e. at 09:25:00).")
+input_entry_stopbuy = input.bool(true, "Entry as stop-buy at the trigger level", group = "Entry guard", tooltip = "On: a stop-buy order sits at the trigger level (the last red candle's level) and fills when a bar's high reaches it, at the trigger price, or at the open if the bar gaps above it. This is how the entry works live, and it fixes the late/expensive backtest entries. The hold-seconds setting does not apply in this mode (a backtest has no ticks). Off: the old behavior, entry at the close of the bar that holds above the trigger.")
 input_cooldown_bars = input.int(1, "Cooldown after an exit (bars)", minval = 0, maxval = 30, group = "Entry guard", tooltip = "After an exit, no new entry until more than this many bars have passed. Protects against repeated entry/exit pairs around the same trigger.")
 input_use_date_range = input.bool(false, "Limit trading to a date range", group = "Date range")
 input_date_from = input.time(timestamp("01 Jan 2026 00:00 -0500"), "From date (included)", group = "Date range")
@@ -133,6 +134,8 @@ var float entryPrice           = na
 var float stopPrice             = na
 var float highestSinceEntry      = na
 var int   lastExitBar            = na   // bar of the last exit (cooldown)
+var float stopBuyLevel            = na   // stop-buy entry level, set at a bar close, used from the next bar
+var float stopBuyRedLow           = na   // red-candle low belonging to that level (the stop price)
 var float peakHigh               = na   // highest bar high since entry (peak trail)
 var float peakFloor              = na   // peak-trail exit level, set at the close of a bar, used from the next bar
 var float stallHigh              = na   // reference high for the stall detector (close- or High-based)
@@ -480,36 +483,71 @@ if barstate.isconfirmed
 entryTriggerLevel = armedVia == "ema9" ? lastRedHigh : (input_entry_trigger_ref == "Close" ? lastRedClose : input_entry_trigger_ref == "Open" ? lastRedOpen : lastRedHigh)
 
 cooldownOK = na(lastExitBar) or (bar_index - lastExitBar > input_cooldown_bars)
-if state == STATE_PULLBACK_ACTIVE and not na(entryTriggerLevel) and inActiveWindow and not preOpenZone and cooldownOK
-    if close > entryTriggerLevel
-        if na(aboveSince)
-            aboveSince := time
-        holdMs = input_hold_seconds * 1000 * (isGapDay ? 2 : 1)
-        if (time - aboveSince) >= holdMs and close > vwapValue
-            // ─── ENTRY FIRES ───
-            // SIGNAL - identical to the indicator. Thin arrow (the indicator
-            // uses a boxed label) with the same tooltip values.
-            tt = "keyLevel: " + str.tostring(keyLevel, "#.##") +
-                 "\nentryTriggerLevel: " + str.tostring(entryTriggerLevel, "#.##") +
-                 "\nentry price: " + str.tostring(close, "#.##")
-            label.new(bar_index, low, text = "", style = label.style_arrowup, color = color.lime, size = size.normal, tooltip = tt)
-            // ORDER - a side effect only. Never changes the state machine.
-            qty = math.min(input_position_shares, math.floor(strategy.equity / close))
-            if qty > 0
-                strategy.entry("Long", strategy.long, qty = qty)
-            entryBar               := bar_index
-            entryPrice             := close
-            stopPrice              := lastRedLow
-            highestSinceEntry      := entryPrice
-            stallHigh              := entryPrice
-            peakHigh               := high
-            peakFloor              := na
-            stallRangeStartTime    := na
-            noNewHighCount         := 0
-            barCloseHighest        := na
-            state                  := STATE_IN_POSITION
-    else
-        aboveSince := na
+entryFires   = false
+entryFillPx  = close
+entryRedLow  = lastRedLow
+if input_entry_stopbuy
+    // STOP-BUY mode. The order was placed at the close of the PREVIOUS bar at
+    // the trigger level (see the end of this block). If this bar's high
+    // reached it, the order filled during this bar: at the trigger, or at the
+    // open if the bar gapped above it. The hold timer does not apply here.
+    if state == STATE_PULLBACK_ACTIVE and not na(stopBuyLevel) and high >= stopBuyLevel and inActiveWindow and not preOpenZone and cooldownOK
+        entryFires  := true
+        entryFillPx := math.max(open, stopBuyLevel)
+        entryRedLow := stopBuyRedLow
+else
+    // CLOSE mode (previous behavior): entry at the close of the bar that
+    // holds above the trigger for the hold time and above VWAP.
+    if state == STATE_PULLBACK_ACTIVE and not na(entryTriggerLevel) and inActiveWindow and not preOpenZone and cooldownOK
+        if close > entryTriggerLevel
+            if na(aboveSince)
+                aboveSince := time
+            holdMs = input_hold_seconds * 1000 * (isGapDay ? 2 : 1)
+            if (time - aboveSince) >= holdMs and close > vwapValue
+                entryFires := true
+        else
+            aboveSince := na
+
+if entryFires
+    // ─── ENTRY FIRES ───
+    // SIGNAL - identical to the indicator. Thin arrow (the indicator
+    // uses a boxed label) with the same tooltip values.
+    tt = "keyLevel: " + str.tostring(keyLevel, "#.##") +
+         "\nentryTriggerLevel: " + str.tostring(entryTriggerLevel, "#.##") +
+         "\nentry price: " + str.tostring(entryFillPx, "#.##") + (input_entry_stopbuy ? " (stop-buy)" : " (bar close)")
+    label.new(bar_index, low, text = "", style = label.style_arrowup, color = color.lime, size = size.normal, tooltip = tt)
+    // ORDER - a side effect only. Never changes the state machine.
+    // (In stop-buy mode the order already exists and has already filled.)
+    if not input_entry_stopbuy
+        qty = math.min(input_position_shares, math.floor(strategy.equity / close))
+        if qty > 0
+            strategy.entry("Long", strategy.long, qty = qty)
+    entryBar               := bar_index
+    entryPrice             := entryFillPx
+    stopPrice              := entryRedLow
+    highestSinceEntry      := entryPrice
+    stallHigh              := entryPrice
+    peakHigh               := high
+    peakFloor              := na
+    stallRangeStartTime    := na
+    noNewHighCount         := 0
+    barCloseHighest        := na
+    state                  := STATE_IN_POSITION
+
+if input_entry_stopbuy
+    // Place (or refresh) the stop-buy for the NEXT bar, from closed-bar data.
+    // Only while a setup is waiting, the trigger is above VWAP, and trading
+    // is allowed. Otherwise any pending order is cancelled.
+    stopBuyLevel   := na
+    stopBuyRedLow  := na
+    if state == STATE_PULLBACK_ACTIVE and not na(entryTriggerLevel) and entryTriggerLevel > vwapValue and inActiveWindow and not preOpenZone and cooldownOK
+        stopBuyLevel  := entryTriggerLevel
+        stopBuyRedLow := lastRedLow
+        sbQty = math.min(input_position_shares, math.floor(strategy.equity / stopBuyLevel))
+        if sbQty > 0
+            strategy.entry("Long", strategy.long, qty = sbQty, stop = stopBuyLevel)
+    else if state != STATE_IN_POSITION
+        strategy.cancel("Long")
 
 // NEW — DEBUG 6: per-tick exit logic, only while IN_POSITION.
 // Order matters — first match wins, mirrors v10/main spec §4 exactly:
@@ -612,7 +650,7 @@ if state == STATE_IN_POSITION
                  "\nP&L (pre-fees, per share): " + str.tostring(exitPx - entryPrice, "#.##")
         label.new(bar_index, high, text = "", style = label.style_arrowdown, color = color.new(exitColor, 0), size = size.normal, tooltip = exitTt)
         // ORDER - a side effect only.
-        if bar_index == entryBar
+        if bar_index == entryBar and not input_entry_stopbuy
             strategy.cancel("Long")   // entry and exit on the SAME bar: nothing was ever held
         else if strategy.position_size > 0
             strategy.close("Long", comment = exitReason)
