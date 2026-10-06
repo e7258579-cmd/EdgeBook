@@ -1,116 +1,140 @@
-// EdgeBook — SKELETON connectivity test, not the real strategy.
-// Goal: prove every link in the chain works — TradingView webhook ->
-// Firebase -> Firestore -> TradeZero — before investing more in the
-// strategy logic itself.
-//
-// What it does, every time it's called:
-//   1. Checks the shared secret (same idea as the real design, main spec §4a).
-//   2. Logs receipt to Firestore IMMEDIATELY — this alone proves
-//      TradingView -> Firebase works, even if every step after it fails.
-//   3. Calls GET /account on TradeZero — proves the API keys work,
-//      before risking an order on a broken connection.
-//   4. Places ONE resting Limit order (1 share AAPL at $1.00 — far below
-//      market on purpose, so it rests instead of filling). Proves order
-//      placement works end-to-end.
-//   5. Writes the outcome of every step back to the same Firestore
-//      document, so you can see exactly how far it got if something fails.
+// EdgeBook Firebase Functions.
+//   tzWebhook         (HTTP)       Receiver: validate, dedupe, queue the signal, answer fast.
+//   tzProcessSignal   (Firestore)  Processor: all the trading logic, runs when a signal is queued.
+//   tzWebhookTest     (HTTP)       Legacy connectivity test.
+// Design: docs/WEBHOOK_CONTRACT_V01.md
 
+const crypto = require("crypto");
 const {onRequest} = require("firebase-functions/v2/https");
+const {onDocumentCreated} = require("firebase-functions/v2/firestore");
 const {defineSecret} = require("firebase-functions/params");
 const {logger} = require("firebase-functions");
 const admin = require("firebase-admin");
-const {createClient} = require("./tradezero");
 
 admin.initializeApp();
 const db = admin.firestore();
+const FieldValue = admin.firestore.FieldValue;
+
+const {createClient} = require("./tradezero");
+const {validateSignal, signalKey} = require("./lib/validate");
+const {mergeConfig} = require("./lib/config");
+const {processSignal} = require("./lib/process");
+const {createDryRunBroker, createTradeZeroBroker} = require("./lib/brokers");
+const {createFirestoreStore} = require("./lib/firestoreStore");
 
 const WEBHOOK_SECRET = defineSecret("WEBHOOK_SECRET");
 const TZ_API_KEY_ID = defineSecret("TZ_API_KEY_ID");
 const TZ_API_SECRET_KEY = defineSecret("TZ_API_SECRET_KEY");
 const TZ_ACCOUNT_ID = defineSecret("TZ_ACCOUNT_ID");
 
-exports.tzWebhookTest = onRequest(
-    {secrets: [WEBHOOK_SECRET, TZ_API_KEY_ID, TZ_API_SECRET_KEY, TZ_ACCOUNT_ID]},
-    async (req, res) => {
-      const body = req.body || {};
+function safeEqual(a, b) {
+  const x = Buffer.from(String(a));
+  const y = Buffer.from(String(b));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
 
-      // ─── Step 1 — secret check ──────────────────────────────
-      if (body.secret !== WEBHOOK_SECRET.value()) {
+// TradingView sends application/json only when the message is valid JSON;
+// otherwise text/plain. Handle both.
+function parseBody(req) {
+  if (req.body && typeof req.body === "object" && Object.keys(req.body).length) return req.body;
+  const raw = typeof req.body === "string" && req.body ? req.body :
+    (req.rawBody ? req.rawBody.toString("utf8") : "");
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    return null;
+  }
+}
+
+// ─── Receiver ───────────────────────────────────────────────────
+exports.tzWebhook = onRequest(
+    {secrets: [WEBHOOK_SECRET], invoker: "public"},
+    async (req, res) => {
+      if (req.method !== "POST") {
+        res.status(405).send("method not allowed");
+        return;
+      }
+      const body = parseBody(req);
+      if (!body || typeof body !== "object") {
+        res.status(400).json({ok: false, error: "body is not JSON"});
+        return;
+      }
+      if (!safeEqual(body.secret || "", WEBHOOK_SECRET.value())) {
         logger.warn("Rejected: bad or missing secret");
         res.status(401).send("unauthorized");
         return;
       }
-
-      // ─── Step 2 — log receipt, before touching TradeZero at all ──
-      const logRef = await db.collection("skeleton_test_log").add({
-        receivedAt: admin.firestore.FieldValue.serverTimestamp(),
-        payload: body,
-        stage: "received",
-      });
-
-      const tz = createClient({
-        apiKeyId: TZ_API_KEY_ID.value(),
-        apiSecretKey: TZ_API_SECRET_KEY.value(),
-        accountId: TZ_ACCOUNT_ID.value(),
-      });
-
-      // ─── Step 3 — confirm the keys work before risking an order ──
-      let account;
-      try {
-        account = await tz.getAccount();
-        await logRef.update({
-          stage: "account_ok",
-          accountType: account.accountType || null,
-        });
-      } catch (err) {
-        logger.error("TradeZero getAccount failed", err);
-        await logRef.update({
-          stage: "account_error",
-          error: String(err),
-          completedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        res.status(500).json({ok: false, step: "account", error: String(err)});
+      const checked = validateSignal(body);
+      if (!checked.ok) {
+        logger.warn("Rejected: invalid signal", checked.errors);
+        res.status(400).json({ok: false, error: checked.errors});
         return;
       }
-
-      // ─── Step 4 — place one resting test order (won't fill) ──
+      const key = signalKey(checked.signal);
       try {
-        const clientOrderId = `skeleton-test-${Date.now()}`;
-        const placed = await tz.placeOrder({
-          securityType: "Stock",
-          symbol: "AAPL",
-          side: "Buy",
-          openClose: "Open",
-          orderType: "Limit",
-          limitPrice: 1.00, // deliberately far below market — should rest, not fill
-          orderQuantity: 1,
-          timeInForce: "Day",
-          clientOrderId,
+        // create() fails if the document exists: that is the dedupe.
+        await db.collection("signals").doc(key).create({
+          status: "queued",
+          signal: checked.signal,
+          receivedAt: FieldValue.serverTimestamp(),
         });
-
-        const final = placed.orderStatus === "PendingNew" ?
-          await tz.awaitTerminal(clientOrderId).catch((e) => ({
-            orderStatus: "unresolved",
-            error: String(e),
-          })) :
-          placed;
-
-        await logRef.update({
-          stage: "order_done",
-          orderPlaced: placed,
-          orderFinal: final,
-          completedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-        res.status(200).json({ok: true, accountType: account.accountType, orderStatus: final.orderStatus, clientOrderId});
       } catch (err) {
-        logger.error("TradeZero placeOrder failed", err);
-        await logRef.update({
-          stage: "order_error",
-          error: String(err),
-          completedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        res.status(500).json({ok: false, step: "order", error: String(err)});
+        if (err && (err.code === 6 || /already exists/i.test(String(err.message)))) {
+          res.status(200).json({ok: true, status: "duplicate"});
+          return;
+        }
+        logger.error("Could not queue signal", err);
+        res.status(500).json({ok: false, error: "queue_failed"});
+        return;
       }
+      res.status(200).json({ok: true, status: "queued"});
     },
 );
+
+// ─── Processor ──────────────────────────────────────────────────
+exports.tzProcessSignal = onDocumentCreated(
+    {
+      document: "signals/{signalId}",
+      secrets: [TZ_API_KEY_ID, TZ_API_SECRET_KEY, TZ_ACCOUNT_ID],
+    },
+    async (event) => {
+      const ref = event.data.ref;
+      // Claim: delivery is at-least-once, so only one run may proceed.
+      const claimed = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists || snap.data().status !== "queued") return null;
+        tx.update(ref, {status: "processing", startedAt: FieldValue.serverTimestamp()});
+        return snap.data();
+      });
+      if (!claimed) return;
+
+      const cfgSnap = await db.collection("control").doc("config").get();
+      const config = mergeConfig(cfgSnap.exists ? cfgSnap.data() : {});
+      const broker = config.dryRun ?
+        createDryRunBroker() :
+        createTradeZeroBroker(createClient({
+          apiKeyId: TZ_API_KEY_ID.value(),
+          apiSecretKey: TZ_API_SECRET_KEY.value(),
+          accountId: TZ_ACCOUNT_ID.value(),
+        }));
+      const store = createFirestoreStore(db, FieldValue);
+
+      let outcome;
+      try {
+        outcome = await processSignal({signal: claimed.signal, store, broker, config});
+      } catch (err) {
+        logger.error("processSignal crashed", err);
+        outcome = {status: "error", reason: "exception", error: String(err)};
+      }
+      await ref.update({
+        status: outcome.status,
+        outcome: JSON.parse(JSON.stringify(outcome)),
+        dryRun: config.dryRun,
+        completedAt: FieldValue.serverTimestamp(),
+      });
+      logger.info("signal processed", {key: ref.id, status: outcome.status, reason: outcome.reason || null});
+    },
+);
+
+// ─── Legacy connectivity test ───────────────────────────────────
+exports.tzWebhookTest = require("./legacyTest").tzWebhookTest;
