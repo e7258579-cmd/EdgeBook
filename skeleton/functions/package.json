@@ -3,7 +3,7 @@
   "description": "Minimal connectivity test: TradingView webhook -> Firebase -> Firestore -> TradeZero. Not the real strategy.",
   "main": "index.js",
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "dependencies": {
     "firebase-admin": "^12.0.0",
