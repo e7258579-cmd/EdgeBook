@@ -15,6 +15,8 @@ const DEFAULTS = {
   limitOffsetUsd: 0.10, // buy limit = price + offset, sell limit = price - offset
   maxSignalAgeSec: 180, // a signal older than this (by barTime) is dropped
   timeInForce: "Day", // unverified for extended hours, see README
+  route: "", // empty = let TradeZero pick (Paper does this automatically). LIVE needs an explicit route from GET /routes
+  environment: "paper", // "paper" or "live": writes are blocked if the account type does not match
 };
 
 function mergeConfig(overrides) {

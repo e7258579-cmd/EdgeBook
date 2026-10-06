@@ -41,10 +41,16 @@ test("sizing: 1% risk, offset 0.10, caps", () => {
   assert.equal(sizeEntry({price: 600, stop: 590, config}).reject, "qty_zero");
 });
 
-test("sellLimit applies the offset below, never below a cent", () => {
+test("sellLimit applies the offset below, never below the minimum tick", () => {
   const config = mergeConfig({});
   assert.equal(sellLimit(3.76, config), 3.66);
-  assert.equal(sellLimit(0.05, config), 0.01);
+  assert.equal(sellLimit(0.05, config), 0.0001);
+});
+
+test("prices use 2 decimals at/above $1 and 4 decimals below", () => {
+  const config = mergeConfig({limitOffsetUsd: 0.0123});
+  assert.equal(sizeEntry({price: 2.0, stop: 1.5, config}).limitPrice, 2.01);
+  assert.equal(sizeEntry({price: 0.5, stop: 0.4, config}).limitPrice, 0.5123);
 });
 
 test("limits", () => {

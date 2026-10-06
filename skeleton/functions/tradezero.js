@@ -6,6 +6,14 @@
 
 const BASE_URL = "https://webapi.tradezero.com";
 
+// Error that keeps the HTTP status, so callers can tell "the request was
+// refused" (4xx: the order does not exist) from "unknown outcome" (5xx).
+async function httpError(label, res) {
+  const err = new Error(`${label} HTTP ${res.status}: ${await res.text()}`);
+  err.status = res.status;
+  return err;
+}
+
 function createClient({apiKeyId, apiSecretKey, accountId}) {
   const headers = {
     "Content-Type": "application/json",
@@ -21,7 +29,7 @@ function createClient({apiKeyId, apiSecretKey, accountId}) {
   async function getAccount() {
     const res = await fetch(`${BASE_URL}/v1/api/account/${accountId}`, {headers});
     if (!res.ok) {
-      throw new Error(`getAccount HTTP ${res.status}: ${await res.text()}`);
+      throw await httpError("getAccount", res);
     }
     return res.json();
   }
@@ -39,7 +47,7 @@ function createClient({apiKeyId, apiSecretKey, accountId}) {
       // This is a transport/schema-level failure (400/404/405) — not a
       // trading rejection. Trading rejections come back as HTTP 200 with
       // orderStatus: "Rejected" instead, and are NOT thrown here.
-      throw new Error(`placeOrder HTTP ${res.status}: ${await res.text()}`);
+      throw await httpError("placeOrder", res);
     }
     return res.json();
   }
@@ -55,7 +63,7 @@ function createClient({apiKeyId, apiSecretKey, accountId}) {
     );
     if (res.status === 404) return null;
     if (!res.ok) {
-      throw new Error(`getOrder HTTP ${res.status}: ${await res.text()}`);
+      throw await httpError("getOrder", res);
     }
     return res.json();
   }
@@ -85,7 +93,7 @@ function createClient({apiKeyId, apiSecretKey, accountId}) {
         {method: "DELETE", headers},
     );
     if (!res.ok) {
-      throw new Error(`cancelOrder HTTP ${res.status}: ${await res.text()}`);
+      throw await httpError("cancelOrder", res);
     }
     const text = await res.text();
     try {
@@ -99,7 +107,7 @@ function createClient({apiKeyId, apiSecretKey, accountId}) {
   async function getTodaysOrders() {
     const res = await fetch(`${BASE_URL}/v1/api/accounts/${accountId}/orders`, {headers});
     if (!res.ok) {
-      throw new Error(`getTodaysOrders HTTP ${res.status}: ${await res.text()}`);
+      throw await httpError("getTodaysOrders", res);
     }
     return res.json();
   }
@@ -108,7 +116,7 @@ function createClient({apiKeyId, apiSecretKey, accountId}) {
   async function getRoutes() {
     const res = await fetch(`${BASE_URL}/v1/api/accounts/${accountId}/routes`, {headers});
     if (!res.ok) {
-      throw new Error(`getRoutes HTTP ${res.status}: ${await res.text()}`);
+      throw await httpError("getRoutes", res);
     }
     return res.json();
   }

@@ -47,15 +47,28 @@ function fakeBroker(opts = {}) {
     calls,
     async placeOrder(o) {
       calls.push(["place", o]);
-      if (opts.failPlace) throw new Error("boom");
-      return {orderStatus: "New"};
+      if (opts.failPlace) {
+        const e = new Error("boom");
+        if (opts.failStatus) e.status = opts.failStatus;
+        throw e;
+      }
+      return {orderStatus: opts.placeStatus || "New", text: opts.placeText};
+    },
+    async findOrder(id) {
+      calls.push(["find", id]);
+      if (opts.findThrows) throw new Error("lookup failed");
+      return opts.found || null;
+    },
+    async getAccountType() {
+      calls.push(["acct"]);
+      return opts.accountType || "Paper";
     },
     async getOrder(id) {
       calls.push(["get", id]);
       // entryStatus can be a list: one status per call, the last one repeats.
       const seq = Array.isArray(opts.entryStatus) ? opts.entryStatus : [opts.entryStatus || "Filled"];
       const i = Math.min(calls.filter((c) => c[0] === "get").length - 1, seq.length - 1);
-      return {orderStatus: seq[i]};
+      return {orderStatus: seq[i], executed: opts.executed};
     },
     async cancelOrder(id) {
       calls.push(["cancel", id]);

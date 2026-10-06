@@ -12,7 +12,7 @@ test("entry: sends a buy limit with the +0.10 offset and reserves the symbol", a
   const broker = fakeBroker();
   const r = await run(entrySignal(), store, broker);
   assert.equal(r.status, "accepted");
-  const [, order] = broker.calls[0];
+  const [, order] = broker.calls.find((c) => c[0] === "place");
   assert.equal(order.side, "Buy");
   assert.equal(order.orderType, "Limit");
   assert.equal(order.limitPrice, 4.16);
@@ -27,7 +27,7 @@ test("entry: a second entry on the same symbol is rejected, nothing sent", async
   const broker = fakeBroker();
   const r = await run(entrySignal({barTime: NOW - 1000}), store, broker);
   assert.equal(r.reason, "already_in_position");
-  assert.equal(broker.calls.length, 0);
+  assert.equal(broker.calls.filter((c) => c[0] === "place").length, 0);
 });
 
 test("entry: kill switch, daily loss, trade cap and rate limit all block", async () => {
@@ -42,7 +42,7 @@ test("entry: kill switch, daily loss, trade cap and rate limit all block", async
     const r = await run(entrySignal(), memoryStore({stats, orders}), broker, config);
     assert.equal(r.status, "rejected");
     assert.equal(r.reason, reason);
-    assert.equal(broker.calls.length, 0);
+    assert.equal(broker.calls.filter((c) => c[0] === "place").length, 0);
   }
 });
 
@@ -51,18 +51,74 @@ test("entry: stale signals are dropped", async () => {
   assert.equal(r.reason, "stale_signal");
 });
 
-test("entry: failed placement releases the reservation", async () => {
+test("entry: a 4xx on POST means no order: reservation released", async () => {
   const store = memoryStore();
-  const r = await run(entrySignal(), store, fakeBroker({failPlace: true}));
-  assert.equal(r.status, "error");
+  const broker = fakeBroker({failPlace: true, failStatus: 400});
+  const r = await run(entrySignal(), store, broker);
+  assert.deepEqual([r.status, r.reason], ["error", "place_order_failed"]);
   assert.equal(store.positions.WHLR, undefined);
+  assert.equal(broker.calls.filter((c) => c[0] === "find").length, 0);
+});
+
+test("entry: a 5xx is ambiguous: look the order up, never POST twice", async () => {
+  const store = memoryStore();
+  const broker = fakeBroker({failPlace: true, failStatus: 503, found: {orderStatus: "New"}});
+  const r = await run(entrySignal(), store, broker);
+  assert.equal(r.status, "accepted");
+  assert.equal(r.recovered, true);
+  assert.equal(broker.calls.filter((c) => c[0] === "place").length, 1);
+  assert.ok(store.positions.WHLR);
+});
+
+test("entry: 5xx and the order is confirmed absent -> released", async () => {
+  const store = memoryStore();
+  const r = await run(entrySignal(), store, fakeBroker({failPlace: true, failStatus: 503}));
+  assert.equal(r.reason, "place_order_failed");
+  assert.equal(store.positions.WHLR, undefined);
+});
+
+test("entry: 5xx and the lookup fails too -> state unknown, symbol stays reserved", async () => {
+  const store = memoryStore();
+  const r = await run(entrySignal(), store, fakeBroker({failPlace: true, failStatus: 503, findThrows: true}));
+  assert.equal(r.reason, "order_state_unknown");
+  assert.ok(store.positions.WHLR);
+});
+
+test("entry: HTTP 200 with orderStatus Rejected is a rejection, not a success", async () => {
+  const store = memoryStore();
+  const r = await run(entrySignal(), store, fakeBroker({placeStatus: "Rejected", placeText: "R-code"}));
+  assert.deepEqual([r.status, r.reason], ["rejected", "broker_rejected"]);
+  assert.equal(store.positions.WHLR, undefined);
+  assert.equal((await store.getStats(nyDateKey(NOW))).tradesToday, 0);
+});
+
+test("environment guard: a live account is refused when paper is expected", async () => {
+  const broker = fakeBroker({accountType: "Margin"});
+  const r = await run(entrySignal(), memoryStore(), broker);
+  assert.deepEqual([r.status, r.reason], ["error", "environment_mismatch"]);
+  assert.equal(broker.calls.filter((c) => c[0] === "place").length, 0);
+});
+
+test("environment guard is skipped in dry run", async () => {
+  const broker = fakeBroker({accountType: "Margin"});
+  const r = await run(entrySignal(), memoryStore(), broker, cfg({dryRun: true}));
+  assert.equal(r.status, "accepted");
+});
+
+test("route is added to the order only when configured", async () => {
+  const b1 = fakeBroker();
+  await run(entrySignal(), memoryStore(), b1);
+  assert.equal("route" in b1.calls.find((c) => c[0] === "place")[1], false);
+  const b2 = fakeBroker();
+  await run(entrySignal(), memoryStore(), b2, cfg({route: "SMART"}));
+  assert.equal(b2.calls.find((c) => c[0] === "place")[1].route, "SMART");
 });
 
 test("exit: no position is ignored", async () => {
   const broker = fakeBroker();
   const r = await run(exitSignal(), memoryStore(), broker);
   assert.deepEqual([r.status, r.reason], ["ignored", "no_position"]);
-  assert.equal(broker.calls.length, 0);
+  assert.equal(broker.calls.filter((c) => c[0] === "place").length, 0);
 });
 
 test("exit: sells the full quantity with the -0.10 offset and books the P&L", async () => {
@@ -101,6 +157,7 @@ test("live exit: entry that never filled is released, no sell sent", async () =>
   const broker = fakeBroker({entryStatus: "Canceled"});
   const r = await run(exitSignal({barTime: NOW - 1000}), store, broker);
   assert.equal(r.reason, "entry_never_filled");
+  assert.equal(broker.calls.filter((c) => c[0] === "cancel").length, 0); // never cancel a dead order
   assert.equal(broker.calls.filter((c) => c[0] === "place").length, 0);
   assert.equal(store.positions.WHLR, undefined);
 });
@@ -145,4 +202,23 @@ test("dry run: exit does not consult the broker for the entry status", async () 
   const r = await run(exitSignal({barTime: NOW - 1000}), store, broker, dry);
   assert.equal(r.status, "accepted");
   assert.equal(broker.calls.filter((c) => c[0] === "get").length, 0);
+});
+
+test("exit: a partially filled entry is cancelled and only the executed shares are sold", async () => {
+  const store = memoryStore();
+  await run(entrySignal(), store, fakeBroker());
+  const broker = fakeBroker({entryStatus: "PartiallyFilled", executed: 5});
+  const r = await run(exitSignal({barTime: NOW - 1000}), store, broker);
+  assert.equal(r.status, "accepted");
+  assert.equal(broker.calls.filter((c) => c[0] === "cancel").length, 1);
+  assert.equal(broker.calls.find((c) => c[0] === "place")[1].orderQuantity, 5);
+  assert.equal(store.positions.WHLR, undefined);
+});
+
+test("exit: a Rejected sell keeps the position open and reports an error", async () => {
+  const store = memoryStore();
+  await run(entrySignal(), store, fakeBroker());
+  const r = await run(exitSignal({barTime: NOW - 1000}), store, fakeBroker({placeStatus: "Rejected"}));
+  assert.deepEqual([r.status, r.reason], ["error", "exit_rejected"]);
+  assert.ok(store.positions.WHLR);
 });
