@@ -13,7 +13,7 @@ function validateSignal(body) {
   if (!Number.isInteger(b.barTime) || b.barTime <= 0) errors.push("bad barTime");
   if (typeof b.tf !== "string" || !b.tf) errors.push("bad tf");
   if (typeof b.strategy !== "string" || !b.strategy) errors.push("bad strategy");
-  if (b.session !== "pre" && b.session !== "regular") errors.push("session must be pre|regular");
+  if (!["pre", "regular", "post"].includes(b.session)) errors.push("session must be pre|regular|post");
   if (!pos(b.price)) errors.push("price must be > 0");
 
   if (b.event === "entry") {

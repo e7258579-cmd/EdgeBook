@@ -25,6 +25,13 @@ test("validate: rejects bad shapes", () => {
   assert.equal(validateSignal(base(entrySignal({barTime: 1.5}))).ok, false);
 });
 
+test("validate: session accepts pre, regular and post only", () => {
+  for (const session of ["pre", "regular", "post"]) {
+    assert.equal(validateSignal(base(entrySignal({session}))).ok, true);
+  }
+  assert.equal(validateSignal(base(entrySignal({session: "night"}))).ok, false);
+});
+
 test("signalKey is deterministic", () => {
   assert.equal(signalKey(entrySignal()), signalKey(entrySignal()));
   assert.notEqual(signalKey(entrySignal()), signalKey(exitSignal()));
