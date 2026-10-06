@@ -75,13 +75,24 @@ async function processExit({signal, store, broker, config, t}) {
     }
     if (!FILLED_ORDER.has(st)) {
       // Entry still working or unknown: it must be cancelled first.
+      let cancelled = false;
+      let cancelErr = null;
       try {
         await broker.cancelOrder(pos.entryClientOrderId);
+        cancelled = true;
       } catch (err) {
-        return {status: "error", reason: "entry_not_filled_cancel_failed", entryStatus: st || null, error: String(err)};
+        cancelErr = err;
       }
-      await store.releasePosition(signal.symbol);
-      return {status: "ignored", reason: "entry_cancelled_before_fill", entryStatus: st || null};
+      if (cancelled) {
+        await store.releasePosition(signal.symbol);
+        return {status: "ignored", reason: "entry_cancelled_before_fill", entryStatus: st || null};
+      }
+      // The cancel failed. Most likely the order filled in the meantime:
+      // look again, and if so carry on and sell. Otherwise fail loudly.
+      const again = await broker.getOrder(pos.entryClientOrderId);
+      if (!(again && FILLED_ORDER.has(again.orderStatus))) {
+        return {status: "error", reason: "entry_not_filled_cancel_failed", entryStatus: st || null, error: String(cancelErr)};
+      }
     }
   }
 

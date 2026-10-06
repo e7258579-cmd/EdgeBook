@@ -10,6 +10,6 @@
     "firebase-functions": "^5.0.0"
   },
   "scripts": {
-    "test": "node --test test/lib.test.js test/process.test.js"
+    "test": "node --test test/lib.test.js test/process.test.js test/tradezero.test.js"
   }
 }

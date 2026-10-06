@@ -17,9 +17,6 @@ function createDryRunBroker() {
 }
 
 // Live adapter over the TradeZero client (tradezero.js).
-// cancelOrder is NOT implemented on purpose: the endpoint has not been
-// verified against the official docs yet. Until it is, an exit that would
-// need to cancel a working entry order ends in an explicit error.
 function createTradeZeroBroker(tz) {
   return {
     async placeOrder(order) {
@@ -30,9 +27,7 @@ function createTradeZeroBroker(tz) {
       return placed;
     },
     getOrder: (id) => tz.getOrder(id),
-    async cancelOrder() {
-      throw new Error("cancelOrder not implemented: endpoint not verified yet");
-    },
+    cancelOrder: (id) => tz.cancelOrder(id),
   };
 }
 

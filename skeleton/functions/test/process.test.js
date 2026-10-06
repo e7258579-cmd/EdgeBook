@@ -105,7 +105,28 @@ test("live exit: entry that never filled is released, no sell sent", async () =>
   assert.equal(store.positions.WHLR, undefined);
 });
 
-test("live exit: working entry needs a cancel; if cancel is unavailable it errors loudly", async () => {
+test("live exit: working entry is cancelled and the position released", async () => {
+  const store = memoryStore();
+  await run(entrySignal(), store, fakeBroker());
+  const broker = fakeBroker({entryStatus: "New"});
+  const r = await run(exitSignal({barTime: NOW - 1000}), store, broker);
+  assert.equal(r.reason, "entry_cancelled_before_fill");
+  assert.equal(broker.calls.filter((c) => c[0] === "cancel").length, 1);
+  assert.equal(broker.calls.filter((c) => c[0] === "place").length, 0);
+  assert.equal(store.positions.WHLR, undefined);
+});
+
+test("live exit: cancel fails because the entry filled meanwhile -> sells", async () => {
+  const store = memoryStore();
+  await run(entrySignal(), store, fakeBroker());
+  const broker = fakeBroker({entryStatus: ["New", "Filled"], cancelThrows: true});
+  const r = await run(exitSignal({barTime: NOW - 1000}), store, broker);
+  assert.equal(r.status, "accepted");
+  assert.equal(broker.calls.filter((c) => c[0] === "place").length, 1);
+  assert.equal(store.positions.WHLR, undefined);
+});
+
+test("live exit: working entry whose cancel fails for real errors loudly", async () => {
   const store = memoryStore();
   await run(entrySignal(), store, fakeBroker());
   const broker = fakeBroker({entryStatus: "New", cancelThrows: true});

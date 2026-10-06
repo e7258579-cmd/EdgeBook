@@ -52,7 +52,10 @@ function fakeBroker(opts = {}) {
     },
     async getOrder(id) {
       calls.push(["get", id]);
-      return {orderStatus: opts.entryStatus || "Filled"};
+      // entryStatus can be a list: one status per call, the last one repeats.
+      const seq = Array.isArray(opts.entryStatus) ? opts.entryStatus : [opts.entryStatus || "Filled"];
+      const i = Math.min(calls.filter((c) => c[0] === "get").length - 1, seq.length - 1);
+      return {orderStatus: seq[i]};
     },
     async cancelOrder(id) {
       calls.push(["cancel", id]);
