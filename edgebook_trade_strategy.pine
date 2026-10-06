@@ -90,8 +90,13 @@ input_trail_ema_len = input.int(9, "Single EMA length (used only in Single EMA m
 input_atr_trail_enabled = input.bool(true, "Peak trail: ATR from the peak", group = "Peak trail", tooltip = "Exit floor = highest high since entry minus N x ATR. Becomes active only after the trade is up by the minimum profit below. Computed from CLOSED bars only and used like a stop order: if a bar's low touches it, the exit is at the floor price (or the open, if the bar gaps below it).")
 input_atr_len = input.int(14, "ATR length", minval = 2, maxval = 100, group = "Peak trail")
 input_atr_mult = input.float(3.0, "ATR multiple (distance below the peak)", minval = 0.5, step = 0.5, group = "Peak trail")
-input_giveback_enabled = input.bool(false, "Peak trail: give back a % of the profit", group = "Peak trail", tooltip = "Exit floor = peak minus this % of the profit made at the peak (peak - entry). Same rules as the ATR floor. If both are on, the higher floor (closer to price) is used.")
-input_giveback_pct = input.float(25.0, "Max % of profit to give back", minval = 5.0, maxval = 90.0, step = 5.0, group = "Peak trail")
+input_climax_enabled = input.bool(true, "Climax exit: blow-off bar", group = "Climax exit", tooltip = "Exit at the CLOSE of a bar that looks like a blow-off top. All four must hold on the same closed bar: (1) its high is far above EMA9, (2) its range is large vs the previous ATR, (3) its volume is a spike vs the recent average, (4) it rejected the high: a long upper wick, or it closed red.")
+input_climax_min_profit = input.float(20.0, "Climax exit active only after profit of (%)", minval = 0.0, step = 5.0, group = "Climax exit", tooltip = "Measured at the bar's high vs the entry price.")
+input_climax_ext_pct = input.float(15.0, "(1) High above EMA9 by at least (%)", minval = 1.0, step = 1.0, group = "Climax exit")
+input_climax_range_atr = input.float(2.5, "(2) Bar range at least N x previous ATR", minval = 0.5, step = 0.5, group = "Climax exit")
+input_climax_vol_mult = input.float(3.0, "(3) Volume at least N x average volume", minval = 1.0, step = 0.5, group = "Climax exit")
+input_climax_vol_len = input.int(20, "Average volume length (bars)", minval = 5, maxval = 100, group = "Climax exit")
+input_climax_wick_pct = input.float(50.0, "(4) Upper wick at least (% of the bar range), or a red bar", minval = 10.0, maxval = 95.0, step = 5.0, group = "Climax exit")
 input_peak_trail_min_profit = input.float(20.0, "Peak trail active only after profit of (%)", minval = 0.0, step = 5.0, group = "Peak trail", tooltip = "Below this profit (measured at the peak) the peak trail is off and the EMA trail / stall / stop work as before.")
 input_preopen_exit_enabled = input.bool(true, "Close any position before the regular open", group = "Pre-open protection", tooltip = "Safety net against being in a position when the regular session starts (09:30 New York). From the exit time until 09:30 an open position is closed, at the close of the bar that ends at the exit time, and no new entry is allowed. Entries are allowed again from 09:30.")
 input_preopen_exit_time = input.int(925, "Exit time (HHMM, New York)", minval = 400, maxval = 929, group = "Pre-open protection", tooltip = "For example 925 = 09:25. The exit is made at the close of the bar that ENDS at this time (on a 1-minute chart: the 09:24 bar, i.e. at 09:25:00).")
@@ -240,6 +245,7 @@ input_show_vwap_plot    = input.bool(true, "Show: VWAP line", group = "Visibilit
 input_show_ema9_plot    = input.bool(true, "Show: EMA9 line", group = "Visibility")
 input_show_ema20_plot   = input.bool(true, "Show: EMA20 line", group = "Visibility")
 input_show_bgcolor     = input.bool(true, "Show: state background color", group = "Visibility")
+input_show_climax      = input.bool(true, "Show: climax bar markers (C)", group = "Visibility")
 var int noNewHighCount = 0
 var float barCloseHighest = na   // separate from highestSinceEntry (tick-based) — this one only updates on bar close, so the "did THIS bar make a new high" check compares against the value as it stood BEFORE this bar (same fix pattern as keyLevel's order-of-operations bug)
 
@@ -267,6 +273,11 @@ longerAvgVol5min = ta.sma(volume, input_vol_decline_lookback) * 5   // NEW — "
 ema9 = ta.ema(close, 9)   // NEW — DEBUG 6, called unconditionally (required for correct recursive calc)
 ema20 = ta.ema(close, 20)   // NEW — for the tiered exit trail ladder
 atrVal = ta.atr(input_atr_len)   // peak trail, called unconditionally
+volAvg = ta.sma(volume, input_climax_vol_len)   // climax detection, called unconditionally
+// Climax (blow-off) bar: evaluated on every bar for the markers; the exit also
+// requires being in a position. Uses the PREVIOUS bar's ATR and average volume.
+climaxRange = high - low
+climaxBar = not na(atrVal[1]) and not na(volAvg[1]) and ema9 > 0 and climaxRange > 0 and (high - ema9) / ema9 * 100 >= input_climax_ext_pct and climaxRange >= input_climax_range_atr * atrVal[1] and volume >= input_climax_vol_mult * volAvg[1] and ((high - math.max(open, close)) / climaxRange * 100 >= input_climax_wick_pct or close < open)
 emaSingle = ta.ema(close, input_trail_ema_len)   // single-EMA trail mode, called unconditionally
 newDay = ta.change(time("D")) != 0   // once per bar, outside any block (same result as before)
 
@@ -542,6 +553,9 @@ if state == STATE_IN_POSITION
     // closed bar only, so it behaves the same live and in the backtest.
     else if preOpenZone and barstate.isconfirmed
         exitReason := "pre_open_exit"
+    // (0.6) Climax exit: blow-off bar, exit at its close (closed bar only).
+    else if input_climax_enabled and climaxBar and barstate.isconfirmed and bar_index > entryBar and (high - entryPrice) / entryPrice * 100 >= input_climax_min_profit
+        exitReason := "climax_exit"
     // (1) Protective stop
     else if close <= stopPrice
         exitReason := not na(inPreMarket) ? "stop_hit_premarket" : "stop_hit_regular_hours_backend_handles"
@@ -583,7 +597,7 @@ if state == STATE_IN_POSITION
                 stallRangeStartTime := na
 
     if exitReason != ""
-        exitColor = exitReason == "peak_trail" ? color.yellow : exitReason == "pre_open_exit" ? color.silver : exitReason == "stall_detected" ? color.orange : exitReason == "ema9_trail" ? color.blue : exitReason == "ema20_trail" ? color.aqua : (input_trail_mode == "Single EMA" and str.endswith(exitReason, "_trail")) ? color.blue : exitReason == "scalp_exit" ? color.fuchsia : color.red
+        exitColor = exitReason == "peak_trail" ? color.yellow : exitReason == "pre_open_exit" ? color.silver : exitReason == "climax_exit" ? color.maroon : exitReason == "stall_detected" ? color.orange : exitReason == "ema9_trail" ? color.blue : exitReason == "ema20_trail" ? color.aqua : (input_trail_mode == "Single EMA" and str.endswith(exitReason, "_trail")) ? color.blue : exitReason == "scalp_exit" ? color.fuchsia : color.red
         exitTt = "reason: " + exitReason +
                  "\nentryPrice: " + str.tostring(entryPrice, "#.##") +
                  "\nstopPrice: " + str.tostring(stopPrice, "#.##") +
@@ -616,9 +630,7 @@ if state == STATE_IN_POSITION
             newFloor = float(na)
             if peakProfitPct >= input_peak_trail_min_profit
                 atrFloor = input_atr_trail_enabled and not na(atrVal) ? peakHigh - input_atr_mult * atrVal : na
-                gbFloor  = input_giveback_enabled ? peakHigh - (peakHigh - entryPrice) * (input_giveback_pct / 100) : na
-                newFloor := math.max(nz(atrFloor, -1e10), nz(gbFloor, -1e10))
-                newFloor := newFloor < -1e9 ? na : newFloor
+                newFloor := atrFloor
             peakFloor := newFloor
             if not na(peakFloor) and strategy.position_size > 0
                 strategy.exit("PT", "Long", stop = peakFloor, comment = "peak_trail")
@@ -638,6 +650,8 @@ plot(input_show_ema9_plot ? ema9 : na, title = "EMA9", color = color.orange, lin
 plot(input_show_ema20_plot ? ema20 : na, title = "EMA20", color = color.purple, linewidth = 2)
 plot(input_trail_mode == "Single EMA" ? emaSingle : na, title = "Trail EMA (single)", color = color.green, linewidth = 2)
 bgcolor(input_show_bgcolor and state == STATE_PULLBACK_ACTIVE ? color.new(color.orange, 90) : input_show_bgcolor and state == STATE_IN_POSITION ? color.new(color.teal, 85) : na)
+
+plotchar(input_show_climax and climaxBar, title = "Climax bar", char = "C", location = location.abovebar, color = color.fuchsia, size = size.tiny)
 
 // NEW — diagnostic: shows exactly when/why EMA9 mode is locked, so
 // this doesn't need to be inferred from "why aren't there entries"
