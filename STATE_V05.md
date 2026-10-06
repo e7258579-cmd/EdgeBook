@@ -1,7 +1,7 @@
 # EdgeBook AI Trading — STATE (V05)
 
 **תאריך:** 6/10/2026
-**מה חדש מאז V03:** (1) האסטרטגיה (Pine) עברה ניקוי Inputs, מנגנוני יציאה וכניסה חדשים, והגנה מכניסות כפולות בזמן אמת. (2) נבנה בק-אנד ממשי (מקלט + מעבד, DRY_RUN כברירת מחדל) עם 35 בדיקות יחידה, מעל השלד מ-V03. עדיין לא נפרס ולא נבדק מול Firebase/TradeZero אמיתיים.
+**מה חדש מאז V03:** (1) האסטרטגיה (Pine) עברה ניקוי Inputs, מנגנוני יציאה וכניסה חדשים, והגנה מכניסות כפולות בזמן אמת. (2) נבנה בק-אנד ממשי (מקלט + מעבד, DRY_RUN כברירת מחדל) עם 37 בדיקות יחידה, מעל השלד מ-V03. עדיין לא נפרס ולא נבדק מול Firebase/TradeZero אמיתיים.
 **איך נכתב:** מהשיחה + הקוד ב-repo (ענף `claude/inspiring-ramanujan-ozbtja`, [PR 2](https://github.com/e7258579-cmd/EdgeBook/pull/2)).
 **סימונים:** ✅ נבדק בקוד/אצל המשתמש · ⚠️ הנחה או לא אומת · ❓ החלטה פתוחה
 
@@ -24,7 +24,7 @@
 | `skeleton/functions/index.js` | `tzWebhook` (מקלט), `tzProcessSignal` (מעבד), `tzWebhookTest` (בדיקת החיבור הישנה) |
 | `skeleton/functions/lib/*` | לוגיקה טהורה: `validate`, `sizing`, `limits`, `config`, `process`, `brokers`, `firestoreStore` |
 | `skeleton/functions/tradezero.js` | לקוח TradeZero (`getAccount`, `placeOrder`, `getOrder`, `awaitTerminal`) |
-| `skeleton/functions/test/*` | 35 בדיקות יחידה (`npm test`) |
+| `skeleton/functions/test/*` | 37 בדיקות יחידה (`npm test`) |
 | `skeleton/functions/legacyTest.js` | בדיקת החיבור המקורית, נשמרה כדי שההתראה הישנה תמשיך לעבוד |
 | `skeleton/firebase.json`, `skeleton/.gitignore`, `skeleton/README.md` | הגדרות פריסה, וההסבר המלא על ההגדרות והמגבלות |
 
@@ -66,10 +66,12 @@
 
 - ✅ הקבצים הועברו ל-`skeleton/functions/`, נוסף `skeleton/firebase.json`, `package.json` על Node 22. ההעלאה המקורית (בשורש `main`) הוחלפה.
 - ✅ **חוזה Webhook:** `docs/WEBHOOK_CONTRACT_V01.md`. **מימוש:** מקלט (`tzWebhook`) + מעבד (`tzProcessSignal`, מופעל מכתיבה ל-Firestore), מניעת כפילויות לפי `symbol_event_barTime`, גודל פוזיציה (1% מההון, תקרות), מגבלות (הפסד יומי 20$, מקס' עסקאות, קצב), Kill Switch (חוסם כניסות בלבד), פקודות **Limit בלבד** (קנייה +0.10$, מכירה -0.10$), מצב **DRY_RUN כברירת מחדל**.
-- ✅ 35 בדיקות יחידה עוברות (`npm test` בתוך `skeleton/functions`). ⚠️ לא נבדק מול Firebase או TradeZero אמיתיים.
+- ✅ 37 בדיקות יחידה עוברות (`npm test` בתוך `skeleton/functions`). ⚠️ לא נבדק מול Firebase או TradeZero אמיתיים.
 - ✅ `cancelOrder`, `getTodaysOrders`, `getRoutes` נוספו ל-`tradezero.js` לפי טבלת הנתיבים של TradeZero (המשתמש הדביק). ⚠️ לא ממומש: קריאת פוזיציות מ-TradeZero (הנתיב חסר), מעקב מילויים, סטופ אמיתי, Dead-man's switch. הגישה לאתר התיעוד חסומה מהסביבה, ולכן אני לא מנחש. פירוט ב-`skeleton/README.md`.
 - ✅ **דף "API Conventions" (המשתמש הדביק) יושם בקוד:** HTTP 200 עם `Rejected` מטופל כדחייה; כשל עמום (5xx/רשת) לא גורם לשליחה כפולה אלא לבדיקת קיום ההזמנה; 4xx = ההזמנה לא נוצרה; בדיקת `accountType` לפני כל כתיבה (`environment`); מילוי חלקי (שדה `executed`, ⚠️ לא נבדק על תשובה אמיתית); עיגול מחיר לפי tick (4 ספרות מתחת ל-1$); שדה `route` אופציונלי (חובה ב-Live). פירוט ב-`skeleton/README.md`.
-- ✅ **אומת מדף ה-MCP של TradeZero** (המשתמש הדביק): `Sell`/`Close`, סוגי פקודה, וסטטוסים סופיים `Filled`/`Canceled`/`Rejected`. ⚠️ עדיין חסר: שם סטטוס מילוי חלקי, ערכי `route`/`timeInForce` התקפים (`get_routes`), ונתיב ה-REST לפוזיציות. ה-MCP עצמו מיועד לעוזר AI (לא ל-Function); ה-Function ממשיכה ב-REST עם מפתחות API.
+- ✅ **דף "Equity Trading" (המשתמש הדביק) יושם ואומת:** `Day` + Limit תקף מ-04:00 (לכן אין צורך ב-TIF אחר בפרה-מרקט); סטטוסים ידועים (`PendingNew`, `Accepted`, `New`, `PartiallyFilled`, `PendingCancel`, `Filled`, `Canceled`, `Rejected`, `Expired`, `DoneForDay`); `executed`/`leavesQuantity` מופיעים בתשובה; `clientOrderId` עד 36 תווים ב-Live ולא ניתן לשימוש חוזר (R114); אין לבטל פקודה `Rejected`; ביטול כניסה שלא התמלאה ממתין לסטטוס סופי (מטפל גם ב-`PendingCancel`).
+- ❓ **ממצא שמשנה החלטה קודמת:** ב-Live ב-SMART אפשר להציב **StopLimit עם `Day_Plus` בפרה-מרקט** (04:00–20:00), כלומר סטופ אמיתי גם בפרה-מרקט, בניגוד להנחה ב-STATE (סטופ רק 09:30–16:00). ב-Paper לא. סיכון: StopLimit עלול לא להתמלא בקפיצה. נדרשת החלטה לפני בניית הסטופ.
+- ✅ **אומת מדף ה-MCP של TradeZero** (המשתמש הדביק): `Sell`/`Close`, סוגי פקודה, וסטטוסים סופיים `Filled`/`Canceled`/`Rejected`. ⚠️ עדיין חסר: נתיב ה-REST לפוזיציות, ושם ה-`route` בחשבון ה-Live (תלוי חשבון, מ-`GET /routes`). ה-MCP עצמו מיועד לעוזר AI (לא ל-Function); ה-Function ממשיכה ב-REST עם מפתחות API.
 - ❓ שליחת ה-Webhook מה-Pine (`alert()`) טרם נכתבה (השלב הבא בתוכנית).
 - ✅ החלטות שנסגרו: פיצול מקלט/מעבד; Limit בלבד בכל שעות היום (אין Market בפרה-מרקט) עם offset של 0.10$; הפסד יומי מקסימלי 20$ (שלב הדמו); Dead-man's switch לפרה-מרקט יבנה אחרי שהזרימה הראשית עובדת.
 
@@ -84,14 +86,14 @@
 
 - ✅ **קומפילציה נקייה אצל המשתמש:** כל שינויי ה-Pine עד וכולל Climax exit.
 - ⚠️ **לא קומפל:** Stop-Buy.
-- ✅ **בק-אנד:** 35 בדיקות יחידה עוברות כאן (Node 22). ⚠️ לא הורצו אצל המשתמש עדיין, ולא נבדקו מול Firebase או TradeZero.
+- ✅ **בק-אנד:** 37 בדיקות יחידה עוברות כאן (Node 22). ⚠️ לא הורצו אצל המשתמש עדיין, ולא נבדקו מול Firebase או TradeZero.
 - ⚠️ אין תוצאות Strategy Tester על מדגם גדול. כל הכיול נעשה על דוגמאות בודדות: AMOD (2/10), SAIQ (5/10), WHLR (6/10), DCOY (29/6).
 - אני לא מקמפל Pine ולא מריץ ב-TradingView, ואין לי גישה לאתר התיעוד של TradeZero מהסביבה (חסום ברשת).
 
 ## 6. הצעד הבא המומלץ
 
 1. **אצל המשתמש:** לקמפל את Stop-Buy ולוודא שמחיר הכניסה ברשימת העסקאות שווה למחיר בחץ. להריץ `npm test` ב-`skeleton/functions`.
-2. **אצל המשתמש:** להדביק את דף ה-REST של הפוזיציות, את "Order types, times in force, and session hours" (TIF בפרה-מרקט), ואת תשובות `get_account`/`get_routes`/`get_positions` מחשבון ה-Paper, כדי להשלים מעקב פוזיציה, שדות הון, וערכי `route`/`timeInForce`.
+2. **אצל המשתמש:** להדביק את דף ה-REST של הפוזיציות ואת תשובות `get_account`/`get_routes`/`get_positions` מחשבון ה-Paper, כדי להשלים מעקב פוזיציה, שדות הון, ושם ה-route.
 3. לכייל ב-Backtest פרמטר אחד בכל פעם: Stall, Peak trail (ATR), Climax. אפשר לייצא "List of trades" כ-CSV ולהעלות ל-repo, ואחשב פירוט לפי סיבת יציאה.
 4. לכתוב ב-Pine את ה-`alert()` ששולח את ההודעה לפי החוזה (מתג כבוי כברירת מחדל).
 5. לפרוס ל-Firebase ב-DRY_RUN, לשלוח התראה מ-TradingView, ולבדוק את `signals`/`orders`/`positions` ב-Firestore.

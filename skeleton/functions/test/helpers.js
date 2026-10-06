@@ -43,6 +43,16 @@ function memoryStore(init = {}) {
 // Fake broker that records what it was asked to do.
 function fakeBroker(opts = {}) {
   const calls = [];
+  let cancelled = false;
+  // entryStatus can be a list: one status per read, the last one repeats.
+  // After a successful cancel the order reads Canceled (or PendingCancel
+  // forever when neverSettles is set).
+  const current = () => {
+    if (cancelled) return {orderStatus: opts.neverSettles ? "PendingCancel" : "Canceled", executed: opts.executed};
+    const seq = Array.isArray(opts.entryStatus) ? opts.entryStatus : [opts.entryStatus || "Filled"];
+    const n = calls.filter((c) => c[0] === "get" || c[0] === "settle").length - 1;
+    return {orderStatus: seq[Math.min(n, seq.length - 1)], executed: opts.executed};
+  };
   return {
     calls,
     async placeOrder(o) {
@@ -65,14 +75,16 @@ function fakeBroker(opts = {}) {
     },
     async getOrder(id) {
       calls.push(["get", id]);
-      // entryStatus can be a list: one status per call, the last one repeats.
-      const seq = Array.isArray(opts.entryStatus) ? opts.entryStatus : [opts.entryStatus || "Filled"];
-      const i = Math.min(calls.filter((c) => c[0] === "get").length - 1, seq.length - 1);
-      return {orderStatus: seq[i], executed: opts.executed};
+      return current();
+    },
+    async settleOrder(id) {
+      calls.push(["settle", id]);
+      return current();
     },
     async cancelOrder(id) {
       calls.push(["cancel", id]);
-      if (opts.cancelThrows) throw new Error("not implemented");
+      if (opts.cancelThrows) throw new Error("cancel failed");
+      cancelled = true;
     },
   };
 }

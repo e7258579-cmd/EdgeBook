@@ -15,8 +15,11 @@ const {checkEntryLimits} = require("./limits");
 const {sizeEntry, sellLimit} = require("./sizing");
 const {nyDateKey} = require("./config");
 
-const DEAD_ORDER = new Set(["Rejected", "Canceled", "Cancelled", "Expired"]);
+// Statuses per TradeZero's Order lifecycle table.
 const FILLED_ORDER = new Set(["Filled"]);
+// Terminal and not filled. (DoneForDay is effectively terminal for Day orders.)
+const DEAD_ORDER = new Set(["Rejected", "Canceled", "Cancelled", "Expired", "DoneForDay"]);
+const isTerminal = (st) => FILLED_ORDER.has(st) || DEAD_ORDER.has(st);
 
 // signal: validated signal. config: merged config. Returns an outcome:
 //   {status: "accepted"|"rejected"|"ignored"|"error", reason?, order?, ...}
@@ -124,8 +127,10 @@ async function processExit({signal, store, broker, config, t}) {
     let entry = await broker.getOrder(pos.entryClientOrderId);
     let st = entry && entry.orderStatus;
     let weCancelled = false;
-    if (!FILLED_ORDER.has(st) && !DEAD_ORDER.has(st)) {
-      // Still working (or unknown): cancel it, then read it again.
+    if (!isTerminal(st)) {
+      // Still working (or unknown): cancel it, then wait for a final status.
+      // The cancel response alone proves nothing (404 can mean "already
+      // filled"), and a PendingCancel order can still fill.
       let cancelErr = null;
       try {
         await broker.cancelOrder(pos.entryClientOrderId);
@@ -133,11 +138,15 @@ async function processExit({signal, store, broker, config, t}) {
       } catch (err) {
         cancelErr = err;
       }
-      entry = await broker.getOrder(pos.entryClientOrderId);
+      entry = await broker.settleOrder(pos.entryClientOrderId);
       st = entry && entry.orderStatus;
-      // A failed cancel is fine only if the order has meanwhile filled or died.
-      if (cancelErr && !FILLED_ORDER.has(st) && !DEAD_ORDER.has(st)) {
-        return {status: "error", reason: "entry_not_filled_cancel_failed", entryStatus: st || null, error: String(cancelErr)};
+      if (!isTerminal(st)) {
+        return {
+          status: "error",
+          reason: cancelErr ? "entry_not_filled_cancel_failed" : "entry_cancel_unsettled",
+          entryStatus: st || null,
+          error: cancelErr ? String(cancelErr) : null,
+        };
       }
     }
     // `executed` = shares filled so far (also covers partial fills).

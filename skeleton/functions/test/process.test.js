@@ -183,6 +183,23 @@ test("live exit: cancel fails because the entry filled meanwhile -> sells", asyn
   assert.equal(store.positions.WHLR, undefined);
 });
 
+test("live exit: cancel accepted but the order never settles -> error, position kept", async () => {
+  const store = memoryStore();
+  await run(entrySignal(), store, fakeBroker());
+  const broker = fakeBroker({entryStatus: "New", neverSettles: true});
+  const r = await run(exitSignal({barTime: NOW - 1000}), store, broker);
+  assert.deepEqual([r.status, r.reason], ["error", "entry_cancel_unsettled"]);
+  assert.ok(store.positions.WHLR);
+  assert.equal(broker.calls.filter((c) => c[0] === "place").length, 0);
+});
+
+test("clientOrderId stays within the 36 characters live accounts allow", async () => {
+  const broker = fakeBroker();
+  await run(entrySignal({symbol: "ABCDEFGHIJ"}), memoryStore(), broker);
+  const id = broker.calls.find((c) => c[0] === "place")[1].clientOrderId;
+  assert.ok(id.length <= 36, id);
+});
+
 test("live exit: working entry whose cancel fails for real errors loudly", async () => {
   const store = memoryStore();
   await run(entrySignal(), store, fakeBroker());
