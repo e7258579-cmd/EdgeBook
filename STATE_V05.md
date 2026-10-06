@@ -68,7 +68,7 @@
 - ✅ **חוזה Webhook:** `docs/WEBHOOK_CONTRACT_V01.md`. **מימוש:** מקלט (`tzWebhook`) + מעבד (`tzProcessSignal`, מופעל מכתיבה ל-Firestore), מניעת כפילויות לפי `symbol_event_barTime`, גודל פוזיציה (1% מההון, תקרות), מגבלות (הפסד יומי 20$, מקס' עסקאות, קצב), Kill Switch (חוסם כניסות בלבד), פקודות **Limit בלבד** (קנייה +0.10$, מכירה -0.10$), מצב **DRY_RUN כברירת מחדל**.
 - ✅ 20 בדיקות יחידה עוברות (`npm test` בתוך `skeleton/functions`). ⚠️ לא נבדק מול Firebase או TradeZero אמיתיים.
 - ⚠️ לא ממומש: `cancelOrder`, קריאת פוזיציות מ-TradeZero, מעקב מילויים, סטופ אמיתי, Dead-man's switch. הגישה לתיעוד של TradeZero חסומה מהסביבה שבה נכתב הקוד, ולכן לא נוחש. פירוט ב-`skeleton/README.md`.
-- ⚠️ ערכי `Sell`/`Close`/`Filled` לא אומתו מול התיעוד.
+- ✅ **אומת מדף ה-MCP של TradeZero** (המשתמש הדביק): `Sell`/`Close`, סוגי פקודה, וסטטוסים סופיים `Filled`/`Canceled`/`Rejected`. ⚠️ עדיין חסר: שם סטטוס מילוי חלקי, ערכי `route`/`timeInForce` התקפים (`get_routes`), ונקודות REST לביטול, פוזיציות והזמנות פתוחות. ה-MCP עצמו מיועד לעוזר AI (לא ל-Function); ה-Function ממשיכה ב-REST עם מפתחות API.
 - ❓ שליחת ה-Webhook מה-Pine (`alert()`) טרם נכתבה (השלב הבא בתוכנית).
 - ✅ החלטות שנסגרו: פיצול מקלט/מעבד; Limit בלבד בכל שעות היום (אין Market בפרה-מרקט) עם offset של 0.10$; הפסד יומי מקסימלי 20$ (שלב הדמו); Dead-man's switch לפרה-מרקט יבנה אחרי שהזרימה הראשית עובדת.
 
@@ -90,7 +90,7 @@
 ## 6. הצעד הבא המומלץ
 
 1. **אצל המשתמש:** לקמפל את Stop-Buy ולוודא שמחיר הכניסה ברשימת העסקאות שווה למחיר בחץ. להריץ `npm test` ב-`skeleton/functions`.
-2. **אצל המשתמש:** להדביק לי את דפי התיעוד של TradeZero (ביטול הזמנה, קריאת פוזיציות והזמנות פתוחות, שדות החשבון), כדי להשלים `cancelOrder` ומעקב פוזיציה אמיתי.
+2. **אצל המשתמש:** להדביק את דפי ה-REST של TradeZero ("Equity Trading": ביטול הזמנה, פוזיציות, הזמנות פתוחות, רשימת סטטוסים, `routes`) ואת תשובת `get_account`/`get_routes` מחשבון ה-Paper, כדי להשלים `cancelOrder`, מעקב פוזיציה, ושדות הון.
 3. לכייל ב-Backtest פרמטר אחד בכל פעם: Stall, Peak trail (ATR), Climax. אפשר לייצא "List of trades" כ-CSV ולהעלות ל-repo, ואחשב פירוט לפי סיבת יציאה.
 4. לכתוב ב-Pine את ה-`alert()` ששולח את ההודעה לפי החוזה (מתג כבוי כברירת מחדל).
 5. לפרוס ל-Firebase ב-DRY_RUN, לשלוח התראה מ-TradingView, ולבדוק את `signals`/`orders`/`positions` ב-Firestore.
