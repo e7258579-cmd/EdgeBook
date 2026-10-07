@@ -24,7 +24,7 @@
 | `edgebook_trade_strategy.pine` | **האסטרטגיה, V05**, כולל קבוצת "Webhook" (כבויה כברירת מחדל) |
 | `docs/WEBHOOK_CONTRACT_V02.md` | חוזה ההודעות, מחזור חיי הפוזיציה והתקציב. **עיין בו ראשון** |
 | `docs/ALERT_SETUP_V01.md` | הוראות הגדרת ההתראה ב-TradingView (עודכן ל-V02 של החוזה) |
-| `skeleton/functions/index.js` | `tzWebhook` (מקלט, **מסלול מהיר לכניסה**, `minInstances: 1`), `tzFollowUp` (המשך כניסה: מילוי וסטופ), `tzProcessSignal` (מעבד), `tzReconcile` (כל דקה + watchdog), `tzWebhookTest` (ישן) |
+| `skeleton/functions/index.js` | `tzWebhook` (מקלט, **מסלול מהיר לכניסה**), `tzFollowUp` (המשך כניסה: מילוי וסטופ), `tzProcessSignal` (מעבד), `tzReconcile` (כל דקה + watchdog), `tzWebhookTest` (ישן) |
 | `skeleton/functions/lib/*` | `process.js` (מנהל הפוזיציות), `validate`, `sizing`, `limits`, `config`, `brokers`, `firestoreStore` |
 | `skeleton/functions/tradezero.js` | לקוח TradeZero (כולל `cancelOrder`, `getTodaysOrders`, `getRoutes`) |
 | `skeleton/functions/test/*` | 53 בדיקות יחידה (`npm test`) |
@@ -68,7 +68,7 @@
 
 - ✅ **מנהל פוזיציות** (`lib/process.js`): `entry_pending` ← `open` (סטופ אצל הברוקר) ← נסגרת. כניסה: Limit בקנייה במחיר + 0.10$ ← מילוי ← **StopLimit למכירה** ברמת `stop` (ליימיט `stop − 0.10$`; Live: `Day_Plus`, Paper: `Day`). `stop_update`: ביטול, המתנה לסטטוס סופי, והצבה מחדש (אין שינוי פקודה). `exit`: ביטול הסטופ, מכירה ב-Limit לפי **`last − 0.10$`**, המתנה למילוי, ושליחה מחדש נמוך יותר (עד 3 פעמים), ואם לא נמכר הסטופ מוצב מחדש ונוצרת התראה. כניסה שלא התמלאה תוך 30 שניות מבוטלת.
 - ✅ **הגנות:** מניעת כפילויות (`symbol_event_barTime`), נעילה לכל סמל, מגבלות (הפסד יומי 20$, מקס' עסקאות, קצב), Kill Switch (חוסם כניסות בלבד), בדיקת `accountType` לפני כל כתיבה, סיווג כשלים (4xx = לא נוצרה; 5xx = בדיקת קיום ולא שליחה כפולה; 200 עם `Rejected` = דחייה), מילוי חלקי, **DRY_RUN כברירת מחדל**.
-- ✅ **מסלול מהיר לכניסה:** `tzWebhook` שולח את פקודת הקנייה בעצמו (מגבלות, גודל, שמירת הסמל, שליחה) ועונה, בלי הקפיצה דרך Firestore. `tzFollowUp` (מופעל כשהסטטוס הופך ל-`entry_placed`) ממתין עד 30 שניות למילוי ומציב את הסטופ, או מבטל כניסה שלא התמלאה. סוג החשבון נשמר בזיכרון דקה, כדי לחסוך קריאה לפני כל פקודה. `minInstances: 1` נגד אתחול קר.
+- ✅ **מסלול מהיר לכניסה:** `tzWebhook` שולח את פקודת הקנייה בעצמו (מגבלות, גודל, שמירת הסמל, שליחה) ועונה, בלי הקפיצה דרך Firestore. `tzFollowUp` (מופעל כשהסטטוס הופך ל-`entry_placed`) ממתין עד 30 שניות למילוי ומציב את הסטופ, או מבטל כניסה שלא התמלאה. סוג החשבון נשמר בזיכרון דקה, כדי לחסוך קריאה לפני כל פקודה. **ללא `minInstances`** (עלות): ה-heartbeat שומר את המקלט פעיל.
 - ✅ **`tzReconcile`** כל דקה: משלים כניסות, מזהה סטופ שהתמלא ורושם P&L, מציב מחדש סטופ שנעלם, ו-watchdog ל-heartbeat.
 - ✅ **53 בדיקות יחידה** עוברות (סימולטור בורסה בבדיקות). ⚠️ לא נבדק מול Firebase או TradeZero אמיתיים.
 - ✅ אומת מדפי TradeZero שהוזנו: `Sell`/`Close`, סטטוסים, `executed`/`priceAvg`, `clientOrderId` ≤ 36 ולא ניתן לשימוש חוזר, ביטול ב-`DELETE .../orders/{id}`, `Day` + Limit תקף מ-04:00, StopLimit + `Day_Plus` ב-Live 04:00–20:00, ו-"אין לבטל Rejected". ⚠️ לא אומת מול תשובות אמיתיות: שמות השדות `executed`/`priceAvg`, שם ה-route ב-Live, נתיב REST לפוזיציות (לא בשימוש).
@@ -111,6 +111,12 @@
 7. ❓ שאלות 6–10 מ-V03 (סנכרון Pine/בק-אנד, רשימת מעקב אוטומטית) נשארות פתוחות, למעט מה שנסגר בסעיף 3A.
 8. ✅ **אזור (נפתר בפריסה הראשונה):** Firestore ב-`europe-west1`, ולכן כל הפונקציות החדשות הועברו לשם (`setGlobalOptions`), כדי שהקריאות ל-Firestore יהיו מהירות. `tzWebhookTest` נשארה ב-`us-central1`. הפריסה הראשונה יצרה את `tzWebhook` ו-`tzReconcile` ב-`us-central1` בטעות (לפני התיקון), ויש למחוק אותן בפריסה הבאה (הפריסה תשאל). `tzFollowUp` ו-`tzProcessSignal` נכשלו בפעם הראשונה בגלל הרשאת Eventarc שעדיין מתפשטת: מנסים שוב אחרי כמה דקות.
 
-## 8. נוהל עבודה
+## 8. עלויות (כלל חדש: **שום דבר בתשלום בלי אישור מראש, ולפני כן מחפשים חלופה חינמית**)
+
+- ✅ **הוסר:** `minInstances: 1` על המקלט (כ-2.88$ לחודש). נוסף בטעות בלי לשאול; הוסר. חלופה: ה-heartbeat כל 5 נרות שומר על המקלט פעיל. אם אתחול קר יפגע, נחליט יחד.
+- ⚠️ **שירותים שבשימוש (לפי ידיעתי, בתוך המכסות החינמיות בנפח הזה; לא אומת מול חשבון הפרויקט):** פונקציות ו-Cloud Run, Cloud Scheduler (משימה אחת: `tzReconcile`), Firestore, Secret Manager (4 סודות), Eventarc, Artifact Registry. יש להגדיר **התראת תקציב** ב-Google Cloud Billing (למשל 5$) כדי לקבל מייל על חריגה.
+- ❓ שירותים אופציונליים עתידיים שדורשים אישור מראש: Alpaca ב-99$ לחודש (זיהוי בצד השרת), שדרוג תוכנית TradingView, Bar Magnifier.
+
+## 9. נוהל עבודה
 
 כמו ב-V03 §9, בתוספת: כל שינוי נדחף לענף ומעדכן את [PR 2](https://github.com/e7258579-cmd/EdgeBook/pull/2); ההסבר של שינוי כולל מה נבדק ומה לא; הגרסה של קובץ ה-STATE עולה בכל עדכון.

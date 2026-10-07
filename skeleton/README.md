@@ -57,7 +57,7 @@ npm test
 
 ## פריסה
 
-מתוך `skeleton/`: `firebase deploy --only functions`. `tzReconcile` דורשת Cloud Scheduler (חיוב מופעל). `tzWebhook` מוגדרת עם `minInstances: 1` (מופע חם, עלות חודשית קטנה); אם לא רוצים, מוחקים את השורה ב-`index.js`. הסיסמאות (`WEBHOOK_SECRET`, `TZ_API_KEY_ID`, `TZ_API_SECRET_KEY`, `TZ_ACCOUNT_ID`) נשמרות ב-Firebase Secrets כמו עד עכשיו. כתובת ה-Webhook החדשה היא של `tzWebhook`.
+מתוך `skeleton/`: `firebase deploy --only functions`. `tzReconcile` דורשת Cloud Scheduler (חיוב מופעל).
 
 ## כללי TradeZero שהקוד מיישם (דף "API Conventions")
 

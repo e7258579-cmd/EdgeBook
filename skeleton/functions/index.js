@@ -83,10 +83,10 @@ exports.tzWebhook = onRequest(
     {
       secrets: [WEBHOOK_SECRET, TZ_API_KEY_ID, TZ_API_SECRET_KEY, TZ_ACCOUNT_ID],
       invoker: "public",
-      // One instance is kept warm so an entry does not wait for a cold start.
-      // (A small monthly cost; remove it if you prefer, entries then pay a
-      // few seconds of start-up on the first signal after a quiet period.)
-      minInstances: 1,
+      // NO paid warm instance (minInstances) on purpose: it costs about $2.88 a
+      // month. The chart's heartbeat every few minutes keeps the instance warm
+      // in practice. If cold starts turn out to hurt, add `minInstances: 1`
+      // here, but only after deciding to pay for it.
       timeoutSeconds: 30,
     },
     async (req, res) => {
