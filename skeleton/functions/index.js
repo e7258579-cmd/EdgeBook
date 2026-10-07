@@ -10,12 +10,18 @@
 // Design: docs/WEBHOOK_CONTRACT_V02.md
 
 const crypto = require("crypto");
+const {setGlobalOptions} = require("firebase-functions/v2");
 const {onRequest} = require("firebase-functions/v2/https");
 const {onDocumentCreated, onDocumentUpdated} = require("firebase-functions/v2/firestore");
 const {onSchedule} = require("firebase-functions/v2/scheduler");
 const {defineSecret} = require("firebase-functions/params");
 const {logger} = require("firebase-functions");
 const admin = require("firebase-admin");
+
+// Every function runs in the same region as the Firestore database
+// (europe-west1 for this project). The receiver makes several Firestore round
+// trips per signal, so keeping them in one region matters for latency.
+setGlobalOptions({region: "europe-west1"});
 
 admin.initializeApp();
 const db = admin.firestore();

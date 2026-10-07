@@ -30,7 +30,8 @@ const TZ_API_SECRET_KEY = defineSecret("TZ_API_SECRET_KEY");
 const TZ_ACCOUNT_ID = defineSecret("TZ_ACCOUNT_ID");
 
 exports.tzWebhookTest = onRequest(
-    {secrets: [WEBHOOK_SECRET, TZ_API_KEY_ID, TZ_API_SECRET_KEY, TZ_ACCOUNT_ID]},
+    // Stays where it was first deployed, so the old test URL keeps working.
+    {region: "us-central1", secrets: [WEBHOOK_SECRET, TZ_API_KEY_ID, TZ_API_SECRET_KEY, TZ_ACCOUNT_ID]},
     async (req, res) => {
       const body = req.body || {};
 
