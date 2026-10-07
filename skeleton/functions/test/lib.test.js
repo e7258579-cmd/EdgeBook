@@ -7,6 +7,7 @@ const {mergeConfig, nyDateKey} = require("../lib/config");
 const {entrySignal, exitSignal} = require("./helpers");
 
 const base = (o) => ({secret: "x", ...o});
+const {stopSignal} = require("./helpers");
 
 test("validate: good entry and exit pass, secret is stripped", () => {
   const e = validateSignal(base(entrySignal()));
@@ -17,7 +18,8 @@ test("validate: good entry and exit pass, secret is stripped", () => {
 
 test("validate: rejects bad shapes", () => {
   assert.equal(validateSignal(null).ok, false);
-  assert.equal(validateSignal(base(entrySignal({v: 2}))).ok, false);
+  assert.equal(validateSignal(base(entrySignal({v: 1}))).ok, false);
+  assert.equal(validateSignal(base(entrySignal({sentAt: 0}))).ok, false);
   assert.equal(validateSignal(base(entrySignal({symbol: "aapl"}))).ok, false);
   assert.equal(validateSignal(base(entrySignal({stop: 5}))).ok, false); // stop above price
   assert.equal(validateSignal(base(entrySignal({mode: "x"}))).ok, false);
@@ -30,6 +32,18 @@ test("validate: session accepts pre, regular and post only", () => {
     assert.equal(validateSignal(base(entrySignal({session}))).ok, true);
   }
   assert.equal(validateSignal(base(entrySignal({session: "night"}))).ok, false);
+});
+
+test("validate: stop_update and heartbeat", () => {
+  assert.equal(validateSignal(base(stopSignal())).ok, true);
+  assert.equal(validateSignal(base(stopSignal({stop: 0}))).ok, false);
+  const hb = {v: 2, event: "heartbeat", symbol: "WHLR", barTime: 1, sentAt: 1, tf: "1", strategy: "V05", session: "pre"};
+  assert.equal(validateSignal(base(hb)).ok, true);
+});
+
+test("validate: exit carries last, which must be positive when present", () => {
+  assert.equal(validateSignal(base(exitSignal({last: 3.7}))).ok, true);
+  assert.equal(validateSignal(base(exitSignal({last: -1}))).ok, false);
 });
 
 test("signalKey is deterministic", () => {

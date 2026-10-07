@@ -1,12 +1,16 @@
 // EdgeBook Firebase Functions.
 //   tzWebhook         (HTTP)       Receiver: validate, dedupe, queue the signal, answer fast.
-//   tzProcessSignal   (Firestore)  Processor: all the trading logic, runs when a signal is queued.
+//                                  Heartbeats are recorded here and not queued.
+//   tzProcessSignal   (Firestore)  Processor: the position manager, runs when a signal is queued.
+//   tzReconcile       (schedule)   Every minute: finishes pending entries, notices filled stops,
+//                                  warns when a symbol with a position has no heartbeat.
 //   tzWebhookTest     (HTTP)       Legacy connectivity test.
-// Design: docs/WEBHOOK_CONTRACT_V01.md
+// Design: docs/WEBHOOK_CONTRACT_V02.md
 
 const crypto = require("crypto");
 const {onRequest} = require("firebase-functions/v2/https");
 const {onDocumentCreated} = require("firebase-functions/v2/firestore");
+const {onSchedule} = require("firebase-functions/v2/scheduler");
 const {defineSecret} = require("firebase-functions/params");
 const {logger} = require("firebase-functions");
 const admin = require("firebase-admin");
@@ -18,7 +22,7 @@ const FieldValue = admin.firestore.FieldValue;
 const {createClient} = require("./tradezero");
 const {validateSignal, signalKey} = require("./lib/validate");
 const {mergeConfig} = require("./lib/config");
-const {processSignal} = require("./lib/process");
+const {processSignal, reconcileAll} = require("./lib/process");
 const {createDryRunBroker, createTradeZeroBroker} = require("./lib/brokers");
 const {createFirestoreStore} = require("./lib/firestoreStore");
 
@@ -26,6 +30,21 @@ const WEBHOOK_SECRET = defineSecret("WEBHOOK_SECRET");
 const TZ_API_KEY_ID = defineSecret("TZ_API_KEY_ID");
 const TZ_API_SECRET_KEY = defineSecret("TZ_API_SECRET_KEY");
 const TZ_ACCOUNT_ID = defineSecret("TZ_ACCOUNT_ID");
+
+async function loadConfig() {
+  const snap = await db.collection("control").doc("config").get();
+  return mergeConfig(snap.exists ? snap.data() : {});
+}
+
+function makeBroker(config) {
+  return config.dryRun ?
+    createDryRunBroker() :
+    createTradeZeroBroker(createClient({
+      apiKeyId: TZ_API_KEY_ID.value(),
+      apiSecretKey: TZ_API_SECRET_KEY.value(),
+      accountId: TZ_ACCOUNT_ID.value(),
+    }));
+}
 
 function safeEqual(a, b) {
   const x = Buffer.from(String(a));
@@ -70,12 +89,22 @@ exports.tzWebhook = onRequest(
         res.status(400).json({ok: false, error: checked.errors});
         return;
       }
-      const key = signalKey(checked.signal);
+      const signal = checked.signal;
+      if (signal.event === "heartbeat") {
+        await createFirestoreStore(db, FieldValue).setHeartbeat(signal.symbol, {
+          lastBarTime: signal.barTime, lastSentAt: signal.sentAt, receivedAt: Date.now(),
+          tf: signal.tf, strategy: signal.strategy,
+        });
+        res.status(200).json({ok: true, status: "heartbeat"});
+        return;
+      }
+      const key = signalKey(signal);
       try {
         // create() fails if the document exists: that is the dedupe.
         await db.collection("signals").doc(key).create({
           status: "queued",
-          signal: checked.signal,
+          signal,
+          latencyMs: Date.now() - signal.sentAt, // TradingView -> us (clock skew included)
           receivedAt: FieldValue.serverTimestamp(),
         });
       } catch (err) {
@@ -96,6 +125,7 @@ exports.tzProcessSignal = onDocumentCreated(
     {
       document: "signals/{signalId}",
       secrets: [TZ_API_KEY_ID, TZ_API_SECRET_KEY, TZ_ACCOUNT_ID],
+      timeoutSeconds: 120, // an exit may wait for fills and re-price a few times
     },
     async (event) => {
       const ref = event.data.ref;
@@ -108,15 +138,8 @@ exports.tzProcessSignal = onDocumentCreated(
       });
       if (!claimed) return;
 
-      const cfgSnap = await db.collection("control").doc("config").get();
-      const config = mergeConfig(cfgSnap.exists ? cfgSnap.data() : {});
-      const broker = config.dryRun ?
-        createDryRunBroker() :
-        createTradeZeroBroker(createClient({
-          apiKeyId: TZ_API_KEY_ID.value(),
-          apiSecretKey: TZ_API_SECRET_KEY.value(),
-          accountId: TZ_ACCOUNT_ID.value(),
-        }));
+      const config = await loadConfig();
+      const broker = makeBroker(config);
       const store = createFirestoreStore(db, FieldValue);
 
       let outcome;
@@ -133,6 +156,38 @@ exports.tzProcessSignal = onDocumentCreated(
         completedAt: FieldValue.serverTimestamp(),
       });
       logger.info("signal processed", {key: ref.id, status: outcome.status, reason: outcome.reason || null});
+    },
+);
+
+// ─── Reconcile + watchdog (every minute) ─────────────────────────
+exports.tzReconcile = onSchedule(
+    {
+      schedule: "every 1 minutes",
+      secrets: [TZ_API_KEY_ID, TZ_API_SECRET_KEY, TZ_ACCOUNT_ID],
+      timeoutSeconds: 120,
+    },
+    async () => {
+      const config = await loadConfig();
+      if (config.dryRun) return; // simulated positions have nothing at the broker
+      const store = createFirestoreStore(db, FieldValue);
+      const results = await reconcileAll({store, broker: makeBroker(config), config});
+      const acted = results.filter((r) => r && r.status !== "ignored");
+      if (acted.length) logger.info("reconcile", acted);
+
+      // Watchdog: a position is open, but its chart stopped sending heartbeats.
+      // The protective stop is still at the broker; this only warns a human.
+      const now = Date.now();
+      for (const pos of await store.listPositions()) {
+        const hb = await store.getHeartbeat(pos.symbol);
+        const age = hb ? (now - hb.receivedAt) / 1000 : Infinity;
+        if (age > config.heartbeatMaxAgeSec) {
+          const slot = Math.floor(now / 600000); // at most one warning per 10 minutes
+          await db.collection("alerts").doc(`heartbeat_${pos.symbol}_${slot}`).set({
+            type: "heartbeat_missing", symbol: pos.symbol, ageSec: Number.isFinite(age) ? Math.round(age) : null, at: now,
+          });
+          logger.error("heartbeat missing for a symbol with a position", {symbol: pos.symbol, ageSec: age});
+        }
+      }
     },
 );
 

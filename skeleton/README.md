@@ -1,6 +1,6 @@
 # EdgeBook — Firebase Functions (skeleton)
 
-מה יש כאן, איך מפעילים, ומה עדיין לא מאומת. חוזה ההודעות: `docs/WEBHOOK_CONTRACT_V01.md`.
+מה יש כאן, איך מפעילים, ומה עדיין לא מאומת. חוזה ההודעות: `docs/WEBHOOK_CONTRACT_V02.md`.
 
 ## מבנה
 
@@ -8,7 +8,7 @@
 skeleton/
   firebase.json
   functions/
-    index.js            מקלט (tzWebhook), מעבד (tzProcessSignal), בדיקה ישנה (tzWebhookTest)
+    index.js            מקלט (tzWebhook), מעבד/מנהל פוזיציות (tzProcessSignal), בדיקת התאמה כל דקה (tzReconcile), בדיקה ישנה (tzWebhookTest)
     legacyTest.js       בדיקת החיבור המקורית, נשמרה כדי שהתראת הבדיקה הישנה תמשיך לעבוד
     tradezero.js        לקוח TradeZero (getAccount, placeOrder, getOrder, awaitTerminal)
     lib/                לוגיקה טהורה: validate, sizing, limits, config, process, brokers, firestoreStore
@@ -38,18 +38,26 @@ npm test
 | `maxTradesPerDay` | `10` | כניסות ליום |
 | `maxOrdersPerMinute` | `6` | הזמנות ב-60 השניות האחרונות |
 | `limitOffsetUsd` | `0.10` | קנייה: מחיר + offset. מכירה: מחיר - offset |
-| `maxSignalAgeSec` | `180` | אות ישן יותר נזרק |
+| `maxSignalAgeSec` | `180` | כניסה או `stop_update` ישנים יותר נזרקים (יציאה תמיד מבוצעת) |
+| `stopOffsetUsd` | `0.10` | StopLimit מגן: ליימיט = מחיר הסטופ - offset |
+| `stopTimeInForce` | `""` | ריק = אוטומטי: `Day_Plus` ב-Live (תקף 04:00–20:00), `Day` ב-Paper |
+| `entryWaitMs` | `4000` | כמה ממתינים למילוי כניסה לפני שמשאירים אותה ממתינה |
+| `entryTimeoutSec` | `30` | כניסה שלא התמלאה אחרי זמן זה מבוטלת |
+| `sellWaitMs` | `3000` | כמה ממתינים למילוי מכירה לפני ביטול ושליחה מחדש |
+| `maxReprices` | `3` | כמה פעמים שולחים מכירה מחדש נמוך יותר |
+| `repriceStepUsd` | `0.10` | בכמה יורדים בכל שליחה מחדש |
+| `heartbeatMaxAgeSec` | `900` | התראה אם לסמל עם פוזיציה אין heartbeat כל כך הרבה זמן |
 | `timeInForce` | `"Day"` | ⚠️ לא אומת לשעות מורחבות |
 | `route` | `""` | ריק = TradeZero בוחר (ב-Paper זה אוטומטי: PAPER/PAPERM). **ב-Live חובה route מפורש מ-`GET /routes`** |
 | `environment` | `"paper"` | `"paper"` או `"live"`. הכתיבה נחסמת אם סוג החשבון (`accountType`) לא תואם |
 
 ## אוספים שנכתבים
 
-`signals` (כל אות וסטטוס שלו), `positions` (פוזיציות פתוחות), `orders` (כל הזמנה שנשלחה), `trades` (עסקאות סגורות), `stats/{תאריך}` (מונים יומיים).
+`signals` (כל אות, סטטוס ו-`latencyMs`), `heartbeats` (אחד לסמל), `positions` (פתוחות או ממתינות), `locks` (נעילת סמל), `orders` (כל הזמנה שנשלחה, עם `purpose`), `trades` (עסקאות סגורות), `stats/{תאריך}` (מונים יומיים), `alerts` (דברים שדורשים התערבות).
 
 ## פריסה
 
-מתוך `skeleton/`: `firebase deploy --only functions`. הסיסמאות (`WEBHOOK_SECRET`, `TZ_API_KEY_ID`, `TZ_API_SECRET_KEY`, `TZ_ACCOUNT_ID`) נשמרות ב-Firebase Secrets כמו עד עכשיו. כתובת ה-Webhook החדשה היא של `tzWebhook`.
+מתוך `skeleton/`: `firebase deploy --only functions`. `tzReconcile` דורשת Cloud Scheduler (חיוב מופעל). הסיסמאות (`WEBHOOK_SECRET`, `TZ_API_KEY_ID`, `TZ_API_SECRET_KEY`, `TZ_ACCOUNT_ID`) נשמרות ב-Firebase Secrets כמו עד עכשיו. כתובת ה-Webhook החדשה היא של `tzWebhook`.
 
 ## כללי TradeZero שהקוד מיישם (דף "API Conventions")
 
@@ -59,6 +67,7 @@ npm test
 - אין לבטל פקודה ב-`Rejected`/`Canceled`.
 - מילוי חלקי: הקוד מבטל את שארית הכניסה ומוכר רק את `executed` (כמות שמולאה). ⚠️ שם השדה `executed` נלקח מהמלצת הדף ("reconcile against orderStatus, executed, leavesQuantity"), ולא נבדק על תשובה אמיתית.
 - מחירים: עד 4 ספרות אחרי הנקודה. מחיר שווה או מעל 1$ מעוגל לסנט, מתחת ל-1$ ל-0.0001 (ה-offset של 0.10$ ענק לשוק של מניה זולה, אבל זה מה שנקבע).
+- **סטופ אצל הברוקר:** אחרי שכניסה התמלאה (`Filled`, כפי שהתיעוד מורה) מוצב StopLimit למכירה (Close) ברמת `stop` עם ליימיט `stop - 0.10$`. הסטופ מוזז לפי הודעות `stop_update` בביטול והצבה מחדש עם מזהה חדש, ובכל מקרה ממתינים לסטטוס סופי לפני הצבה. ביציאה: ביטול הסטופ, מכירה ב-Limit לפי `last - 0.10$`, וניסיונות חוזרים נמוכים יותר.
 - ביטול כניסה שעדיין לא התמלאה: אחרי שליחת ה-DELETE הקוד **ממתין לסטטוס סופי** (`Filled`/`Canceled`/`Rejected`/`Expired`/`DoneForDay`) ולא מסתמך על תשובת הביטול (404 יכול לאמר "כבר התמלאה", ו-`PendingCancel` עדיין יכולה להתמלא). אם הסטטוס לא הסתיים, הפוזיציה נשארת חסומה עם שגיאה מפורשת.
 - אורך `clientOrderId`: עד 36 תווים ב-Live. המזהים שלנו (`eb-<סמל>-<זמן נר>-B/S`) עד 29 תווים.
 - אין Modify: שינוי הזמנה = ביטול ושליחה מחדש עם מזהה חדש.
@@ -70,7 +79,7 @@ npm test
 1. ✅ `cancelOrder` (`DELETE /accounts/:accountId/orders/:clientOrderId`, "orders" ברבים), `getTodaysOrders` ו-`getRoutes` ממומשים לפי טבלת הנתיבים. ⚠️ צורת תשובת הביטול לא ידועה (הקוד סובל כל תשובה).
 2. ✅ **`timeInForce: "Day"` עם Limit תקף מ-04:00 בבוקר** ב-SMART (גם ב-Live), ונשאר תקף אחרי 16:00. פקודות Market ו-Stop עם Day דחויות מחוץ ל-09:30–16:00 (R100 ב-Live), בהתאם להחלטה שלא להשתמש ב-Market. ב-Live חובה `route` מפורש מ-`GET /routes` (בלעדיו, R54).
 3. ⚠️ **נתיב ה-REST לקריאת פוזיציות** חסר, ולכן אין בדיקת פוזיציה מול TradeZero (רק מול ה-Firestore שלנו).
-4. ⚠️ **אין מעקב אחרי מילויי מכירה.** הרווח בעסקה מחושב ממחירי האותות, והפוזיציה נמחקת מהרישום ברגע שפקודת המכירה התקבלה. כדי לדעת מילוי בפועל צריך לבדוק את הפקודה או להאזין ל-Portfolio Stream (WebSocket, בטא).
-5. ⚠️ **אין סטופ אמיתי אצל הברוקר** ואין עדיין "Dead-man's switch" לפרה-מרקט. **ממצא חדש מהתיעוד:** ב-Live ב-SMART אפשר לשים פקודת **StopLimit עם `Day_Plus`** כבר מ-04:00 עד 20:00 (Stop רגיל רק 09:30–16:00). ב-Paper לא (המסלול PAPER לא מציע `Day_Plus`, ו-StopLimit עם Day רק 09:30–16:00). סיכון: StopLimit עלול לא להתמלא אם המחיר קופץ מעבר לליימיט. ההנחיה של TradeZero: להציב סטופ רק אחרי שהכניסה במצב `Filled`.
+4. ✅ מילוי מכירה ומילוי סטופ נבדקים (המכירה ממתינה לסטטוס סופי, הסטופ נבדק כל דקה ב-`tzReconcile`). ⚠️ אבל זה בדיקה תכופה ולא Portfolio WebSocket, כלומר סטופ שהתמלא יירשם עד דקה אחריו. ההגנה עצמה (הסטופ אצל הברוקר) לא מושפעת.
+5. ⚠️ **סטופ בפרה-מרקט:** ב-Live, StopLimit עם `Day_Plus` תקף מ-04:00 (לפי התיעוד). ב-Paper לא ניתן לבדוק (שם StopLimit עם Day תקף רק 09:30–16:00). StopLimit עלול לא להתמלא אם המחיר קופץ מתחת לליימיט.
 6. ⚠️ **אזור Firestore:** ה-Trigger של המעבד דורש התאמה בין אזור הפונקציה (ברירת מחדל `us-central1`) לאזור מסד הנתונים. אם הפריסה מתלוננת, צריך להגדיר `region` ב-`onDocumentCreated`.
 7. ⚠️ **גודל החשבון קבוע** בהגדרות (`accountEquityUsd`). שם השדה של ההון ב-`GET /account/{id}` (לפי הדף: `bp` לכוח קנייה בתשובת הפירוט) לא נבדק על תשובה אמיתית.

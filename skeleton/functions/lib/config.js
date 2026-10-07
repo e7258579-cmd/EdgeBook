@@ -15,6 +15,14 @@ const DEFAULTS = {
   limitOffsetUsd: 0.10, // buy limit = price + offset, sell limit = price - offset
   maxSignalAgeSec: 180, // a signal older than this (by barTime) is dropped
   timeInForce: "Day", // unverified for extended hours, see README
+  stopOffsetUsd: 0.10, // protective StopLimit: limit price = stop price - offset
+  stopTimeInForce: "", // "" = auto: Day_Plus on live (valid 04:00-20:00), Day on paper
+  entryWaitMs: 4000, // after sending an entry, wait this long for the fill before leaving it pending
+  entryTimeoutSec: 30, // an entry still unfilled after this long is cancelled (price ran away)
+  sellWaitMs: 3000, // wait this long for a sell to fill before cancelling and re-pricing
+  maxReprices: 3, // sell attempts after the first one, each lower by repriceStepUsd
+  repriceStepUsd: 0.10,
+  heartbeatMaxAgeSec: 900, // warn if a symbol with an open position has no heartbeat for this long
   route: "", // empty = let TradeZero pick (Paper does this automatically). LIVE needs an explicit route from GET /routes
   environment: "paper", // "paper" or "live": writes are blocked if the account type does not match
 };

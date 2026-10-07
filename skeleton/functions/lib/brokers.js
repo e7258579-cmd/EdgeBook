@@ -1,7 +1,8 @@
 // Broker adapters with the interface the Processor expects:
 //   placeOrder(order), getOrder(clientOrderId), cancelOrder(clientOrderId),
 //   findOrder(clientOrderId) (poll for an order that may not be registered yet),
-//   settleOrder(clientOrderId) (poll until the order reaches a terminal status),
+//   settleOrder(clientOrderId, {timeoutMs}) (poll until the order reaches a
+//     terminal status or the time runs out; returns the last order seen),
 //   getAccountType() ("Paper" or anything else)
 
 // DRY_RUN: nothing leaves the building. Every order "fills" instantly.
@@ -22,6 +23,8 @@ function createDryRunBroker() {
     async settleOrder(clientOrderId) {
       return {orderStatus: "Filled", clientOrderId, simulated: true};
     },
+    // Note: the Processor never queries a DRY_RUN broker about order state;
+    // simulated positions are handled inside process.js.
     async getAccountType() {
       return "Paper";
     },
@@ -52,13 +55,13 @@ function createTradeZeroBroker(tz) {
       }
       return null;
     },
-    // Poll (250 ms, up to 6 s) until the order is Filled / Canceled /
-    // Rejected / Expired / DoneForDay. Returns the last order seen, which may
-    // still be non-terminal (e.g. PendingCancel) if the time ran out.
-    async settleOrder(id) {
+    // Poll (250 ms) until the order is Filled / Canceled / Rejected / Expired /
+    // DoneForDay. Returns the last order seen, which may still be non-terminal
+    // (e.g. a resting limit, or PendingCancel) if the time ran out.
+    async settleOrder(id, {timeoutMs = 6000} = {}) {
       const terminal = new Set(["Filled", "Canceled", "Cancelled", "Rejected", "Expired", "DoneForDay"]);
       let last = null;
-      const deadline = Date.now() + 6000;
+      const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
         const o = await tz.getOrder(id);
         if (o) {

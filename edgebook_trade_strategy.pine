@@ -101,8 +101,10 @@ input_peak_trail_min_profit = input.float(20.0, "Peak trail active only after pr
 input_preopen_exit_enabled = input.bool(true, "Close any position before the regular open", group = "Pre-open protection", tooltip = "Safety net against being in a position when the regular session starts (09:30 New York). From the exit time until 09:30 an open position is closed, at the close of the bar that ends at the exit time, and no new entry is allowed. Entries are allowed again from 09:30.")
 input_preopen_exit_time = input.int(925, "Exit time (HHMM, New York)", minval = 400, maxval = 929, group = "Pre-open protection", tooltip = "For example 925 = 09:25. The exit is made at the close of the bar that ENDS at this time (on a 1-minute chart: the 09:24 bar, i.e. at 09:25:00).")
 input_entry_stopbuy = input.bool(true, "Entry as stop-buy at the trigger level", group = "Entry guard", tooltip = "On: a stop-buy order sits at the trigger level (the last red candle's level) and fills when a bar's high reaches it, at the trigger price, or at the open if the bar gaps above it. This is how the entry works live, and it fixes the late/expensive backtest entries. The hold-seconds setting does not apply in this mode (a backtest has no ticks). Off: the old behavior, entry at the close of the bar that holds above the trigger.")
-input_webhook_enabled = input.bool(false, "Send webhook alerts (alert() calls)", group = "Webhook", tooltip = "Off by default. When on, the script calls alert() with a JSON message at every ENTRY and EXIT, at the bar close, on realtime bars only (never on history). Create ONE alert per chart on this strategy, condition: alert() function calls only, with the webhook URL. Contract: docs/WEBHOOK_CONTRACT_V01.md.")
+input_webhook_enabled = input.bool(false, "Send webhook alerts (alert() calls)", group = "Webhook", tooltip = "Off by default. When on, the script calls alert() with a JSON message at every ENTRY and EXIT, at the bar close, on realtime bars only (never on history). Create ONE alert per chart on this strategy, condition: alert() function calls only, with the webhook URL. Contract: docs/WEBHOOK_CONTRACT_V02.md.")
 input_webhook_secret = input.string("", "Webhook secret", group = "Webhook", tooltip = "The same value as WEBHOOK_SECRET in Firebase. It is part of every message, so never publish or share this script with the secret filled in.")
+input_webhook_max_msgs = input.int(12, "Webhook budget: max messages per 3 minutes", minval = 4, maxval = 14, group = "Webhook", tooltip = "TradingView stops an alert that fires more than 15 times in 3 minutes. This script never sends more than this many (heartbeats stop 4 messages earlier, so trades always have room). A blocked message shows a red BUDGET label.")
+input_webhook_heartbeat_bars = input.int(5, "Heartbeat every N bars", minval = 1, maxval = 60, group = "Webhook", tooltip = "A small message from the SAME alert as the trades. If it stops arriving while a position is open, the backend warns (the alert may have been stopped).")
 input_webhook_debug = input.bool(false, "Show each webhook message as a chart label (nothing is sent)", group = "Webhook", tooltip = "Hover a label to read the exact JSON (secret hidden). Works on history too, so the messages can be checked in the backtest.")
 input_cooldown_bars = input.int(1, "Cooldown after an exit (bars)", minval = 0, maxval = 30, group = "Entry guard", tooltip = "After an exit, no new entry until more than this many bars have passed. Protects against repeated entry/exit pairs around the same trigger.")
 input_use_date_range = input.bool(false, "Limit trading to a date range", group = "Date range")
@@ -122,16 +124,29 @@ inFirst5min    = not na(time(timeframe.period, "0930-0935", "America/New_York"))
 inDateRange    = not input_use_date_range or (time >= input_date_from and time < input_date_to + 86400000)
 inActiveWindow = inDateRange and not na(time(timeframe.period, input_trading_hours, "America/New_York"))
 
-// ─── Webhook messages (contract: docs/WEBHOOK_CONTRACT_V01.md) ──────────
+// ─── Webhook messages (contract: docs/WEBHOOK_CONTRACT_V02.md) ──────────
 STRATEGY_VERSION = "V05"
 sessionTag = not na(inPreMarket) ? "pre" : (not na(inRegularHours) ? "regular" : "post")
 
+// Times (ms) of the messages sent in the last 3 minutes: the rate budget.
+var array<int> sentTimes = array.new<int>()
+
 webhookMsg(string event, string extra, string secretText) =>
-    '{"secret":"' + secretText + '","v":1,"event":"' + event + '","symbol":"' + syminfo.ticker + '","barTime":' + str.tostring(time_close, "#") + ',"tf":"' + timeframe.period + '","strategy":"' + STRATEGY_VERSION + '","session":"' + sessionTag + '"' + extra + '}'
+    '{"secret":"' + secretText + '","v":2,"event":"' + event + '","symbol":"' + syminfo.ticker + '","barTime":' + str.tostring(time_close, "#") + ',"sentAt":' + str.tostring(timenow, "#") + ',"tf":"' + timeframe.period + '","strategy":"' + STRATEGY_VERSION + '","session":"' + sessionTag + '"' + extra + '}'
 
 emitWebhook(string event, string extra) =>
-    if input_webhook_enabled and str.length(input_webhook_secret) > 0
-        alert(webhookMsg(event, extra, input_webhook_secret), alert.freq_once_per_bar_close)
+    // Real bars only: alert() never fires on history, and history must not
+    // fill the budget.
+    if input_webhook_enabled and str.length(input_webhook_secret) > 0 and barstate.isrealtime
+        while array.size(sentTimes) > 0 and timenow - array.get(sentTimes, 0) > 180000
+            array.shift(sentTimes)
+        // Heartbeats stop 4 messages before the limit so trades always have room.
+        limitNow = event == "heartbeat" ? input_webhook_max_msgs - 4 : input_webhook_max_msgs
+        if array.size(sentTimes) < limitNow
+            alert(webhookMsg(event, extra, input_webhook_secret), alert.freq_once_per_bar_close)
+            array.push(sentTimes, timenow)
+        else
+            label.new(bar_index, high, text = "BUDGET", style = label.style_label_left, color = color.red, textcolor = color.white, size = size.tiny, tooltip = "Webhook budget reached: " + event + " NOT sent")
     if input_webhook_debug
         label.new(bar_index, high, text = event, style = label.style_label_left, color = color.new(color.gray, 20), textcolor = color.white, size = size.tiny, tooltip = webhookMsg(event, extra, "***"))
 
@@ -152,6 +167,7 @@ var float highestSinceEntry      = na
 var int   lastExitBar            = na   // bar of the last exit (cooldown)
 var float stopBuyLevel            = na   // stop-buy entry level, set at a bar close, used from the next bar
 var float stopBuyRedLow           = na   // red-candle low belonging to that level (the stop price)
+var float lastSentStop           = na   // last protective level reported to the backend
 var float peakHigh               = na   // highest bar high since entry (peak trail)
 var float peakFloor              = na   // peak-trail exit level, set at the close of a bar, used from the next bar
 var float stallHigh              = na   // reference high for the stall detector (close- or High-based)
@@ -550,9 +566,10 @@ if entryFires
     noNewHighCount         := 0
     barCloseHighest        := na
     state                  := STATE_IN_POSITION
+    lastSentStop := entryRedLow
     entryTrigForMsg = input_entry_stopbuy ? stopBuyLevel : entryTriggerLevel
     if not na(entryFillPx) and not na(entryRedLow) and not na(entryTrigForMsg)
-        entryAlertExtra := ',"price":' + str.tostring(entryFillPx, "0.####") + ',"stop":' + str.tostring(entryRedLow, "0.####") + ',"trigger":' + str.tostring(entryTrigForMsg, "0.####") + ',"mode":"' + (input_entry_stopbuy ? "stopbuy" : "close") + '","qtyHint":' + str.tostring(input_position_shares)
+        entryAlertExtra := ',"price":' + str.tostring(entryFillPx, "0.####") + ',"stop":' + str.tostring(entryRedLow, "0.####") + ',"trigger":' + str.tostring(entryTrigForMsg, "0.####") + ',"mode":"' + (input_entry_stopbuy ? "stopbuy" : "close") + '","qtyHint":' + str.tostring(input_position_shares) + ',"last":' + str.tostring(close, "0.####")
 
 if input_entry_stopbuy
     // Place (or refresh) the stop-buy for the NEXT bar, from closed-bar data.
@@ -671,7 +688,7 @@ if state == STATE_IN_POSITION
         label.new(bar_index, high, text = "", style = label.style_arrowdown, color = color.new(exitColor, 0), size = size.normal, tooltip = exitTt)
         // Webhook: skipped when entry and exit are on the SAME bar (neither was sent).
         if bar_index != entryBar
-            emitWebhook("exit", ',"reason":"' + exitReason + '","price":' + str.tostring(exitPx, "0.####"))
+            emitWebhook("exit", ',"reason":"' + exitReason + '","price":' + str.tostring(exitPx, "0.####") + ',"last":' + str.tostring(close, "0.####"))
         // ORDER - a side effect only.
         if bar_index == entryBar and not input_entry_stopbuy
             strategy.cancel("Long")   // entry and exit on the SAME bar: nothing was ever held
@@ -695,6 +712,13 @@ if state == STATE_IN_POSITION
             peakFloor := newFloor
             if not na(peakFloor) and strategy.position_size > 0
                 strategy.exit("PT", "Long", stop = peakFloor, comment = "peak_trail")
+            // Webhook: the protective level (the higher of the red-candle low and
+            // the peak floor) only ever moves up. Report it once per bar, so the
+            // backend can move the stop that sits at the broker.
+            effStop = math.max(stopPrice, nz(peakFloor, 0))
+            if not na(lastSentStop) and effStop > lastSentStop and bar_index > entryBar
+                emitWebhook("stop_update", ',"stop":' + str.tostring(effStop, "0.####") + ',"last":' + str.tostring(close, "0.####"))
+                lastSentStop := effStop
 
 // ─── END OF WINDOW (order layer only) ──────────────────────────
 // Nothing is held outside the trading window. This closes the ORDER only;
@@ -703,11 +727,15 @@ if strategy.position_size > 0 and not inActiveWindow and not closeSentThisBar
     strategy.close("Long", comment = "end_of_window")
     strategy.cancel("PT")
     label.new(bar_index, high, text = "", style = label.style_arrowdown, color = color.gray, size = size.normal, tooltip = "reason: end_of_window\nexitPrice: " + str.tostring(close, "#.##"))
-    emitWebhook("exit", ',"reason":"end_of_window","price":' + str.tostring(close, "0.####"))
+    emitWebhook("exit", ',"reason":"end_of_window","price":' + str.tostring(close, "0.####") + ',"last":' + str.tostring(close, "0.####"))
 
 // ─── WEBHOOK: ENTRY (sent last, so an entry and exit on the same bar send nothing) ───
 if entryAlertExtra != "" and state == STATE_IN_POSITION
     emitWebhook("entry", entryAlertExtra)
+
+// ─── WEBHOOK: HEARTBEAT (same alert as the trades, so a stopped alert is noticed) ───
+if bar_index % input_webhook_heartbeat_bars == 0
+    emitWebhook("heartbeat", "")
 
 // ─── Plots — minimal, just enough spatial context ──────────────
 plot(input_show_keylevel_plot and state == STATE_SEARCHING ? keyLevel : na, title = "keyLevel", color = color.fuchsia, style = plot.style_stepline, linewidth = 3)
