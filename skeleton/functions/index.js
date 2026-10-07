@@ -218,6 +218,8 @@ exports.tzProcessSignal = onDocumentCreated(
         return snap.data();
       });
       if (!claimed) return;
+      // How long the signal waited in the queue before we started on it.
+      const queueDelayMs = claimed.receivedAt && claimed.receivedAt.toMillis ? Date.now() - claimed.receivedAt.toMillis() : null;
 
       const config = await loadConfig();
       const broker = makeBroker(config);
@@ -234,6 +236,7 @@ exports.tzProcessSignal = onDocumentCreated(
         status: outcome.status,
         outcome: JSON.parse(JSON.stringify(outcome)),
         dryRun: config.dryRun,
+        queueDelayMs,
         completedAt: FieldValue.serverTimestamp(),
       });
       logger.info("signal processed", {key: ref.id, status: outcome.status, reason: outcome.reason || null});

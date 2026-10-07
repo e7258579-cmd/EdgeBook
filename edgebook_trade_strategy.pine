@@ -89,6 +89,10 @@ input_trading_hours = input.string("0400-1600", "Trading hours (New York time)",
      tooltip = "When new trades may OPEN, and when an open trade is force-closed. Several ranges allowed, separated by commas, e.g. 0400-0930,1300-1500. Format HHMM-HHMM. Does NOT change keyLevel: highs made outside these hours still count.")
 input_trail_mode = input.string("Tiered (EMA9 / EMA20)", "Trail mode", options = ["Tiered (EMA9 / EMA20)", "Single EMA"], group = "Exit", tooltip = "Tiered: EMA9 below 10% / above 30% profit, EMA20 in between. Single EMA: always trail on the one EMA length below. The stall detector is not affected by this choice.")
 input_trail_ema_len = input.int(9, "Single EMA length (used only in Single EMA mode)", minval = 2, maxval = 200, group = "Exit")
+input_tier1_ema_len = input.int(9, "Tiered: EMA length, stage 1 (profit below tier 1)", minval = 2, maxval = 200, group = "Exit", tooltip = "Tiered mode trails on a different EMA at each stage of the position. The stage boundaries are the two tier percentages in the Stall group (default 10% and 30%).")
+input_tier2_ema_len = input.int(20, "Tiered: EMA length, stage 2 (between tier 1 and tier 2)", minval = 2, maxval = 200, group = "Exit")
+input_tier3_ema_len = input.int(9, "Tiered: EMA length, stage 3 (profit above tier 2)", minval = 2, maxval = 200, group = "Exit")
+input_intrabar_trail = input.bool(true, "EMA trail exit on every tick (live only)", group = "Exit", tooltip = "Live only; the backtest always uses the bar close. When on, the exit alert is sent the moment price falls below the active trail EMA, instead of at the bar close. Once sent it is final: the bar-close logic then exits as well, even if price has recovered above the EMA by the close. This makes live results differ from the backtest: a dip below the EMA that recovers within the same bar now exits you.")
 input_atr_trail_enabled = input.bool(true, "Peak trail: ATR from the peak", group = "Peak trail", tooltip = "Exit floor = highest high since entry minus N x ATR. Becomes active only after the trade is up by the minimum profit below. Computed from CLOSED bars only and used like a stop order: if a bar's low touches it, the exit is at the floor price (or the open, if the bar gaps below it).")
 input_atr_len = input.int(14, "ATR length", minval = 2, maxval = 100, group = "Peak trail")
 input_atr_mult = input.float(3.0, "ATR multiple (distance below the peak)", minval = 0.5, step = 0.5, group = "Peak trail")
@@ -171,6 +175,8 @@ var int   lastExitBar            = na   // bar of the last exit (cooldown)
 var float stopBuyLevel            = na   // stop-buy entry level, set at a bar close, used from the next bar
 var float stopBuyRedLow           = na   // red-candle low belonging to that level (the stop price)
 var float lastSentStop           = na   // last protective level reported to the backend
+varip int liveExitSentBar        = na   // bar for which an INTRABAR exit alert was already sent
+varip string liveExitReason      = ""
 varip int liveEntrySentBar       = na   // bar for which the INTRABAR entry alert was already sent (survives ticks)
 var float peakHigh               = na   // highest bar high since entry (peak trail)
 var float peakFloor              = na   // peak-trail exit level, set at the close of a bar, used from the next bar
@@ -283,6 +289,7 @@ input_show_keylevel_plot = input.bool(false, "Show: keyLevel line", group = "Vis
 input_show_vwap_plot    = input.bool(true, "Show: VWAP line", group = "Visibility")
 input_show_ema9_plot    = input.bool(true, "Show: EMA9 line", group = "Visibility")
 input_show_ema20_plot   = input.bool(true, "Show: EMA20 line", group = "Visibility")
+input_show_trail_line   = input.bool(true, "Show: active trail EMA (Tiered mode, while in a position)", group = "Visibility")
 input_show_bgcolor     = input.bool(true, "Show: state background color", group = "Visibility")
 input_show_climax      = input.bool(true, "Show: climax bar markers (C)", group = "Visibility")
 var int noNewHighCount = 0
@@ -318,6 +325,13 @@ volAvg = ta.sma(volume, input_climax_vol_len)   // climax detection, called unco
 climaxRange = high - low
 climaxBar = not na(atrVal[1]) and not na(volAvg[1]) and ema9 > 0 and climaxRange > 0 and (high - ema9) / ema9 * 100 >= input_climax_ext_pct and climaxRange >= input_climax_range_atr * atrVal[1] and volume >= input_climax_vol_mult * volAvg[1] and ((high - math.max(open, close)) / climaxRange * 100 >= input_climax_wick_pct or close < open)
 emaSingle = ta.ema(close, input_trail_ema_len)   // single-EMA trail mode, called unconditionally
+emaT1 = ta.ema(close, input_tier1_ema_len)   // tiered trail: one EMA per stage, all called unconditionally
+emaT2 = ta.ema(close, input_tier2_ema_len)
+emaT3 = ta.ema(close, input_tier3_ema_len)
+// Stage of the position by profit (1 = early, 2 = proven middle zone, 3 = late) and the trail EMA it uses.
+trailStageOf(float prog) => prog < input_stall_tier1_pct ? 1 : (prog >= input_stall_tier2_pct ? 3 : 2)
+trailLenOf(int stage) => input_trail_mode == "Single EMA" ? input_trail_ema_len : (stage == 1 ? input_tier1_ema_len : (stage == 2 ? input_tier2_ema_len : input_tier3_ema_len))
+trailEmaOf(int stage) => input_trail_mode == "Single EMA" ? emaSingle : (stage == 1 ? emaT1 : (stage == 2 ? emaT2 : emaT3))
 newDay = ta.change(time("D")) != 0   // once per bar, outside any block (same result as before)
 
 if barstate.isconfirmed
@@ -523,6 +537,20 @@ if intrabarEntryReady and high >= stopBuyLevel
     liveEntrySentBar := bar_index
     emitWebhook("entry", ',"price":' + str.tostring(math.max(open, stopBuyLevel), "0.####") + ',"stop":' + str.tostring(stopBuyRedLow, "0.####") + ',"trigger":' + str.tostring(stopBuyLevel, "0.####") + ',"mode":"stopbuy","qtyHint":' + str.tostring(input_position_shares) + ',"last":' + str.tostring(close, "0.####"))
 
+// ─── INTRABAR TRAIL EXIT (live) ─────────────────────────────────
+// Same test as at the bar close (price below the active trail EMA, and the EMA
+// above the stop), but on every tick, so the exit is sent the moment it happens.
+// `state`, `entryPrice`, `highestSinceEntry` are the values committed at the last
+// close; only the varip flag is remembered across ticks.
+liveProg = state == STATE_IN_POSITION and entryPrice > 0 ? (math.max(highestSinceEntry, close) - entryPrice) / entryPrice * 100 : 0.0
+liveStage = trailStageOf(liveProg)
+liveTrailEma = trailEmaOf(liveStage)
+intrabarTrailReady = barstate.isrealtime and not barstate.isconfirmed and input_intrabar_trail and state == STATE_IN_POSITION and nz(liveExitSentBar, -1) != bar_index and bar_index > nz(entryBar, bar_index)
+if intrabarTrailReady and not na(liveTrailEma) and liveTrailEma > stopPrice and close < liveTrailEma
+    liveExitSentBar := bar_index
+    liveExitReason := "ema" + str.tostring(trailLenOf(liveStage)) + "_trail"
+    emitWebhook("exit", ',"reason":"' + liveExitReason + '","price":' + str.tostring(close, "0.####") + ',"last":' + str.tostring(close, "0.####"))
+
 // ─── BAR-CLOSE LOGIC ─────────────────────────────────────────────
 // calc_on_every_tick is true (so the INTRABAR ENTRY below can fire the moment
 // the trigger is crossed), which means the script also runs on every tick.
@@ -670,11 +698,11 @@ if barstate.isconfirmed
         // only once the active EMA has climbed past stopPrice.
         else
             trailInStrictTier = progressPct < input_stall_tier1_pct or progressPct >= input_stall_tier2_pct
-            singleTrail = input_trail_mode == "Single EMA"
-            activeTrailEMA = singleTrail ? emaSingle : (trailInStrictTier ? ema9 : ema20)
+            trailStage = trailStageOf(progressPct)
+            activeTrailEMA = trailEmaOf(trailStage)
             trailFired = not na(activeTrailEMA) and activeTrailEMA > stopPrice and close < activeTrailEMA
             if trailFired
-                exitReason := singleTrail ? "ema" + str.tostring(input_trail_ema_len) + "_trail" : (trailInStrictTier ? "ema9_trail" : "ema20_trail")
+                exitReason := "ema" + str.tostring(trailLenOf(trailStage)) + "_trail"
             // (3) Stall detector — tiered: strict early, loose mid, strict
             // late — nested here so it's only checked when the trail above
             // did NOT fire (correct priority: stop > scalp > trail > stall).
@@ -693,15 +721,19 @@ if barstate.isconfirmed
                 else
                     stallRangeStartTime := na
 
+        // An exit already reported INTRABAR is final, even if price recovered by the close.
+        if exitReason == "" and nz(liveExitSentBar, -1) == bar_index
+            exitReason := liveExitReason
+
         if exitReason != ""
-            exitColor = exitReason == "peak_trail" ? color.yellow : exitReason == "pre_open_exit" ? color.silver : exitReason == "climax_exit" ? color.maroon : exitReason == "stall_detected" ? color.orange : exitReason == "ema9_trail" ? color.blue : exitReason == "ema20_trail" ? color.aqua : (input_trail_mode == "Single EMA" and str.endswith(exitReason, "_trail")) ? color.blue : exitReason == "scalp_exit" ? color.fuchsia : color.red
+            exitColor = exitReason == "peak_trail" ? color.yellow : exitReason == "pre_open_exit" ? color.silver : exitReason == "climax_exit" ? color.maroon : exitReason == "stall_detected" ? color.orange : str.startswith(exitReason, "ema") ? color.blue : exitReason == "scalp_exit" ? color.fuchsia : color.red
             exitTt = "reason: " + exitReason +
                      "\nentryPrice: " + str.tostring(entryPrice, "#.##") +
                      "\nstopPrice: " + str.tostring(stopPrice, "#.##") +
                      "\nhighestSinceEntry: " + str.tostring(highestSinceEntry, "#.##") +
                      "\nema9: " + str.tostring(ema9, "#.##") +
                      "\nema20: " + str.tostring(ema20, "#.##") +
-                     "\ntrail: " + input_trail_mode + (input_trail_mode == "Single EMA" ? " (EMA" + str.tostring(input_trail_ema_len) + " = " + str.tostring(emaSingle, "#.##") + ")" : "") +
+                     "\ntrail: " + input_trail_mode + " (stage " + str.tostring(trailStageOf(progressPct)) + ", EMA" + str.tostring(trailLenOf(trailStageOf(progressPct))) + " = " + str.tostring(trailEmaOf(trailStageOf(progressPct)), "#.##") + ")" +
                      "\nnoNewHighCount: " + str.tostring(noNewHighCount) + " (weak_market_mode: " + str.tostring(input_weak_market_mode) + ")" +
                      "\nprogressPct: " + str.tostring(progressPct, "#.#") + "% (stall tier: " + (progressPct < input_stall_tier1_pct or progressPct >= input_stall_tier2_pct ? "strict" : "loose") + ")" +
                      "\npeakHigh: " + str.tostring(peakHigh, "#.##") + " | peakFloor: " + str.tostring(peakFloor, "#.##") +
@@ -709,7 +741,7 @@ if barstate.isconfirmed
                      "\nP&L (pre-fees, per share): " + str.tostring(exitPx - entryPrice, "#.##")
             label.new(bar_index, high, text = "", style = label.style_arrowdown, color = color.new(exitColor, 0), size = size.normal, tooltip = exitTt)
             // Webhook: skipped when entry and exit are on the SAME bar (neither was sent).
-            if bar_index != entryBar or nz(liveEntrySentBar, -1) == bar_index
+            if (bar_index != entryBar or nz(liveEntrySentBar, -1) == bar_index) and nz(liveExitSentBar, -1) != bar_index
                 emitWebhook("exit", ',"reason":"' + exitReason + '","price":' + str.tostring(exitPx, "0.####") + ',"last":' + str.tostring(close, "0.####"))
             // ORDER - a side effect only.
             if bar_index == entryBar and not input_entry_stopbuy
@@ -770,6 +802,7 @@ plot(input_show_vwap_plot ? vwapValue : na, title = "VWAP", color = color.new(co
 plot(input_show_ema9_plot ? ema9 : na, title = "EMA9", color = color.orange, linewidth = 2)
 plot(input_show_ema20_plot ? ema20 : na, title = "EMA20", color = color.purple, linewidth = 2)
 plot(input_trail_mode == "Single EMA" ? emaSingle : na, title = "Trail EMA (single)", color = color.green, linewidth = 2)
+plot(input_show_trail_line and input_trail_mode != "Single EMA" and state == STATE_IN_POSITION ? trailEmaOf(liveStage) : na, title = "Active trail EMA (tiered)", color = color.teal, linewidth = 2)
 bgcolor(input_show_bgcolor and state == STATE_PULLBACK_ACTIVE ? color.new(color.orange, 90) : input_show_bgcolor and state == STATE_IN_POSITION ? color.new(color.teal, 85) : na)
 
 plotchar(input_show_climax and climaxBar, title = "Climax bar", char = "C", location = location.abovebar, color = color.fuchsia, size = size.tiny)
