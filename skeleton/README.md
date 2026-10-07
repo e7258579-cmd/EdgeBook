@@ -8,7 +8,7 @@
 skeleton/
   firebase.json
   functions/
-    index.js            מקלט (tzWebhook), מעבד/מנהל פוזיציות (tzProcessSignal), בדיקת התאמה כל דקה (tzReconcile), בדיקה ישנה (tzWebhookTest)
+    index.js            מקלט עם מסלול מהיר לכניסה (tzWebhook), המשך כניסה (tzFollowUp), מעבד/מנהל פוזיציות (tzProcessSignal), בדיקת התאמה כל דקה (tzReconcile), בדיקה ישנה (tzWebhookTest)
     legacyTest.js       בדיקת החיבור המקורית, נשמרה כדי שהתראת הבדיקה הישנה תמשיך לעבוד
     tradezero.js        לקוח TradeZero (getAccount, placeOrder, getOrder, awaitTerminal)
     lib/                לוגיקה טהורה: validate, sizing, limits, config, process, brokers, firestoreStore
@@ -57,7 +57,7 @@ npm test
 
 ## פריסה
 
-מתוך `skeleton/`: `firebase deploy --only functions`. `tzReconcile` דורשת Cloud Scheduler (חיוב מופעל). הסיסמאות (`WEBHOOK_SECRET`, `TZ_API_KEY_ID`, `TZ_API_SECRET_KEY`, `TZ_ACCOUNT_ID`) נשמרות ב-Firebase Secrets כמו עד עכשיו. כתובת ה-Webhook החדשה היא של `tzWebhook`.
+מתוך `skeleton/`: `firebase deploy --only functions`. `tzReconcile` דורשת Cloud Scheduler (חיוב מופעל). `tzWebhook` מוגדרת עם `minInstances: 1` (מופע חם, עלות חודשית קטנה); אם לא רוצים, מוחקים את השורה ב-`index.js`. הסיסמאות (`WEBHOOK_SECRET`, `TZ_API_KEY_ID`, `TZ_API_SECRET_KEY`, `TZ_ACCOUNT_ID`) נשמרות ב-Firebase Secrets כמו עד עכשיו. כתובת ה-Webhook החדשה היא של `tzWebhook`.
 
 ## כללי TradeZero שהקוד מיישם (דף "API Conventions")
 

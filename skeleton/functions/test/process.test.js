@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const {processSignal, reconcileAll} = require("../lib/process");
+const {processSignal, placeSignal, completeSignal, reconcileAll} = require("../lib/process");
 const {nyDateKey} = require("../lib/config");
 const {memoryStore, simBroker, NOW, entrySignal, exitSignal, stopSignal, cfg} = require("./helpers");
 
@@ -396,4 +396,70 @@ test("a busy symbol: a signal waits for the lock and gives up with an error", as
   const clk = {now: () => clock, sleep: async (ms) => { clock += ms; }};
   const r = await run(exitSignal({barTime: NOW}), store, simBroker(), cfg(), clk);
   assert.deepEqual([r.status, r.reason], ["error", "symbol_busy"]);
+});
+
+// ─── fast entry (receiver) + follow-up ──────────────────────────
+
+const place = (signal, store, broker, config = cfg(), clock = {now: () => NOW, sleep}) =>
+  placeSignal({signal, store, broker, config, ...clock});
+const complete = (store, broker, config = cfg(), clock = {now: () => NOW, sleep}) =>
+  completeSignal({symbol: "WHLR", store, broker, config, ...clock});
+
+test("fast entry: only the buy goes out; no fill wait, no stop yet", async () => {
+  const store = memoryStore();
+  const broker = simBroker({bid: 4.10, ask: 4.10});
+  const r = await place(entrySignal(), store, broker);
+  assert.equal(r.status, "accepted");
+  assert.equal(r.followUp, true);
+  assert.equal(placed(broker).length, 1);
+  assert.equal(placed(broker)[0].side, "Buy");
+  assert.equal(broker.calls.filter((c) => c[0] === "settle").length, 0);
+  assert.equal((await store.getPosition("WHLR")).state, "entry_pending");
+});
+
+test("fast entry is sized from `last` (the price at the crossing), not the modeled price", async () => {
+  const broker = simBroker({bid: 4.30, ask: 4.30});
+  await place(entrySignal({price: 4.06, last: 4.20, stop: 3.78}), memoryStore(), broker);
+  assert.equal(placed(broker)[0].limitPrice, 4.30); // last 4.20 + 0.10
+});
+
+test("follow-up: the entry filled -> the protective stop is placed", async () => {
+  const store = memoryStore();
+  const broker = simBroker({bid: 4.10, ask: 4.10});
+  await place(entrySignal(), store, broker);
+  const r = await complete(store, broker);
+  assert.equal(r.position, "open");
+  assert.equal(placed(broker, isStop).length, 1);
+});
+
+test("follow-up: the entry never fills -> cancelled and released", async () => {
+  const store = memoryStore();
+  const broker = simBroker({bid: 4.50, ask: 4.50});
+  await place(entrySignal(), store, broker);
+  const r = await complete(store, broker);
+  assert.deepEqual([r.position, r.reason], ["released", "entry_cancelled_before_fill"]);
+  assert.equal(await store.getPosition("WHLR"), null);
+});
+
+test("follow-up waits up to entryTimeoutSec for the fill", async () => {
+  const store = memoryStore();
+  const broker = simBroker({bid: 4.50, ask: 4.50});
+  await place(entrySignal(), store, broker);
+  await complete(store, broker);
+  const settle = broker.calls.find((c) => c[0] === "settle");
+  assert.equal(settle[2], 30000);
+});
+
+test("fast entry: duplicate symbol, limits and stale signals still apply", async () => {
+  const store = memoryStore();
+  const broker = simBroker({bid: 4.10, ask: 4.10});
+  await place(entrySignal(), store, broker);
+  assert.equal((await place(entrySignal({barTime: NOW - 1000}), store, broker)).reason, "already_in_position");
+  assert.equal((await place(entrySignal({barTime: NOW - 10 * 60000}), memoryStore(), broker)).reason, "stale_signal");
+  assert.equal((await place(entrySignal(), memoryStore(), broker, cfg({killSwitch: true}))).reason, "kill_switch");
+});
+
+test("a fast placeSignal refuses non-entry events", async () => {
+  const r = await place(exitSignal(), memoryStore(), simBroker());
+  assert.equal(r.reason, "not_an_entry");
 });

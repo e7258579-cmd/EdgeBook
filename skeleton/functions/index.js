@@ -1,6 +1,8 @@
 // EdgeBook Firebase Functions.
-//   tzWebhook         (HTTP)       Receiver: validate, dedupe, queue the signal, answer fast.
-//                                  Heartbeats are recorded here and not queued.
+//   tzWebhook         (HTTP)       Receiver: validate, dedupe, answer fast.
+//                                  ENTRIES are sent to the broker right here (fast path, no queue hop).
+//                                  Heartbeats are recorded here. Everything else is queued.
+//   tzFollowUp        (Firestore)  After a fast entry: waits for the fill, places the protective stop.
 //   tzProcessSignal   (Firestore)  Processor: the position manager, runs when a signal is queued.
 //   tzReconcile       (schedule)   Every minute: finishes pending entries, notices filled stops,
 //                                  warns when a symbol with a position has no heartbeat.
@@ -9,7 +11,7 @@
 
 const crypto = require("crypto");
 const {onRequest} = require("firebase-functions/v2/https");
-const {onDocumentCreated} = require("firebase-functions/v2/firestore");
+const {onDocumentCreated, onDocumentUpdated} = require("firebase-functions/v2/firestore");
 const {onSchedule} = require("firebase-functions/v2/scheduler");
 const {defineSecret} = require("firebase-functions/params");
 const {logger} = require("firebase-functions");
@@ -22,7 +24,7 @@ const FieldValue = admin.firestore.FieldValue;
 const {createClient} = require("./tradezero");
 const {validateSignal, signalKey} = require("./lib/validate");
 const {mergeConfig} = require("./lib/config");
-const {processSignal, reconcileAll} = require("./lib/process");
+const {processSignal, placeSignal, completeSignal, reconcileAll} = require("./lib/process");
 const {createDryRunBroker, createTradeZeroBroker} = require("./lib/brokers");
 const {createFirestoreStore} = require("./lib/firestoreStore");
 
@@ -31,9 +33,14 @@ const TZ_API_KEY_ID = defineSecret("TZ_API_KEY_ID");
 const TZ_API_SECRET_KEY = defineSecret("TZ_API_SECRET_KEY");
 const TZ_ACCOUNT_ID = defineSecret("TZ_ACCOUNT_ID");
 
-async function loadConfig() {
+// Config is read on every signal; a short in-memory cache keeps the fast path
+// quick (a Kill Switch change takes effect within a few seconds).
+let configCache = null;
+async function loadConfig(maxAgeMs = 0) {
+  if (maxAgeMs && configCache && Date.now() - configCache.at < maxAgeMs) return configCache.value;
   const snap = await db.collection("control").doc("config").get();
-  return mergeConfig(snap.exists ? snap.data() : {});
+  configCache = {at: Date.now(), value: mergeConfig(snap.exists ? snap.data() : {})};
+  return configCache.value;
 }
 
 function makeBroker(config) {
@@ -67,7 +74,15 @@ function parseBody(req) {
 
 // ─── Receiver ───────────────────────────────────────────────────
 exports.tzWebhook = onRequest(
-    {secrets: [WEBHOOK_SECRET], invoker: "public"},
+    {
+      secrets: [WEBHOOK_SECRET, TZ_API_KEY_ID, TZ_API_SECRET_KEY, TZ_ACCOUNT_ID],
+      invoker: "public",
+      // One instance is kept warm so an entry does not wait for a cold start.
+      // (A small monthly cost; remove it if you prefer, entries then pay a
+      // few seconds of start-up on the first signal after a quiet period.)
+      minInstances: 1,
+      timeoutSeconds: 30,
+    },
     async (req, res) => {
       if (req.method !== "POST") {
         res.status(405).send("method not allowed");
@@ -99,10 +114,14 @@ exports.tzWebhook = onRequest(
         return;
       }
       const key = signalKey(signal);
+      const fast = signal.event === "entry";
+      const ref = db.collection("signals").doc(key);
       try {
         // create() fails if the document exists: that is the dedupe.
-        await db.collection("signals").doc(key).create({
-          status: "queued",
+        await ref.create({
+          // "fast": the receiver itself sends the entry order, so the queue
+          // trigger (which only takes "queued") leaves it alone.
+          status: fast ? "fast" : "queued",
           signal,
           latencyMs: Date.now() - signal.sentAt, // TradingView -> us (clock skew included)
           receivedAt: FieldValue.serverTimestamp(),
@@ -116,7 +135,69 @@ exports.tzWebhook = onRequest(
         res.status(500).json({ok: false, error: "queue_failed"});
         return;
       }
-      res.status(200).json({ok: true, status: "queued"});
+      if (!fast) {
+        res.status(200).json({ok: true, status: "queued"});
+        return;
+      }
+
+      // FAST PATH: send the entry order now, then answer.
+      let outcome;
+      try {
+        const config = await loadConfig(5000);
+        outcome = await placeSignal({
+          signal, store: createFirestoreStore(db, FieldValue), broker: makeBroker(config), config,
+        });
+      } catch (err) {
+        logger.error("fast entry crashed", err);
+        outcome = {status: "error", reason: "exception", error: String(err)};
+      }
+      // "entry_placed" wakes tzFollowUp, which waits for the fill and places the stop.
+      await ref.update({
+        status: outcome.followUp ? "entry_placed" : outcome.status,
+        outcome: JSON.parse(JSON.stringify(outcome)),
+        placedAtMs: Date.now(),
+      });
+      res.status(200).json({ok: true, status: outcome.status});
+    },
+);
+
+// ─── Follow-up of a fast entry ──────────────────────────────────
+exports.tzFollowUp = onDocumentUpdated(
+    {
+      document: "signals/{signalId}",
+      secrets: [TZ_API_KEY_ID, TZ_API_SECRET_KEY, TZ_ACCOUNT_ID],
+      timeoutSeconds: 120, // waits up to entryTimeoutSec for the fill
+    },
+    async (event) => {
+      const before = event.data.before.data();
+      const after = event.data.after.data();
+      if (after.status !== "entry_placed" || before.status === "entry_placed") return;
+      const ref = event.data.after.ref;
+      // Claim (delivery is at-least-once).
+      const claimed = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists || snap.data().status !== "entry_placed") return null;
+        tx.update(ref, {status: "following_up"});
+        return snap.data();
+      });
+      if (!claimed) return;
+      const config = await loadConfig();
+      let result;
+      try {
+        result = await completeSignal({
+          symbol: claimed.signal.symbol, store: createFirestoreStore(db, FieldValue),
+          broker: makeBroker(config), config,
+        });
+      } catch (err) {
+        logger.error("follow-up crashed", err);
+        result = {status: "error", reason: "exception", error: String(err)};
+      }
+      await ref.update({
+        status: "accepted",
+        followUp: JSON.parse(JSON.stringify(result)),
+        completedAt: FieldValue.serverTimestamp(),
+      });
+      logger.info("entry follow-up", {key: ref.id, position: result.position || null, reason: result.reason || null});
     },
 );
 

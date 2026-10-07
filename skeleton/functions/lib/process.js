@@ -56,6 +56,27 @@ async function processSignal({signal, store, broker, config, now = Date.now, sle
   });
 }
 
+// FAST PATH for entries (called straight from the HTTP receiver, no queue hop):
+// does everything up to and including sending the entry order, then returns.
+// The wait for the fill and the protective stop are done by completeSignal.
+async function placeSignal({signal, store, broker, config, now = Date.now, sleep = defaultSleep}) {
+  const ctx = {store, broker, config, now, sleep};
+  if (signal.event !== "entry") return {status: "error", reason: "not_an_entry"};
+  if (now() - signal.barTime > config.maxSignalAgeSec * 1000) return {status: "rejected", reason: "stale_signal"};
+  const guard = await guardEnvironment(ctx);
+  if (guard) return guard;
+  return placeEntry(ctx, signal); // no lock: reservePosition is atomic and is the guard
+}
+
+// Follow-up of a fast entry: waits (up to entryTimeoutSec) for the fill, then
+// places the protective stop, or cancels the entry if it did not fill.
+async function completeSignal({symbol, store, broker, config, now = Date.now, sleep = defaultSleep}) {
+  const ctx = {store, broker, config, now, sleep};
+  const guard = await guardEnvironment(ctx);
+  if (guard) return guard;
+  return withLock(ctx, symbol, () => completeEntry(ctx, symbol));
+}
+
 // One pass over every open or pending position: finishes pending entries,
 // cancels stale ones, and notices a protective stop that has filled.
 async function reconcileAll({store, broker, config, now = Date.now, sleep = defaultSleep}) {
@@ -195,12 +216,14 @@ async function placeStop(ctx, pos, level) {
 
 // ─── entry ──────────────────────────────────────────────────────
 
-async function processEntry(ctx, signal) {
+// Everything up to and including sending the entry order.
+// Returns {status:"accepted", followUp:true} when the order is live at the
+// broker and its fill still has to be waited for.
+async function placeEntry(ctx, signal) {
   const {store, broker, config, now} = ctx;
   const t = now();
   const day = nyDateKey(t);
-  const stats = await store.getStats(day);
-  const ordersLastMinute = await store.countOrdersSince(t - 60000);
+  const [stats, ordersLastMinute] = await Promise.all([store.getStats(day), store.countOrdersSince(t - 60000)]);
   const blocked = checkEntryLimits({config, stats, ordersLastMinute});
   if (blocked) return {status: "rejected", reason: blocked};
 
@@ -240,19 +263,38 @@ async function processEntry(ctx, signal) {
   }
 
   await store.addEntryToStats(day);
-  const pos = await store.getPosition(signal.symbol);
   if (config.dryRun) {
     // Simulated: the entry "fills" at its limit and the stop is "placed".
+    const pos = await store.getPosition(signal.symbol);
     await store.updatePosition(signal.symbol, {state: "open", filledQty: size.qty, entryFillPrice: size.limitPrice});
     Object.assign(pos, {state: "open", filledQty: size.qty, entryFillPrice: size.limitPrice});
     await placeStop(ctx, pos, pos.stopLevel);
     return {status: "accepted", order, simulated: true};
   }
-  // Live: give the entry a moment to fill, then protect it. If it is still
-  // working, the reconcile pass finishes the job.
-  const o = await broker.settleOrder(id, {timeoutMs: config.entryWaitMs});
+  return {status: "accepted", order, placed: r.placed, recovered: !!r.recovered, followUp: true};
+}
+
+// Queue path: place, give the entry a moment to fill, then protect it. If it
+// is still working, the reconcile pass (or completeSignal) finishes the job.
+async function processEntry(ctx, signal) {
+  const {store, broker, config} = ctx;
+  const out = await placeEntry(ctx, signal);
+  if (!out.followUp) return out;
+  const pos = await store.getPosition(signal.symbol);
+  const o = await broker.settleOrder(pos.entryClientOrderId, {timeoutMs: config.entryWaitMs});
   const res = await applyEntryOrder(ctx, pos, o, {timeoutCancel: false});
-  return {status: "accepted", order, placed: r.placed, recovered: !!r.recovered, position: res.pos ? res.pos.state : "released"};
+  return {...out, position: res.pos ? res.pos.state : "released"};
+}
+
+// Waits (up to entryTimeoutSec) for the entry to fill, then protects it; an
+// entry that did not fill in time is cancelled.
+async function completeEntry(ctx, symbol) {
+  const {store, broker, config} = ctx;
+  const pos = await store.getPosition(symbol);
+  if (!pos || pos.state !== "entry_pending") return {status: "ignored", reason: "nothing_to_complete"};
+  const o = await broker.settleOrder(pos.entryClientOrderId, {timeoutMs: config.entryTimeoutSec * 1000});
+  const res = await applyEntryOrder(ctx, pos, o, {timeoutCancel: true});
+  return {status: "accepted", position: res.pos ? res.pos.state : "released", reason: res.reason || null};
 }
 
 // Advances an entry_pending position from the state of its entry order.
@@ -488,4 +530,4 @@ async function reconcileOne(ctx, symbol) {
   return {status: "ignored", symbol, reason: "ok"};
 }
 
-module.exports = {processSignal, reconcileAll};
+module.exports = {processSignal, placeSignal, completeSignal, reconcileAll};
