@@ -227,6 +227,11 @@ async function placeEntry(ctx, signal) {
   const blocked = checkEntryLimits({config, stats, ordersLastMinute});
   if (blocked) return {status: "rejected", reason: blocked};
 
+  // Do not chase: the bar may have closed far above the trigger.
+  if (signal.last && signal.price && signal.last - signal.price > config.maxChaseUsd) {
+    return {status: "rejected", reason: "chase_too_far", detail: {price: signal.price, last: signal.last}};
+  }
+
   // Size from the freshest price the signal carries.
   const size = sizeEntry({price: signal.last || signal.price, stop: signal.stop, config});
   if (size.reject) return {status: "rejected", reason: size.reject};

@@ -13,6 +13,7 @@ const DEFAULTS = {
   maxTradesPerDay: 10, // entries per New York day
   maxOrdersPerMinute: 6, // orders sent in the last 60 seconds
   limitOffsetUsd: 0.10, // buy limit = price + offset, sell limit = price - offset
+  maxChaseUsd: 0.20, // reject an entry when last is more than this above the trigger price
   maxSignalAgeSec: 180, // a signal older than this (by barTime) is dropped
   timeInForce: "Day", // unverified for extended hours, see README
   stopOffsetUsd: 0.10, // protective StopLimit: limit price = stop price - offset

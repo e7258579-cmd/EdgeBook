@@ -109,6 +109,17 @@ test("entry: a second entry on the same symbol is rejected, nothing sent", async
   assert.equal(placed(broker).length, before);
 });
 
+test("entry: last far above the trigger is rejected as a chase, nothing sent or reserved", async () => {
+  const store = memoryStore();
+  const broker = simBroker({bid: 4.10, ask: 4.10});
+  const r = await run(entrySignal({price: 4.06, last: 4.80}), store, broker);
+  assert.equal(r.status, "rejected");
+  assert.equal(r.reason, "chase_too_far");
+  assert.equal(placed(broker).length, 0);
+  const ok = await run(entrySignal({price: 4.06, last: 4.20, barTime: NOW - 4000}), store, broker);
+  assert.equal(ok.status, "accepted");
+});
+
 test("entry: kill switch, daily loss, trade cap and rate limit all block", async () => {
   const day = nyDateKey(NOW);
   for (const [config, stats, orders, reason] of [
