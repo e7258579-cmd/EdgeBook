@@ -96,6 +96,12 @@ exports.tzWebhook = onRequest(
       }
       const body = parseBody(req);
       if (!body || typeof body !== "object") {
+        // Log what arrived (the secret masked) so a rejected message can be diagnosed.
+        const raw = typeof req.body === "string" ? req.body : (req.rawBody ? req.rawBody.toString("utf8") : "");
+        logger.warn("Rejected: body is not JSON", {
+          contentType: req.get("content-type") || null,
+          preview: raw.split(WEBHOOK_SECRET.value()).join("***").slice(0, 400),
+        });
         res.status(400).json({ok: false, error: "body is not JSON"});
         return;
       }
@@ -106,7 +112,7 @@ exports.tzWebhook = onRequest(
       }
       const checked = validateSignal(body);
       if (!checked.ok) {
-        logger.warn("Rejected: invalid signal", checked.errors);
+        logger.warn("Rejected: invalid signal", {errors: checked.errors, event: body.event, symbol: body.symbol});
         res.status(400).json({ok: false, error: checked.errors});
         return;
       }
