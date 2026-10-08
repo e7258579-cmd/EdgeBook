@@ -137,6 +137,8 @@ sessionTag = not na(inPreMarket) ? "pre" : (not na(inRegularHours) ? "regular" :
 
 // Times (ms) of the messages sent in the last 3 minutes: the rate budget.
 varip array<int> sentTimes = array.new<int>()
+// Bar of the last heartbeat sent (varip: survives re-execution within the same bar).
+varip int lastHeartbeatBar = na
 
 webhookMsg(string event, string extra, string secretText) =>
     '{"secret":"' + secretText + '","v":2,"event":"' + event + '","symbol":"' + syminfo.ticker + '","barTime":' + str.tostring(time_close, "#") + ',"sentAt":' + str.tostring(timenow, "#") + ',"tf":"' + timeframe.period + '","strategy":"' + STRATEGY_VERSION + '","session":"' + sessionTag + '"' + extra + '}'
@@ -799,7 +801,9 @@ if barstate.isconfirmed
         emitWebhook("exit", ',"reason":"entry_not_confirmed","price":' + str.tostring(close, "0.####") + ',"last":' + str.tostring(close, "0.####"))
 
     // ─── WEBHOOK: HEARTBEAT (same alert as the trades, so a stopped alert is noticed) ───
-    if bar_index % input_webhook_heartbeat_bars == 0
+    // Once per bar: the same heartbeat was seen arriving twice for one bar.
+    if bar_index % input_webhook_heartbeat_bars == 0 and nz(lastHeartbeatBar, -1) != bar_index
+        lastHeartbeatBar := bar_index
         emitWebhook("heartbeat", "")
 
 // ─── Plots — minimal, just enough spatial context ──────────────
