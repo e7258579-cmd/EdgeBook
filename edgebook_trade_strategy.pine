@@ -162,7 +162,7 @@ emitWebhook(string event, string extra) =>
             array.push(sentTimes, timenow)
         else
             label.new(bar_index, high, text = "BUDGET", style = label.style_label_left, color = color.red, textcolor = color.white, size = size.tiny, tooltip = "Webhook budget reached: " + event + " NOT sent")
-    if input_webhook_debug
+    if input_webhook_debug and event != "heartbeat"
         label.new(bar_index, high, text = event, style = label.style_label_left, color = color.new(color.gray, 20), textcolor = color.white, size = size.tiny, tooltip = webhookMsg(event, extra, "***"))
 
 // ─── State ───────────────────────────────────────────────────
