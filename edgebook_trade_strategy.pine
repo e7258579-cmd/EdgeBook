@@ -145,8 +145,14 @@ emitWebhook(string event, string extra) =>
     // Real bars only: alert() never fires on history, and history must not
     // fill the budget.
     if input_webhook_enabled and str.length(input_webhook_secret) > 0 and barstate.isrealtime
-        while array.size(sentTimes) > 0 and timenow - array.get(sentTimes, 0) > 180000
-            array.shift(sentTimes)
+        // Pine v5 evaluates both sides of `and`, so the empty-array case needs its own guard.
+        staleSent = true
+        while staleSent
+            staleSent := false
+            if array.size(sentTimes) > 0
+                if timenow - array.get(sentTimes, 0) > 180000
+                    array.shift(sentTimes)
+                    staleSent := true
         // Heartbeats stop 4 messages before the limit so trades always have room.
         limitNow = event == "heartbeat" ? input_webhook_max_msgs - 4 : input_webhook_max_msgs
         if array.size(sentTimes) < limitNow
