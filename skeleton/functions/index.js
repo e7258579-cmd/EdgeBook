@@ -78,6 +78,61 @@ function parseBody(req) {
   }
 }
 
+// ─── Read-only broker check ─────────────────────────────────────
+// POST {secret}. Calls only GET endpoints at TradeZero (account, routes, today's
+// orders) and reports what came back. Sends no order and changes nothing.
+exports.tzCheck = onRequest(
+    {
+      secrets: [WEBHOOK_SECRET, TZ_API_KEY_ID, TZ_API_SECRET_KEY, TZ_ACCOUNT_ID],
+      invoker: "public",
+      timeoutSeconds: 60,
+    },
+    async (req, res) => {
+      const body = req.method === "POST" ? parseBody(req) : null;
+      if (!body || !safeEqual(body.secret || "", WEBHOOK_SECRET.value())) {
+        res.status(401).send("unauthorized");
+        return;
+      }
+      const client = createClient({
+        apiKeyId: TZ_API_KEY_ID.value(),
+        apiSecretKey: TZ_API_SECRET_KEY.value(),
+        accountId: TZ_ACCOUNT_ID.value(),
+      });
+      const attempt = async (fn) => {
+        try {
+          return {ok: true, data: await fn()};
+        } catch (e) {
+          return {ok: false, status: e.status || null, error: String(e.message).slice(0, 300)};
+        }
+      };
+      const [account, routes, orders] = await Promise.all([
+        attempt(() => client.getAccount()),
+        attempt(() => client.getRoutes()),
+        attempt(() => client.getTodaysOrders()),
+      ]);
+      // Report the account without identifying fields.
+      let accountOut = account;
+      if (account.ok && account.data && typeof account.data === "object") {
+        const safe = {};
+        for (const [k, v] of Object.entries(account.data)) {
+          if (!/id|name|email|phone|address|ssn|tax/i.test(k) && (typeof v !== "object" || v === null)) safe[k] = v;
+        }
+        accountOut = {ok: true, data: safe};
+      }
+      const list = (r) => (r.ok ? (Array.isArray(r.data) ? r.data : (r.data && (r.data.orders || r.data.routes)) || r.data) : null);
+      const ordersList = list(orders);
+      res.status(200).json({
+        ok: true,
+        account: accountOut,
+        routes: routes.ok ? {ok: true, data: routes.data} : routes,
+        todaysOrders: orders.ok ?
+          {ok: true, count: Array.isArray(ordersList) ? ordersList.length : null,
+            sample: Array.isArray(ordersList) ? ordersList.slice(0, 3) : ordersList} :
+          orders,
+      });
+    },
+);
+
 // ─── Receiver ───────────────────────────────────────────────────
 exports.tzWebhook = onRequest(
     {
