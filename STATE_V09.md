@@ -38,6 +38,15 @@
 - התראות רצות בשרתי TradingView בלי קשר לטאב; כל התראה על מניה אחת; מגבלת 15 הודעות ב-3 דקות היא **לכל התראה**; מגבלות ההפסד היומי (20$), מספר העסקאות והקצב משותפות לכל המניות בבק-אנד.
 - ⚠️ לא נבדק: כמה התראות פעילות מותר בתוכנית Essential, ו-Expiration של התראה.
 
+## 0B2. אימות מול TradeZero (קריאה בלבד, `tzCheck`, 8/10/2026)
+
+- ✅ **החשבון הוא Paper** (`accountType: "Paper"`, `accountStatus: "Active"`, `tradingSuspended: false`). יתרה ושווי כ-1,033,341$ (הסכום של חשבון הדמו; מגבלות הסיכון שלנו קטנות ממנו וקבועות ב-`control/config`).
+- ✅ **Routes:** `PAPER` (Market, Limit, Stop, StopLimit, RangeOrder; Stock/Option; **time in force: Day, GoodTillCancel, GoodTillCrossing, אין `Day_Plus`**) ו-`PAPERM` (MLEG, לא רלוונטי). לכן `timeInForce: "Day"` ב-Paper נכון.
+- ✅ **שמות שדות אומתו מתשובות אמיתיות:** `executed`, `leavesQuantity`, `priceAvg`, `lastPrice`, `orderStatus`, `route`, `timeInForce`, `clientOrderId`, `openClose`, `side`. (בעבר סומנו כלא מאומתים.) `getTodaysOrders` מחזיר מערך (22 פקודות היום).
+- ✅ **התנהגות מילוי ב-Paper:** פקודות Limit מתמלאות במחיר השוק, לא ב-Limit (דוגמאות: קנייה עם limit 3.22 התמלאה ב-3.01; מכירה עם limit 3.22 התמלאה ב-3.32; הערה `TRAFIX_SIM`). כלומר ה-offset של 0.10$ משמש כרשת ביטחון, ובסימולציה אין "החמצה" שנגרמת ממנו.
+- ⚠️ 22 הפקודות שהוחזרו הן **לא שלנו** (`clientOrderId` בפורמט `dk…`, לא `eb-…`): כנראה מסחר ידני בחשבון הדמו. המערכת עדיין ב-DRY_RUN ולא שלחה כלום.
+- ⚠️ עדיין לא אומת: StopLimit ב-Paper מחוץ ל-9:30–16:00 (לפי התיעוד שהוזן: StopLimit ב-Paper רק `Day` ורק בשעות רגילות), ולכן בדיקת סטופ מלאה ב-Paper צריכה להיעשות בשעות המסחר הרגילות.
+
 ## 0C. ממצאי דוגמאות (DKI)
 
 - **יציאת `peak_trail` עם גאפ מטה:** `peakFloor 3.34`, מחיר יציאה `3.07` (פתיחת הנר מתחת לרצפה), כניסה 2.94, שיא 3.67, רווח 0.13 למניה. ב-live ה-`StopLimit` (limit ב-3.24) **לא היה מתמלא**, ולכן המסלול הוא יציאה בהודעה: ביטול הסטופ ומכירה ב-`last − 0.10` עם הורדות. לא נבדק מול TradeZero.
