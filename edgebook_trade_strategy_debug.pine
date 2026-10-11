@@ -763,6 +763,31 @@ if barstate.isconfirmed
     // machine is the truth. If it says "not in a position" but one exists
     // (e.g. a same-bar entry that was cancelled still got filled), close it.
     if state != STATE_IN_POSITION and strategy.position_size > 0 and bar_index > entryBar
+        // DIAGNOSTICS: why did the order layer hold a position the state machine does not know?
+        // Usually: the stop-buy filled during this bar and the same bar then INVALIDATED the
+        // setup (the invalidation check runs before the entry check). Live, that case is an
+        // intrabar entry followed by an "entry_not_confirmed" exit, so it is a real trade.
+        syncEntryPx = strategy.opentrades.entry_price(0)
+        syncTrigger = stopBuyLevel[1]
+        diagColTime  := str.format_time(strategy.opentrades.entry_time(0), "MM-dd HH:mm", "America/New_York")
+        diagColPx    := str.tostring(syncEntryPx, "#.##")
+        diagColBars  := "-"
+        diagColDrift := str.tostring((syncTrigger - diagFirstTrigger) / diagFirstTrigger * 100, "#.#")
+        diagColVol   := str.tostring(diagVol3 / diagLegMaxVol * 100, "#")
+        diagColWick  := na(diagLegMaxWick) ? "-" : str.tostring(diagLegMaxWick, "#")
+        diagColDist  := "-"
+        diagColDistC := str.tostring((syncEntryPx - diagLegMaxClose) / diagLegMaxClose * 100, "#.#")
+        diagColStop  := "-"
+        diagPushRow(str.tostring((close - syncEntryPx) / syncEntryPx * 100, "#.#"), "sync")
+        label.new(bar_index, low, text = "SYNC", style = label.style_label_up, color = color.new(color.purple, 20), textcolor = color.white, size = size.tiny,
+                  tooltip = "order layer held a position the state machine does not know" +
+                  "\nstate: " + state + " | armedVia: " + armedVia +
+                  "\nlast bar's stop-buy level: " + str.tostring(syncTrigger, "#.##") +
+                  "\nthis bar: open " + str.tostring(open, "#.##") + " high " + str.tostring(high, "#.##") + " low " + str.tostring(low, "#.##") + " close " + str.tostring(close, "#.##") +
+                  "\nentry fill (order layer): " + str.tostring(syncEntryPx, "#.##") +
+                  "\nbar NY time: " + str.format_time(time, "HH:mm", "America/New_York") +
+                  "\ninActiveWindow: " + str.tostring(inActiveWindow) + " | preOpenZone: " + str.tostring(preOpenZone) + " | cooldownOK: " + str.tostring(cooldownOK) +
+                  "\nred bar: " + str.tostring(close < open) + " | volume: " + str.tostring(volume, "#") + " | leg peak bar volume: " + str.tostring(diagLegMaxVol, "#"))
         strategy.close("Long", comment = "sync")
         strategy.cancel("PT")
 
