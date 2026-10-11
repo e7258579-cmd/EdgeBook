@@ -131,6 +131,35 @@ inFirst5min    = not na(time(timeframe.period, "0930-0935", "America/New_York"))
 inDateRange    = not input_use_date_range or (time >= input_date_from and time < input_date_to + 86400000)
 inActiveWindow = inDateRange and not na(time(timeframe.period, input_trading_hours, "America/New_York"))
 
+// ─── Next-bar permission (fix for the "sync" phantom trades) ──────
+// A stop-buy order is placed at the CLOSE of a bar and fills DURING the next
+// bar, but the script only runs again at that bar's close. If the next bar is
+// outside the trading window or inside the pre-open zone, the order layer could
+// still fill while the state machine (rightly) refuses the entry: a phantom
+// position that "sync" closed one bar later, and that was counted in the
+// Strategy Tester. So the order is placed only if the NEXT bar is allowed too.
+// The trading-hours text is parsed here ("0400-0500,0600-1600"; a ":days"
+// suffix is ignored). If it cannot be parsed, everything is allowed (old behavior).
+nextBarInWindow(int hhmm) =>
+    allowed = false
+    parsedAny = false
+    parts = str.split(input_trading_hours, ",")
+    for i = 0 to array.size(parts) - 1
+        spec = array.get(str.split(array.get(parts, i), ":"), 0)
+        rng = str.split(str.trim(spec), "-")
+        if array.size(rng) == 2
+            a = str.tonumber(array.get(rng, 0))
+            b = str.tonumber(array.get(rng, 1))
+            if not na(a) and not na(b)
+                parsedAny := true
+                if hhmm >= a and hhmm < b
+                    allowed := true
+    not parsedAny or allowed
+barMs = timeframe.in_seconds() * 1000
+inDateRangeNext = not input_use_date_range or (time_close >= input_date_from and time_close < input_date_to + 86400000)
+preOpenNext = input_preopen_exit_enabled and nyHM(time_close + barMs) >= input_preopen_exit_time and nyHM(time_close) < 930
+nextBarAllowed = inDateRangeNext and nextBarInWindow(nyHM(time_close)) and not preOpenNext
+
 // ─── Webhook messages (contract: docs/WEBHOOK_CONTRACT_V02.md) ──────────
 STRATEGY_VERSION = "V05-debug"
 sessionTag = not na(inPreMarket) ? "pre" : (not na(inRegularHours) ? "regular" : "post")
@@ -718,7 +747,7 @@ if barstate.isconfirmed
         // is allowed. Otherwise any pending order is cancelled.
         stopBuyLevel   := na
         stopBuyRedLow  := na
-        if state == STATE_PULLBACK_ACTIVE and not na(entryTriggerLevel) and entryTriggerLevel > vwapValue and inActiveWindow and not preOpenZone and cooldownOK
+        if state == STATE_PULLBACK_ACTIVE and not na(entryTriggerLevel) and entryTriggerLevel > vwapValue and inActiveWindow and not preOpenZone and cooldownOK and nextBarAllowed
             stopBuyLevel  := entryTriggerLevel
             stopBuyRedLow := lastRedLow
             sbQty = math.min(input_position_shares, math.floor(strategy.equity / stopBuyLevel))
