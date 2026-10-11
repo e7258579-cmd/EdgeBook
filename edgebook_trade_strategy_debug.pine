@@ -341,6 +341,7 @@ input_show_trail_line   = input.bool(true, "Show: active trail EMA (Tiered mode,
 input_show_bgcolor     = input.bool(true, "Show: state background color", group = "Visibility")
 input_show_climax      = input.bool(true, "Show: climax bar markers (C)", group = "Visibility")
 input_show_diag_table  = input.bool(true, "Show: diagnostics table (last 15 trades)", group = "Visibility")
+input_diag_table_pos   = input.string("Bottom left", "Diagnostics table position", options = ["Top left", "Bottom left", "Bottom center", "Bottom right"], group = "Visibility")
 var int noNewHighCount = 0
 var float barCloseHighest = na   // separate from highestSinceEntry (tick-based) — this one only updates on bar close, so the "did THIS bar make a new high" check compares against the value as it stood BEFORE this bar (same fix pattern as keyLevel's order-of-operations bug)
 
@@ -927,7 +928,8 @@ plot(rollingVol5min, title = "rollingVol5min", display = display.data_window)
 // One row per closed trade (the last 15), newest at the bottom. Entry numbers
 // are captured at the entry; P&L % and the exit reason at the exit. No effect
 // on any decision.
-var table diagTable = table.new(position.top_left, DIAG_COLS, DIAG_MAX_ROWS + 1, bgcolor = color.new(color.black, 10), frame_color = color.gray, frame_width = 1, border_color = color.gray, border_width = 1)
+diagTablePosition = input_diag_table_pos == "Top left" ? position.top_left : input_diag_table_pos == "Bottom center" ? position.bottom_center : input_diag_table_pos == "Bottom right" ? position.bottom_right : position.bottom_left
+var table diagTable = table.new(diagTablePosition, DIAG_COLS, DIAG_MAX_ROWS + 1, bgcolor = color.new(color.black, 10), frame_color = color.gray, frame_width = 1, border_color = color.gray, border_width = 1)
 if barstate.islast and input_show_diag_table
     diagHeaders = array.from("Entry NY", "Px", "P&L %", "Exit", "Bars", "Drift %", "Vol3 %", "Wick %", "Dist %", "DistC %", "Stop %")
     for c = 0 to DIAG_COLS - 1
