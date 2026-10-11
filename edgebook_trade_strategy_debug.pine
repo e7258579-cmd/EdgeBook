@@ -371,6 +371,15 @@ input_show_bgcolor     = input.bool(true, "Show: state background color", group 
 input_show_climax      = input.bool(true, "Show: climax bar markers (C)", group = "Visibility")
 input_show_diag_table  = input.bool(true, "Show: diagnostics table (last 15 trades)", group = "Visibility")
 input_diag_table_pos   = input.string("Bottom left", "Diagnostics table position", options = ["Top left", "Bottom left", "Bottom center", "Bottom right"], group = "Visibility")
+
+// RELOAD (shadow mode: markers only, NO effect on any decision). While EMA9 mode is
+// locked after a failed attempt, mark the bars that show a volume surge with price
+// above VWAP, and the bar that then breaks that bar's high (the entry the idea would take).
+input_rl_show       = input.bool(true, "Show: reload markers R / E (shadow)", group = "Reload (shadow)")
+input_rl_vol_mult   = input.float(2.0, "Volume surge: this bar at least N x the average of the bars before", minval = 1.0, step = 0.5, group = "Reload (shadow)")
+input_rl_vol_len    = input.int(15, "Average volume length (bars before this one)", minval = 3, maxval = 100, group = "Reload (shadow)")
+input_rl_max_wick   = input.float(35.0, "Max upper wick of the surge bar (% of its range)", minval = 0.0, maxval = 100.0, step = 5.0, group = "Reload (shadow)")
+input_rl_wait_bars  = input.int(2, "Entry E must come within N bars after R", minval = 1, maxval = 10, group = "Reload (shadow)")
 var int noNewHighCount = 0
 var float barCloseHighest = na   // separate from highestSinceEntry (tick-based) — this one only updates on bar close, so the "did THIS bar make a new high" check compares against the value as it stood BEFORE this bar (same fix pattern as keyLevel's order-of-operations bug)
 
@@ -985,7 +994,7 @@ plot(rollingVol5min, title = "rollingVol5min", display = display.data_window)
 diagTablePosition = input_diag_table_pos == "Top left" ? position.top_left : input_diag_table_pos == "Bottom center" ? position.bottom_center : input_diag_table_pos == "Bottom right" ? position.bottom_right : position.bottom_left
 var table diagTable = table.new(diagTablePosition, DIAG_COLS, DIAG_MAX_ROWS + 1, bgcolor = color.new(color.black, 10), frame_color = color.gray, frame_width = 1, border_color = color.gray, border_width = 1)
 if barstate.islast and input_show_diag_table
-    diagHeaders = array.from("Entry NY (d3)", "Px", "P&L %", "Exit", "Bars", "Drift %", "Vol3 %", "Wick %", "Dist %", "DistC %", "Stop %")
+    diagHeaders = array.from("Entry NY (d4)", "Px", "P&L %", "Exit", "Bars", "Drift %", "Vol3 %", "Wick %", "Dist %", "DistC %", "Stop %")
     for c = 0 to DIAG_COLS - 1
         table.cell(diagTable, c, 0, array.get(diagHeaders, c), text_color = color.white, bgcolor = color.new(color.gray, 40), text_size = size.small)
     diagRows = int(array.size(diagTbl) / DIAG_COLS)
@@ -998,3 +1007,29 @@ if barstate.islast and input_show_diag_table
             if c == 2 and r < diagRows
                 cellColor := str.startswith(cellTxt, "-") ? color.red : color.lime
             table.cell(diagTable, c, r + 1, cellTxt, text_color = cellColor, text_size = size.small)
+
+// ─── RELOAD MARKERS (shadow mode, debug only) ───────────────────
+// R = while EMA9 mode is locked (the "L" marks) and the state is SEARCHING: a GREEN bar
+//     whose volume is at least N x the average of the bars before it, that closes above
+//     VWAP and above EMA9, with a small upper wick.
+// E = the next bar(s) break the high of the R bar: where the idea would enter.
+// Nothing here changes a decision; it only shows where the idea would have acted.
+rlAvgVolPrev = ta.sma(volume, input_rl_vol_len)[1]
+rlSurge = not na(rlAvgVolPrev) and rlAvgVolPrev > 0 and volume >= input_rl_vol_mult * rlAvgVolPrev
+rlCond = not na(ema9LockLevel) and state == STATE_SEARCHING and close > open and close > vwapValue and close > ema9 and rlSurge and diagWickPct <= input_rl_max_wick
+var float rlHigh = na
+var int rlBar = na
+rlHit = false
+rlEntry = false
+if barstate.isconfirmed
+    if not na(rlHigh) and bar_index > rlBar and high > rlHigh
+        rlEntry := true
+        rlHigh := na
+    else if not na(rlHigh) and bar_index - rlBar >= input_rl_wait_bars
+        rlHigh := na
+    if rlCond
+        rlHit := true
+        rlHigh := high
+        rlBar := bar_index
+plotchar(input_rl_show and rlHit, title = "Reload R", char = "R", location = location.abovebar, color = color.aqua, size = size.small)
+plotchar(input_rl_show and rlEntry, title = "Reload E", char = "E", location = location.belowbar, color = color.lime, size = size.small)
