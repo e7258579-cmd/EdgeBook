@@ -279,6 +279,15 @@ var float lastGreenLegVolume = na   // NEW — volume of just the single, most r
 // pullbackVolume removed — was cumulative, replaced with a strict
 // per-candle comparison below (this bar's own volume vs the benchmark)
 
+// DIAGNOSTICS (debug file only): numbers shown in the entry and exit tooltips.
+// They never change a decision. Used to find which feature separates winners
+// from losers before any rule is built.
+var int    diagArmBar       = na   // bar where the current setup was armed
+var float  diagFirstTrigger = na   // trigger level set by the FIRST red candle after arming
+var float  diagLegMaxVol    = na   // largest single-bar volume in the leg
+var float  diagLegMaxWick   = na   // largest upper-wick % among leg bars with range >= 2 x previous ATR (na = none)
+var string diagEntryText    = ""   // diagnostics captured at the entry, shown again on the exit
+
 // NEW — Scalp Exit mode: manual market-regime toggle (the "hot/cold"
 // idea deferred twice earlier in this project — now built). Fires
 // BEFORE the stall detector when active, since it's meant to be more
@@ -332,6 +341,9 @@ volAvg = ta.sma(volume, input_climax_vol_len)   // climax detection, called unco
 // requires being in a position. Uses the PREVIOUS bar's ATR and average volume.
 climaxRange = high - low
 climaxBar = not na(atrVal[1]) and not na(volAvg[1]) and ema9 > 0 and climaxRange > 0 and (high - ema9) / ema9 * 100 >= input_climax_ext_pct and climaxRange >= input_climax_range_atr * atrVal[1] and volume >= input_climax_vol_mult * volAvg[1] and ((high - math.max(open, close)) / climaxRange * 100 >= input_climax_wick_pct or close < open)
+diagVol3 = ta.sma(volume, 3)   // diagnostics: average volume of the last 3 bars, called unconditionally
+diagBigBar = not na(atrVal[1]) and (high - low) >= 2 * atrVal[1]   // diagnostics: a bar whose range is at least 2 x the previous ATR
+diagWickPct = (high - low) > 0 ? (high - math.max(open, close)) / (high - low) * 100 : 0.0   // diagnostics: upper wick as % of the bar range
 emaSingle = ta.ema(close, input_trail_ema_len)   // single-EMA trail mode, called unconditionally
 emaT1 = ta.ema(close, input_tier1_ema_len)   // tiered trail: one EMA per stage, all called unconditionally
 emaT2 = ta.ema(close, input_tier2_ema_len)
@@ -418,12 +430,23 @@ if barstate.isconfirmed
         legLowTmp  = high
         legHighTmp = high
         legVolTmp  = 0.0
+        diagMaxVolTmp  = 0.0
+        diagMaxWickTmp = float(na)
         li = 0
         while li < 15 and close[li] > open[li]
             legLowTmp  := math.min(legLowTmp, low[li])
             legHighTmp := math.max(legHighTmp, high[li])
             legVolTmp  := legVolTmp + volume[li]
+            diagMaxVolTmp := math.max(diagMaxVolTmp, volume[li])
+            diagRangeLi = high[li] - low[li]
+            if diagRangeLi > 0 and not na(atrVal[li + 1]) and diagRangeLi >= 2 * atrVal[li + 1]
+                diagWickLi = (high[li] - math.max(open[li], close[li])) / diagRangeLi * 100
+                diagMaxWickTmp := na(diagMaxWickTmp) ? diagWickLi : math.max(diagMaxWickTmp, diagWickLi)
             li := li + 1
+        diagArmBar       := bar_index
+        diagFirstTrigger := na
+        diagLegMaxVol    := diagMaxVolTmp
+        diagLegMaxWick   := diagMaxWickTmp
         legLow         := legLowTmp
         legHigh         := legHighTmp
         lastLegHigh     := legHighTmp
@@ -443,6 +466,9 @@ if barstate.isconfirmed
             lastLegHigh         := high
             legLow               := math.min(legLow, low)
             legVolume            := legVolume + volume
+            diagLegMaxVol        := math.max(nz(diagLegMaxVol), volume)
+            if diagBigBar
+                diagLegMaxWick   := na(diagLegMaxWick) ? diagWickPct : math.max(diagLegMaxWick, diagWickPct)
             lastGreenLegVolume    := volume   // this bar is now "the most recent green candle" benchmark
             // pullbackVolume deliberately NOT touched — this bar isn't pullback
 
@@ -476,6 +502,8 @@ if barstate.isconfirmed
                 // NEW — intermediate label, shows the level THIS red candle sets,
                 // per the currently selected entry_trigger_ref (High/Open/Close)
                 thisLevel = armedVia == "ema9" ? lastRedHigh : (input_entry_trigger_ref == "Close" ? lastRedClose : input_entry_trigger_ref == "Open" ? lastRedOpen : lastRedHigh)
+                if na(diagFirstTrigger)
+                    diagFirstTrigger := thisLevel
                 if input_show_reclaim
                     label.new(bar_index, low, text="reclaim@" + str.tostring(thisLevel, "#.##"), style=label.style_label_up, color=color.gray, textcolor=color.white, size=size.tiny)
 
@@ -603,9 +631,18 @@ if barstate.isconfirmed
         // ─── ENTRY FIRES ───
         // SIGNAL - identical to the indicator. Thin arrow (the indicator
         // uses a boxed label) with the same tooltip values.
+        // DIAGNOSTICS (no effect on the entry): what the setup looked like at the entry.
+        diagTrigNow = input_entry_stopbuy ? stopBuyLevel : entryTriggerLevel
+        diagText = "bars since arm: " + str.tostring(bar_index - nz(diagArmBar, bar_index)) +
+                   "\ntrigger drift since first red: " + str.tostring((diagTrigNow - diagFirstTrigger) / diagFirstTrigger * 100, "#.#") + "% (first " + str.tostring(diagFirstTrigger, "#.##") + " -> now " + str.tostring(diagTrigNow, "#.##") + ")" +
+                   "\nvol last 3 bars vs leg peak bar: " + str.tostring(diagVol3 / diagLegMaxVol * 100, "#") + "%" +
+                   "\nbiggest upper wick in leg (bars >= 2xATR): " + (na(diagLegMaxWick) ? "none" : str.tostring(diagLegMaxWick, "#") + "%") +
+                   "\nentry vs leg high: " + str.tostring((entryFillPx - legHigh) / legHigh * 100, "#.#") + "% (leg high " + str.tostring(legHigh, "#.##") + ")"
+        diagEntryText := diagText
         tt = "keyLevel: " + str.tostring(keyLevel, "#.##") +
              "\nentryTriggerLevel: " + str.tostring(entryTriggerLevel, "#.##") +
-             "\nentry price: " + str.tostring(entryFillPx, "#.##") + (input_entry_stopbuy ? " (stop-buy)" : " (bar close)")
+             "\nentry price: " + str.tostring(entryFillPx, "#.##") + (input_entry_stopbuy ? " (stop-buy)" : " (bar close)") +
+             "\n--- entry diagnostics ---\n" + diagText
         label.new(bar_index, low, text = "", style = label.style_arrowup, color = color.lime, size = size.normal, tooltip = tt)
         // ORDER - a side effect only. Never changes the state machine.
         // (In stop-buy mode the order already exists and has already filled.)
@@ -746,7 +783,9 @@ if barstate.isconfirmed
                      "\nprogressPct: " + str.tostring(progressPct, "#.#") + "% (stall tier: " + (progressPct < input_stall_tier1_pct or progressPct >= input_stall_tier2_pct ? "strict" : "loose") + ")" +
                      "\npeakHigh: " + str.tostring(peakHigh, "#.##") + " | peakFloor: " + str.tostring(peakFloor, "#.##") +
                      "\nexitPrice: " + str.tostring(exitPx, "#.##") +
-                     "\nP&L (pre-fees, per share): " + str.tostring(exitPx - entryPrice, "#.##")
+                     "\nP&L (pre-fees, per share): " + str.tostring(exitPx - entryPrice, "#.##") +
+                     "\nP&L %: " + str.tostring((exitPx - entryPrice) / entryPrice * 100, "#.#") + "%" +
+                     "\n--- entry diagnostics ---\n" + diagEntryText
             label.new(bar_index, high, text = "", style = label.style_arrowdown, color = color.new(exitColor, 0), size = size.normal, tooltip = exitTt)
             // Webhook: skipped when entry and exit are on the SAME bar (neither was sent).
             if (bar_index != entryBar or nz(liveEntrySentBar, -1) == bar_index) and nz(liveExitSentBar, -1) != bar_index
