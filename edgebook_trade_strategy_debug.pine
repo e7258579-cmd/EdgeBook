@@ -287,6 +287,37 @@ var float  diagFirstTrigger = na   // trigger level set by the FIRST red candle 
 var float  diagLegMaxVol    = na   // largest single-bar volume in the leg
 var float  diagLegMaxWick   = na   // largest upper-wick % among leg bars with range >= 2 x previous ATR (na = none)
 var string diagEntryText    = ""   // diagnostics captured at the entry, shown again on the exit
+var float  diagLegMaxClose  = na   // highest CLOSE in the leg (the leg high itself can be inflated by a wick)
+// The same numbers as table columns (strings), captured at the entry.
+var string diagColTime = ""
+var string diagColPx   = ""
+var string diagColBars = ""
+var string diagColDrift = ""
+var string diagColVol  = ""
+var string diagColWick = ""
+var string diagColDist = ""
+var string diagColDistC = ""
+var string diagColStop = ""
+DIAG_COLS = 11
+DIAG_MAX_ROWS = 15
+// One row of 11 strings per closed trade, flattened. Only the last 15 trades are kept.
+var array<string> diagTbl = array.new<string>()
+diagPushRow(string pnlTxt, string reasonTxt) =>
+    array.push(diagTbl, diagColTime)
+    array.push(diagTbl, diagColPx)
+    array.push(diagTbl, pnlTxt)
+    array.push(diagTbl, reasonTxt)
+    array.push(diagTbl, diagColBars)
+    array.push(diagTbl, diagColDrift)
+    array.push(diagTbl, diagColVol)
+    array.push(diagTbl, diagColWick)
+    array.push(diagTbl, diagColDist)
+    array.push(diagTbl, diagColDistC)
+    array.push(diagTbl, diagColStop)
+    if array.size(diagTbl) > DIAG_COLS * DIAG_MAX_ROWS
+        for i = 1 to DIAG_COLS
+            array.shift(diagTbl)
+    true
 
 // NEW — Scalp Exit mode: manual market-regime toggle (the "hot/cold"
 // idea deferred twice earlier in this project — now built). Fires
@@ -309,6 +340,7 @@ input_show_ema20_plot   = input.bool(true, "Show: EMA20 line", group = "Visibili
 input_show_trail_line   = input.bool(true, "Show: active trail EMA (Tiered mode, while in a position)", group = "Visibility")
 input_show_bgcolor     = input.bool(true, "Show: state background color", group = "Visibility")
 input_show_climax      = input.bool(true, "Show: climax bar markers (C)", group = "Visibility")
+input_show_diag_table  = input.bool(true, "Show: diagnostics table (last 15 trades)", group = "Visibility")
 var int noNewHighCount = 0
 var float barCloseHighest = na   // separate from highestSinceEntry (tick-based) — this one only updates on bar close, so the "did THIS bar make a new high" check compares against the value as it stood BEFORE this bar (same fix pattern as keyLevel's order-of-operations bug)
 
@@ -432,12 +464,14 @@ if barstate.isconfirmed
         legVolTmp  = 0.0
         diagMaxVolTmp  = 0.0
         diagMaxWickTmp = float(na)
+        diagMaxCloseTmp = close
         li = 0
         while li < 15 and close[li] > open[li]
             legLowTmp  := math.min(legLowTmp, low[li])
             legHighTmp := math.max(legHighTmp, high[li])
             legVolTmp  := legVolTmp + volume[li]
             diagMaxVolTmp := math.max(diagMaxVolTmp, volume[li])
+            diagMaxCloseTmp := math.max(diagMaxCloseTmp, close[li])
             diagRangeLi = high[li] - low[li]
             if diagRangeLi > 0 and not na(atrVal[li + 1]) and diagRangeLi >= 2 * atrVal[li + 1]
                 diagWickLi = (high[li] - math.max(open[li], close[li])) / diagRangeLi * 100
@@ -447,6 +481,7 @@ if barstate.isconfirmed
         diagFirstTrigger := na
         diagLegMaxVol    := diagMaxVolTmp
         diagLegMaxWick   := diagMaxWickTmp
+        diagLegMaxClose  := diagMaxCloseTmp
         legLow         := legLowTmp
         legHigh         := legHighTmp
         lastLegHigh     := legHighTmp
@@ -467,6 +502,7 @@ if barstate.isconfirmed
             legLow               := math.min(legLow, low)
             legVolume            := legVolume + volume
             diagLegMaxVol        := math.max(nz(diagLegMaxVol), volume)
+            diagLegMaxClose      := math.max(nz(diagLegMaxClose), close)
             if diagBigBar
                 diagLegMaxWick   := na(diagLegMaxWick) ? diagWickPct : math.max(diagLegMaxWick, diagWickPct)
             lastGreenLegVolume    := volume   // this bar is now "the most recent green candle" benchmark
@@ -639,6 +675,15 @@ if barstate.isconfirmed
                    "\nbiggest upper wick in leg (bars >= 2xATR): " + (na(diagLegMaxWick) ? "none" : str.tostring(diagLegMaxWick, "#") + "%") +
                    "\nentry vs leg high: " + str.tostring((entryFillPx - legHigh) / legHigh * 100, "#.#") + "% (leg high " + str.tostring(legHigh, "#.##") + ")"
         diagEntryText := diagText
+        diagColTime  := str.format_time(time, "MM-dd HH:mm", "America/New_York")
+        diagColPx    := str.tostring(entryFillPx, "#.##")
+        diagColBars  := str.tostring(bar_index - nz(diagArmBar, bar_index))
+        diagColDrift := str.tostring((diagTrigNow - diagFirstTrigger) / diagFirstTrigger * 100, "#.#")
+        diagColVol   := str.tostring(diagVol3 / diagLegMaxVol * 100, "#")
+        diagColWick  := na(diagLegMaxWick) ? "-" : str.tostring(diagLegMaxWick, "#")
+        diagColDist  := str.tostring((entryFillPx - legHigh) / legHigh * 100, "#.#")
+        diagColDistC := str.tostring((entryFillPx - diagLegMaxClose) / diagLegMaxClose * 100, "#.#")
+        diagColStop  := str.tostring((entryFillPx - entryRedLow) / entryFillPx * 100, "#.#")
         tt = "keyLevel: " + str.tostring(keyLevel, "#.##") +
              "\nentryTriggerLevel: " + str.tostring(entryTriggerLevel, "#.##") +
              "\nentry price: " + str.tostring(entryFillPx, "#.##") + (input_entry_stopbuy ? " (stop-buy)" : " (bar close)") +
@@ -787,6 +832,7 @@ if barstate.isconfirmed
                      "\nP&L %: " + str.tostring((exitPx - entryPrice) / entryPrice * 100, "#.#") + "%" +
                      "\n--- entry diagnostics ---\n" + diagEntryText
             label.new(bar_index, high, text = "", style = label.style_arrowdown, color = color.new(exitColor, 0), size = size.normal, tooltip = exitTt)
+            diagPushRow(str.tostring((exitPx - entryPrice) / entryPrice * 100, "#.#"), exitReason)
             // Webhook: skipped when entry and exit are on the SAME bar (neither was sent).
             if (bar_index != entryBar or nz(liveEntrySentBar, -1) == bar_index) and nz(liveExitSentBar, -1) != bar_index
                 emitWebhook("exit", ',"reason":"' + exitReason + '","price":' + str.tostring(exitPx, "0.####") + ',"last":' + str.tostring(close, "0.####"))
@@ -876,3 +922,23 @@ plotchar(input_show_vw_diag and blockedByWindow, title = "Blocked by window", ch
 // numbers at any bar, even ones with no tooltip (no entry fired).
 plot(cumVolToday, title = "cumVolToday", display = display.data_window)
 plot(rollingVol5min, title = "rollingVol5min", display = display.data_window)
+
+// ─── DIAGNOSTICS TABLE (debug only) ─────────────────────────────
+// One row per closed trade (the last 15), newest at the bottom. Entry numbers
+// are captured at the entry; P&L % and the exit reason at the exit. No effect
+// on any decision.
+var table diagTable = table.new(position.top_left, DIAG_COLS, DIAG_MAX_ROWS + 1, bgcolor = color.new(color.black, 10), frame_color = color.gray, frame_width = 1, border_color = color.gray, border_width = 1)
+if barstate.islast and input_show_diag_table
+    diagHeaders = array.from("Entry NY", "Px", "P&L %", "Exit", "Bars", "Drift %", "Vol3 %", "Wick %", "Dist %", "DistC %", "Stop %")
+    for c = 0 to DIAG_COLS - 1
+        table.cell(diagTable, c, 0, array.get(diagHeaders, c), text_color = color.white, bgcolor = color.new(color.gray, 40), text_size = size.small)
+    diagRows = int(array.size(diagTbl) / DIAG_COLS)
+    for r = 0 to DIAG_MAX_ROWS - 1
+        for c = 0 to DIAG_COLS - 1
+            cellTxt = ""
+            if r < diagRows
+                cellTxt := array.get(diagTbl, r * DIAG_COLS + c)
+            cellColor = color.white
+            if c == 2 and r < diagRows
+                cellColor := str.startswith(cellTxt, "-") ? color.red : color.lime
+            table.cell(diagTable, c, r + 1, cellTxt, text_color = cellColor, text_size = size.small)
