@@ -386,6 +386,12 @@ input_rl_wait_bars  = input.int(2, "Entry E must come within N bars after R", mi
 input_rl_max_per_day = input.int(1, "Frame: at most N reload entries (E) per day", minval = 1, maxval = 10, group = "Reload (shadow)")
 input_rl_max_min    = input.int(90, "Frame: R only within N minutes after the last INVALID", minval = 1, maxval = 600, group = "Reload (shadow)")
 input_rl_cutoff     = input.int(1000, "Frame: no R after this time (HHMM, New York)", minval = 400, maxval = 1600, group = "Reload (shadow)")
+
+// STOP DISTANCE experiments (debug file). All three are OFF at 0, which is the old behavior:
+// the stop is the Low of the last red candle. Used for the stop-buy entry mode.
+input_min_stop_pct = input.float(0.0, "Minimum stop distance (% of the entry level, 0 = off)", minval = 0.0, maxval = 50.0, step = 0.5, group = "Stop distance (debug)", tooltip = "If the last red candle's Low is closer to the entry level than this, the stop is moved down to this distance.")
+input_min_stop_atr = input.float(0.0, "Minimum stop distance (x ATR, 0 = off)", minval = 0.0, maxval = 10.0, step = 0.25, group = "Stop distance (debug)", tooltip = "Same idea, measured in multiples of the ATR (the length is the one under Peak trail). If both minimums are on, the wider stop is used.")
+input_max_stop_pct = input.float(0.0, "Maximum stop distance (% of the entry level, 0 = off)", minval = 0.0, maxval = 90.0, step = 1.0, group = "Stop distance (debug)", tooltip = "If the stop would be farther than this, the entry is skipped (no stop-buy is placed).")
 var int noNewHighCount = 0
 var float barCloseHighest = na   // separate from highestSinceEntry (tick-based) — this one only updates on bar close, so the "did THIS bar make a new high" check compares against the value as it stood BEFORE this bar (same fix pattern as keyLevel's order-of-operations bug)
 
@@ -765,9 +771,18 @@ if barstate.isconfirmed
         // is allowed. Otherwise any pending order is cancelled.
         stopBuyLevel   := na
         stopBuyRedLow  := na
-        if state == STATE_PULLBACK_ACTIVE and not na(entryTriggerLevel) and entryTriggerLevel > vwapValue and inActiveWindow and not preOpenZone and cooldownOK and nextBarAllowed
+        // Stop distance experiments (all off at 0): move the stop down to a minimum
+        // distance, and/or skip the entry when the stop is too far.
+        adjStop = lastRedLow
+        if not na(adjStop) and not na(entryTriggerLevel)
+            if input_min_stop_pct > 0
+                adjStop := math.min(adjStop, entryTriggerLevel * (1 - input_min_stop_pct / 100))
+            if input_min_stop_atr > 0 and not na(atrVal)
+                adjStop := math.min(adjStop, entryTriggerLevel - input_min_stop_atr * atrVal)
+        stopTooWide = input_max_stop_pct > 0 and not na(adjStop) and not na(entryTriggerLevel) and (entryTriggerLevel - adjStop) / entryTriggerLevel * 100 > input_max_stop_pct
+        if state == STATE_PULLBACK_ACTIVE and not na(entryTriggerLevel) and entryTriggerLevel > vwapValue and inActiveWindow and not preOpenZone and cooldownOK and nextBarAllowed and not stopTooWide
             stopBuyLevel  := entryTriggerLevel
-            stopBuyRedLow := lastRedLow
+            stopBuyRedLow := adjStop
             sbQty = math.min(input_position_shares, math.floor(strategy.equity / stopBuyLevel))
             if sbQty > 0
                 strategy.entry("Long", strategy.long, qty = sbQty, stop = stopBuyLevel)
@@ -1003,7 +1018,7 @@ plot(rollingVol5min, title = "rollingVol5min", display = display.data_window)
 diagTablePosition = input_diag_table_pos == "Top left" ? position.top_left : input_diag_table_pos == "Bottom center" ? position.bottom_center : input_diag_table_pos == "Bottom right" ? position.bottom_right : position.bottom_left
 var table diagTable = table.new(diagTablePosition, DIAG_COLS, DIAG_MAX_ROWS + 1, bgcolor = color.new(color.black, 10), frame_color = color.gray, frame_width = 1, border_color = color.gray, border_width = 1)
 if barstate.islast and input_show_diag_table
-    diagHeaders = array.from("Entry NY (d6)", "Px", "P&L %", "Exit", "Bars", "Drift %", "Vol3 %", "Wick %", "Dist %", "DistC %", "Stop %")
+    diagHeaders = array.from("Entry NY (d7)", "Px", "P&L %", "Exit", "Bars", "Drift %", "Vol3 %", "Wick %", "Dist %", "DistC %", "Stop %")
     for c = 0 to DIAG_COLS - 1
         table.cell(diagTable, c, 0, array.get(diagHeaders, c), text_color = color.white, bgcolor = color.new(color.gray, 40), text_size = size.small)
     diagRows = int(array.size(diagTbl) / DIAG_COLS)
