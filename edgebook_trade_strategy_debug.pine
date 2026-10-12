@@ -312,6 +312,8 @@ var float lastGreenLegVolume = na   // NEW — volume of just the single, most r
 // They never change a decision. Used to find which feature separates winners
 // from losers before any rule is built.
 var int    diagArmBar       = na   // bar where the current setup was armed
+var int    rlFailTime       = na   // time of the latest INVALID today (reload idea only)
+var int    rlDayEntries     = 0    // reload entries (E) so far today (reload idea only)
 var float  diagFirstTrigger = na   // trigger level set by the FIRST red candle after arming
 var float  diagLegMaxVol    = na   // largest single-bar volume in the leg
 var float  diagLegMaxWick   = na   // largest upper-wick % among leg bars with range >= 2 x previous ATR (na = none)
@@ -381,6 +383,9 @@ input_rl_min_vol    = input.float(300000, "Volume surge: this bar also at least 
 input_rl_vol_len    = input.int(15, "Average volume length (bars before this one)", minval = 3, maxval = 100, group = "Reload (shadow)")
 input_rl_max_wick   = input.float(35.0, "Max upper wick of the surge bar (% of its range)", minval = 0.0, maxval = 100.0, step = 5.0, group = "Reload (shadow)")
 input_rl_wait_bars  = input.int(2, "Entry E must come within N bars after R", minval = 1, maxval = 10, group = "Reload (shadow)")
+input_rl_max_per_day = input.int(1, "Frame: at most N reload entries (E) per day", minval = 1, maxval = 10, group = "Reload (shadow)")
+input_rl_max_min    = input.int(90, "Frame: R only within N minutes after the last INVALID", minval = 1, maxval = 600, group = "Reload (shadow)")
+input_rl_cutoff     = input.int(1000, "Frame: no R after this time (HHMM, New York)", minval = 400, maxval = 1600, group = "Reload (shadow)")
 var int noNewHighCount = 0
 var float barCloseHighest = na   // separate from highestSinceEntry (tick-based) — this one only updates on bar close, so the "did THIS bar make a new high" check compares against the value as it stood BEFORE this bar (same fix pattern as keyLevel's order-of-operations bug)
 
@@ -430,6 +435,8 @@ if barstate.isconfirmed
     if newDay
         cumVolToday := volume
         todaysOpen  := open
+        rlDayEntries := 0
+        rlFailTime := na
         // NEW — a lock or leg from a previous day must never carry over
         lastLegHigh   := na
         ema9LockLevel := na
@@ -585,6 +592,7 @@ if barstate.isconfirmed
 
             if invalidByRetracement or invalidByVolume
                 invalidReason = invalidByRetracement ? "50%+ retrace" : armedVia == "ema9" ? "EMA9 floor + vol" : "sell vol > buy vol"
+                rlFailTime := time
                 state       := STATE_SEARCHING
                 keyLevel    := na
                 lastRedHigh  := na
@@ -995,7 +1003,7 @@ plot(rollingVol5min, title = "rollingVol5min", display = display.data_window)
 diagTablePosition = input_diag_table_pos == "Top left" ? position.top_left : input_diag_table_pos == "Bottom center" ? position.bottom_center : input_diag_table_pos == "Bottom right" ? position.bottom_right : position.bottom_left
 var table diagTable = table.new(diagTablePosition, DIAG_COLS, DIAG_MAX_ROWS + 1, bgcolor = color.new(color.black, 10), frame_color = color.gray, frame_width = 1, border_color = color.gray, border_width = 1)
 if barstate.islast and input_show_diag_table
-    diagHeaders = array.from("Entry NY (d5)", "Px", "P&L %", "Exit", "Bars", "Drift %", "Vol3 %", "Wick %", "Dist %", "DistC %", "Stop %")
+    diagHeaders = array.from("Entry NY (d6)", "Px", "P&L %", "Exit", "Bars", "Drift %", "Vol3 %", "Wick %", "Dist %", "DistC %", "Stop %")
     for c = 0 to DIAG_COLS - 1
         table.cell(diagTable, c, 0, array.get(diagHeaders, c), text_color = color.white, bgcolor = color.new(color.gray, 40), text_size = size.small)
     diagRows = int(array.size(diagTbl) / DIAG_COLS)
@@ -1020,7 +1028,7 @@ if barstate.islast and input_show_diag_table
 // Nothing here changes a decision.
 rlAvgVolPrev = ta.sma(volume, input_rl_vol_len)[1]
 rlSurge = not na(rlAvgVolPrev) and rlAvgVolPrev > 0 and volume >= input_rl_vol_mult * rlAvgVolPrev and volume >= input_rl_min_vol
-rlCond = not na(ema9LockLevel) and state == STATE_SEARCHING and close > open and close > vwapValue and close > ema9 and rlSurge and diagWickPct <= input_rl_max_wick
+rlCond = not na(ema9LockLevel) and state == STATE_SEARCHING and close > open and close > vwapValue and close > ema9 and rlSurge and diagWickPct <= input_rl_max_wick and rlDayEntries < input_rl_max_per_day and not na(rlFailTime) and (time - rlFailTime) <= input_rl_max_min * 60000 and nyHM(time) <= input_rl_cutoff
 var float rlHigh = na
 var float rlLow = na
 var float rlVol = na
@@ -1065,6 +1073,7 @@ if barstate.isconfirmed
                 vtOpen := false
     if not na(rlHigh) and bar_index > rlBar and high > rlHigh
         rlEntry := true
+        rlDayEntries := rlDayEntries + 1
         rlTrigPx := rlHigh
         rlStopPx := rlLow
         rlRVolNow := rlVol
@@ -1096,7 +1105,7 @@ plotchar(input_rl_show and rlEntry, title = "Reload E", char = "E", location = l
 
 var table rlTable = table.new(position.bottom_right, RL_COLS, RL_MAX_ROWS + 2, bgcolor = color.new(color.black, 10), frame_color = color.gray, frame_width = 1, border_color = color.gray, border_width = 1)
 if barstate.islast and input_rl_show
-    rlHeaders = array.from("E NY (r1)", "Entry", "Stop %", "Peak %", "Result %", "End", "R vol K")
+    rlHeaders = array.from("E NY (r2)", "Entry", "Stop %", "Peak %", "Result %", "End", "R vol K")
     for c = 0 to RL_COLS - 1
         table.cell(rlTable, c, 0, array.get(rlHeaders, c), text_color = color.white, bgcolor = color.new(color.gray, 40), text_size = size.small)
     rlRowsN = int(array.size(rlRows) / RL_COLS)
