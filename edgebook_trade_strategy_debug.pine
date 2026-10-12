@@ -377,6 +377,7 @@ input_diag_table_pos   = input.string("Bottom left", "Diagnostics table position
 // above VWAP, and the bar that then breaks that bar's high (the entry the idea would take).
 input_rl_show       = input.bool(true, "Show: reload markers R / E (shadow)", group = "Reload (shadow)")
 input_rl_vol_mult   = input.float(2.0, "Volume surge: this bar at least N x the average of the bars before", minval = 1.0, step = 0.5, group = "Reload (shadow)")
+input_rl_min_vol    = input.float(300000, "Volume surge: this bar also at least this many shares (absolute floor)", minval = 0, step = 50000, group = "Reload (shadow)")
 input_rl_vol_len    = input.int(15, "Average volume length (bars before this one)", minval = 3, maxval = 100, group = "Reload (shadow)")
 input_rl_max_wick   = input.float(35.0, "Max upper wick of the surge bar (% of its range)", minval = 0.0, maxval = 100.0, step = 5.0, group = "Reload (shadow)")
 input_rl_wait_bars  = input.int(2, "Entry E must come within N bars after R", minval = 1, maxval = 10, group = "Reload (shadow)")
@@ -994,7 +995,7 @@ plot(rollingVol5min, title = "rollingVol5min", display = display.data_window)
 diagTablePosition = input_diag_table_pos == "Top left" ? position.top_left : input_diag_table_pos == "Bottom center" ? position.bottom_center : input_diag_table_pos == "Bottom right" ? position.bottom_right : position.bottom_left
 var table diagTable = table.new(diagTablePosition, DIAG_COLS, DIAG_MAX_ROWS + 1, bgcolor = color.new(color.black, 10), frame_color = color.gray, frame_width = 1, border_color = color.gray, border_width = 1)
 if barstate.islast and input_show_diag_table
-    diagHeaders = array.from("Entry NY (d4)", "Px", "P&L %", "Exit", "Bars", "Drift %", "Vol3 %", "Wick %", "Dist %", "DistC %", "Stop %")
+    diagHeaders = array.from("Entry NY (d5)", "Px", "P&L %", "Exit", "Bars", "Drift %", "Vol3 %", "Wick %", "Dist %", "DistC %", "Stop %")
     for c = 0 to DIAG_COLS - 1
         table.cell(diagTable, c, 0, array.get(diagHeaders, c), text_color = color.white, bgcolor = color.new(color.gray, 40), text_size = size.small)
     diagRows = int(array.size(diagTbl) / DIAG_COLS)
@@ -1008,28 +1009,112 @@ if barstate.islast and input_show_diag_table
                 cellColor := str.startswith(cellTxt, "-") ? color.red : color.lime
             table.cell(diagTable, c, r + 1, cellTxt, text_color = cellColor, text_size = size.small)
 
-// ─── RELOAD MARKERS (shadow mode, debug only) ───────────────────
+// ─── RELOAD MARKERS + VIRTUAL TRADES (shadow mode, debug only) ──
 // R = while EMA9 mode is locked (the "L" marks) and the state is SEARCHING: a GREEN bar
-//     whose volume is at least N x the average of the bars before it, that closes above
-//     VWAP and above EMA9, with a small upper wick.
+//     whose volume is at least N x the average of the bars before it AND at least the
+//     absolute floor, that closes above VWAP and above EMA9, with a small upper wick.
 // E = the next bar(s) break the high of the R bar: where the idea would enter.
-// Nothing here changes a decision; it only shows where the idea would have acted.
+// Each E starts a VIRTUAL trade (one at a time): entry = the R bar high (or the open if
+// the bar gaps above it), stop = the R bar low. It ends on the stop, or after 30 bars.
+// This is only an approximation of the potential; it is NOT the strategy's own exit.
+// Nothing here changes a decision.
 rlAvgVolPrev = ta.sma(volume, input_rl_vol_len)[1]
-rlSurge = not na(rlAvgVolPrev) and rlAvgVolPrev > 0 and volume >= input_rl_vol_mult * rlAvgVolPrev
+rlSurge = not na(rlAvgVolPrev) and rlAvgVolPrev > 0 and volume >= input_rl_vol_mult * rlAvgVolPrev and volume >= input_rl_min_vol
 rlCond = not na(ema9LockLevel) and state == STATE_SEARCHING and close > open and close > vwapValue and close > ema9 and rlSurge and diagWickPct <= input_rl_max_wick
 var float rlHigh = na
+var float rlLow = na
+var float rlVol = na
 var int rlBar = na
+var bool vtOpen = false
+var int vtBar = na
+var float vtEntry = na
+var float vtStop = na
+var float vtPeak = na
+var float vtRVol = na
+var string vtTime = ""
+var array<string> rlRows = array.new<string>()
+RL_COLS = 7
+RL_MAX_ROWS = 10
+rlPushRow(string tm, string px, string stp, string pk, string res, string endTxt, string volK) =>
+    array.push(rlRows, tm)
+    array.push(rlRows, px)
+    array.push(rlRows, stp)
+    array.push(rlRows, pk)
+    array.push(rlRows, res)
+    array.push(rlRows, endTxt)
+    array.push(rlRows, volK)
+    if array.size(rlRows) > RL_COLS * RL_MAX_ROWS
+        for i = 1 to RL_COLS
+            array.shift(rlRows)
+    true
 rlHit = false
 rlEntry = false
+rlTrigPx = float(na)
+rlStopPx = float(na)
+rlRVolNow = float(na)
 if barstate.isconfirmed
+    // a virtual trade that is already open: stop first (conservative), then the peak, then the 30-bar end
+    if vtOpen and bar_index > vtBar
+        if low <= vtStop
+            rlPushRow(vtTime, str.tostring(vtEntry, "#.##"), str.tostring((vtEntry - vtStop) / vtEntry * 100, "#.#"), str.tostring((vtPeak - vtEntry) / vtEntry * 100, "#.#"), str.tostring((vtStop - vtEntry) / vtEntry * 100, "#.#"), "stop", str.tostring(vtRVol / 1000, "#"))
+            vtOpen := false
+        else
+            vtPeak := math.max(vtPeak, high)
+            if bar_index - vtBar >= 30
+                rlPushRow(vtTime, str.tostring(vtEntry, "#.##"), str.tostring((vtEntry - vtStop) / vtEntry * 100, "#.#"), str.tostring((vtPeak - vtEntry) / vtEntry * 100, "#.#"), str.tostring((close - vtEntry) / vtEntry * 100, "#.#"), "30 bars", str.tostring(vtRVol / 1000, "#"))
+                vtOpen := false
     if not na(rlHigh) and bar_index > rlBar and high > rlHigh
         rlEntry := true
+        rlTrigPx := rlHigh
+        rlStopPx := rlLow
+        rlRVolNow := rlVol
         rlHigh := na
     else if not na(rlHigh) and bar_index - rlBar >= input_rl_wait_bars
         rlHigh := na
     if rlCond
         rlHit := true
         rlHigh := high
+        rlLow := low
+        rlVol := volume
         rlBar := bar_index
+    // a new E starts a virtual trade when none is open
+    if rlEntry and not vtOpen
+        vtOpen := true
+        vtBar := bar_index
+        vtEntry := math.max(open, rlTrigPx)
+        vtStop := rlStopPx
+        vtPeak := vtEntry
+        vtRVol := rlRVolNow
+        vtTime := str.format_time(time, "MM-dd HH:mm", "America/New_York")
+        if low <= vtStop
+            rlPushRow(vtTime, str.tostring(vtEntry, "#.##"), str.tostring((vtEntry - vtStop) / vtEntry * 100, "#.#"), "0", str.tostring((vtStop - vtEntry) / vtEntry * 100, "#.#"), "stop", str.tostring(vtRVol / 1000, "#"))
+            vtOpen := false
+        else
+            vtPeak := math.max(vtPeak, high)
 plotchar(input_rl_show and rlHit, title = "Reload R", char = "R", location = location.abovebar, color = color.aqua, size = size.small)
 plotchar(input_rl_show and rlEntry, title = "Reload E", char = "E", location = location.belowbar, color = color.lime, size = size.small)
+
+var table rlTable = table.new(position.bottom_right, RL_COLS, RL_MAX_ROWS + 2, bgcolor = color.new(color.black, 10), frame_color = color.gray, frame_width = 1, border_color = color.gray, border_width = 1)
+if barstate.islast and input_rl_show
+    rlHeaders = array.from("E NY (r1)", "Entry", "Stop %", "Peak %", "Result %", "End", "R vol K")
+    for c = 0 to RL_COLS - 1
+        table.cell(rlTable, c, 0, array.get(rlHeaders, c), text_color = color.white, bgcolor = color.new(color.gray, 40), text_size = size.small)
+    rlRowsN = int(array.size(rlRows) / RL_COLS)
+    for r = 0 to RL_MAX_ROWS - 1
+        for c = 0 to RL_COLS - 1
+            rlTxt = ""
+            if r < rlRowsN
+                rlTxt := array.get(rlRows, r * RL_COLS + c)
+            rlColor = color.white
+            if c == 4 and r < rlRowsN
+                rlColor := str.startswith(rlTxt, "-") ? color.red : color.lime
+            table.cell(rlTable, c, r + 1, rlTxt, text_color = rlColor, text_size = size.small)
+    // a virtual trade still open at the last bar
+    if vtOpen
+        table.cell(rlTable, 0, RL_MAX_ROWS + 1, vtTime, text_color = color.aqua, text_size = size.small)
+        table.cell(rlTable, 1, RL_MAX_ROWS + 1, str.tostring(vtEntry, "#.##"), text_color = color.aqua, text_size = size.small)
+        table.cell(rlTable, 2, RL_MAX_ROWS + 1, str.tostring((vtEntry - vtStop) / vtEntry * 100, "#.#"), text_color = color.aqua, text_size = size.small)
+        table.cell(rlTable, 3, RL_MAX_ROWS + 1, str.tostring((vtPeak - vtEntry) / vtEntry * 100, "#.#"), text_color = color.aqua, text_size = size.small)
+        table.cell(rlTable, 4, RL_MAX_ROWS + 1, str.tostring((close - vtEntry) / vtEntry * 100, "#.#"), text_color = color.aqua, text_size = size.small)
+        table.cell(rlTable, 5, RL_MAX_ROWS + 1, "open", text_color = color.aqua, text_size = size.small)
+        table.cell(rlTable, 6, RL_MAX_ROWS + 1, str.tostring(vtRVol / 1000, "#"), text_color = color.aqua, text_size = size.small)
