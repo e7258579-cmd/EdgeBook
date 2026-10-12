@@ -24,7 +24,7 @@
 
 const {checkEntryLimits} = require("./limits");
 const {sizeEntry, roundPrice} = require("./sizing");
-const {nyDateKey} = require("./config");
+const {statsKey} = require("./config");
 
 const FILLED = new Set(["Filled"]);
 // Terminal and not filled. (DoneForDay is effectively terminal for Day orders.)
@@ -222,7 +222,7 @@ async function placeStop(ctx, pos, level) {
 async function placeEntry(ctx, signal) {
   const {store, broker, config, now} = ctx;
   const t = now();
-  const day = nyDateKey(t);
+  const day = statsKey(t, config.dryRun);
   const [stats, ordersLastMinute] = await Promise.all([store.getStats(day), store.countOrdersSince(t - 60000)]);
   const blocked = checkEntryLimits({config, stats, ordersLastMinute});
   if (blocked) return {status: "rejected", reason: blocked};
@@ -404,7 +404,7 @@ async function processExit(ctx, signal) {
       const ex = num(c.order && c.order.executed);
       if (ex > 0) await consumeFill(ctx, pos, ex, num(c.order.priceAvg) || pos.stopLevel);
       if (!(pos.filledQty > 0)) {
-        await store.closePosition(pos.symbol, {day: nyDateKey(t), pnl: pos.realized || 0, exitReason: "stop_filled_before_exit", closedAt: t, qty: 0});
+        await store.closePosition(pos.symbol, {day: statsKey(t, pos.dryRun), pnl: pos.realized || 0, exitReason: "stop_filled_before_exit", closedAt: t, qty: 0});
         return {status: "ignored", reason: "stop_already_filled"};
       }
     }
@@ -493,7 +493,7 @@ async function consumeFill(ctx, pos, qty, px) {
 async function bookClosed(ctx, pos, {exitPrice, qty, reason}) {
   const entry = pos.entryFillPrice || pos.entryPrice;
   const pnl = (exitPrice - entry) * qty + (pos.realized || 0);
-  await ctx.store.closePosition(pos.symbol, {day: nyDateKey(ctx.now()), pnl, exitReason: reason, closedAt: ctx.now(), qty});
+  await ctx.store.closePosition(pos.symbol, {day: statsKey(ctx.now(), pos.dryRun), pnl, exitReason: reason, closedAt: ctx.now(), qty});
 }
 
 async function bookStopFilled(ctx, pos, order) {

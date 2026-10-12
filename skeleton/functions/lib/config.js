@@ -47,4 +47,10 @@ function nyDateKey(ms) {
   }).format(new Date(ms));
 }
 
-module.exports = {DEFAULTS, mergeConfig, nyDateKey};
+// Daily counters are kept apart for DRY_RUN and real (Paper/Live) trading, so simulated
+// trades never use up the real daily loss limit or the trade cap.
+function statsKey(ms, dry) {
+  return dry ? `${nyDateKey(ms)}-dry` : nyDateKey(ms);
+}
+
+module.exports = {DEFAULTS, mergeConfig, nyDateKey, statsKey};

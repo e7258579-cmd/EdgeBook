@@ -120,6 +120,16 @@ test("entry: last far above the trigger is rejected as a chase, nothing sent or 
   assert.equal(ok.status, "accepted");
 });
 
+test("DRY_RUN trades are counted apart from real ones: they never use up the real daily loss limit", async () => {
+  const store = memoryStore();
+  const broker = simBroker({bid: 4.10, ask: 4.10});
+  const dry = cfg({dryRun: true});
+  const r = await run(entrySignal(), store, broker, dry);
+  assert.equal(r.status, "accepted");
+  assert.equal((await store.getStats(nyDateKey(NOW) + "-dry")).tradesToday, 1);
+  assert.equal((await store.getStats(nyDateKey(NOW))).tradesToday, 0);
+});
+
 test("entry: kill switch, daily loss, trade cap and rate limit all block", async () => {
   const day = nyDateKey(NOW);
   for (const [config, stats, orders, reason] of [
