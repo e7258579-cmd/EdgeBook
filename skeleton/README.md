@@ -39,6 +39,8 @@ npm test
 | `maxOrdersPerMinute` | `6` | הזמנות ב-60 השניות האחרונות |
 | `limitOffsetUsd` | `0.10` | קנייה: מחיר + offset. מכירה: מחיר - offset |
 | `maxChaseUsd` | `0.20` | דוחה כניסה (`chase_too_far`) אם `last` גבוה מהטריגר `price` ביותר מהסכום הזה |
+| `minShares` | `5` | כניסה שהסיכון קובע לה פחות ממניות אלה מועלית לכמות הזו, בתנאי שלא עוברים את `maxRiskPerTradeUsd`. `0` = כבוי |
+| `maxRiskPerTradeUsd` | `10` | תקרת סיכון קשיחה לעסקה: (Limit פחות סטופ) כפול כמות. כניסה שלא נכנסת בתקרה נדחית (`risk_too_high`). `0` = כבוי |
 | `stopRegularHoursOnly` | `true` | ב-Paper בלבד: לא שולח StopLimit מחוץ ל-09:30–16:00 (ניו יורק), כי Paper דוחה אותו. הסטופ נשמר ויוצב ע"י ה-reconcile ב-09:30 |
 | `maxSignalAgeSec` | `180` | כניסה או `stop_update` ישנים יותר נזרקים (יציאה תמיד מבוצעת) |
 | `stopOffsetUsd` | `0.10` | StopLimit מגן: ליימיט = מחיר הסטופ - offset |

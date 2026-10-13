@@ -10,12 +10,24 @@ function sizeEntry({price, stop, config}) {
   const riskPerShare = limitPrice - stop;
   if (!(riskPerShare > 0)) return {reject: "invalid_stop"};
   const riskBudget = config.accountEquityUsd * (config.riskPct / 100);
-  const qty = Math.min(
-      Math.floor(riskBudget / riskPerShare),
+  const riskQty = Math.floor(riskBudget / riskPerShare);
+  const caps = Math.min(
       config.maxShares,
       Math.floor(config.maxPositionUsd / limitPrice),
       Math.floor(config.accountEquityUsd / limitPrice),
   );
+  if (!(caps >= 1)) return {reject: "qty_zero"};
+  // Small accounts: a far stop would give 1-2 shares. Lift to minShares, but the
+  // risk ceiling (maxRiskPerTradeUsd) always wins.
+  let qty = Math.min(Math.max(riskQty, config.minShares), caps);
+  if (qty < config.minShares && riskQty < config.minShares) return {reject: "qty_below_min"};
+  if (config.maxRiskPerTradeUsd > 0) {
+    const riskCap = Math.floor(config.maxRiskPerTradeUsd / riskPerShare);
+    if (qty > riskCap) {
+      if (riskCap < Math.max(1, config.minShares)) return {reject: "risk_too_high"};
+      qty = riskCap;
+    }
+  }
   if (!(qty >= 1)) return {reject: "qty_zero"};
   return {qty, limitPrice};
 }

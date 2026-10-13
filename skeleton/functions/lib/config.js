@@ -8,6 +8,8 @@ const DEFAULTS = {
   accountEquityUsd: 500, // demo account size; sizing is based on this
   riskPct: 1, // % of equity risked per trade (entry price to stop)
   maxShares: 25, // hard cap on shares per entry
+  minShares: 5, // never fewer than this on a risk-sized entry (0 = off), as long as maxRiskPerTradeUsd allows
+  maxRiskPerTradeUsd: 10, // hard ceiling on (limit - stop) x shares; an entry that cannot fit is rejected (0 = off)
   maxPositionUsd: 500, // hard cap on position value
   maxDailyLossUsd: 20, // no new entries once today's net realized P&L <= -this
   maxTradesPerDay: 10, // entries per New York day

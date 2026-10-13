@@ -62,6 +62,19 @@ test("sizing: 1% risk, offset 0.10, caps", () => {
   assert.equal(sizeEntry({price: 600, stop: 590, config}).reject, "qty_zero");
 });
 
+test("sizing: far stop is lifted to minShares (5) but never past the risk ceiling (10 dollars)", () => {
+  const config = mergeConfig({});
+  // DCX-like: limit 4.07, stop 2.0124 -> risk/share 2.0576, budget $5 -> 2 shares; lifted to 5 ($10.29 > $10)
+  assert.equal(sizeEntry({price: 3.97, stop: 2.0124, config}).reject, "risk_too_high");
+  // limit 3.42, stop 1.8 -> risk/share 1.62, 3 by budget -> lifted to 5 ($8.10 <= $10)
+  assert.equal(sizeEntry({price: 3.32, stop: 1.8, config}).qty, 5);
+  // lift can be switched off
+  assert.equal(sizeEntry({price: 3.32, stop: 1.8, config: mergeConfig({minShares: 0})}).qty, 3);
+  // the ceiling also trims a large risk-based size when riskPct is raised
+  assert.equal(sizeEntry({price: 4.06, stop: 3.78, config: mergeConfig({riskPct: 5})}).qty, 25);
+  assert.equal(sizeEntry({price: 4.06, stop: 3.16, config: mergeConfig({riskPct: 5, maxRiskPerTradeUsd: 10})}).qty, 10);
+});
+
 test("sellLimit applies the offset below, never below the minimum tick", () => {
   const config = mergeConfig({});
   assert.equal(sellLimit(3.76, config), 3.66);
