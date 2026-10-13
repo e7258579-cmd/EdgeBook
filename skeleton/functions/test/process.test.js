@@ -484,3 +484,30 @@ test("a fast placeSignal refuses non-entry events", async () => {
   const r = await place(exitSignal(), memoryStore(), simBroker());
   assert.equal(r.reason, "not_an_entry");
 });
+
+test("paper, before 09:30: no StopLimit is sent and no alert; the reconcile pass places it at the open", async () => {
+  const config = cfg({stopRegularHoursOnly: true});
+  const store = memoryStore();
+  const broker = simBroker({bid: 4.10, ask: 4.10});
+  const r = await run(entrySignal(), store, broker, config); // 08:00 NY
+  assert.equal(r.status, "accepted");
+  assert.equal(placed(broker, isStop).length, 0);
+  const pos = await store.getPosition("WHLR");
+  assert.equal(pos.state, "open");
+  assert.equal(pos.stopError, "waiting_regular_hours");
+  assert.equal(store.alerts.length, 0);
+  // a few reconcile passes before the open send nothing
+  await rec(store, broker, config);
+  await rec(store, broker, config);
+  assert.equal(placed(broker, isStop).length, 0);
+  // a raised stop level before the open is only stored
+  const u = await run(stopSignal(), store, broker, config);
+  assert.equal(u.status, "accepted");
+  assert.equal((await store.getPosition("WHLR")).stopLevel, 3.90);
+  // 09:31 NY: the stop goes out at the stored level
+  const open = {now: () => NOW + 91 * 60000, sleep};
+  await rec(store, broker, config, open);
+  const [stop] = placed(broker, isStop);
+  assert.equal(stop.stopPrice, 3.90);
+  assert.equal((await store.getPosition("WHLR")).stopError, null);
+});

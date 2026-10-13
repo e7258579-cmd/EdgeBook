@@ -39,6 +39,7 @@ npm test
 | `maxOrdersPerMinute` | `6` | הזמנות ב-60 השניות האחרונות |
 | `limitOffsetUsd` | `0.10` | קנייה: מחיר + offset. מכירה: מחיר - offset |
 | `maxChaseUsd` | `0.20` | דוחה כניסה (`chase_too_far`) אם `last` גבוה מהטריגר `price` ביותר מהסכום הזה |
+| `stopRegularHoursOnly` | `true` | ב-Paper בלבד: לא שולח StopLimit מחוץ ל-09:30–16:00 (ניו יורק), כי Paper דוחה אותו. הסטופ נשמר ויוצב ע"י ה-reconcile ב-09:30 |
 | `maxSignalAgeSec` | `180` | כניסה או `stop_update` ישנים יותר נזרקים (יציאה תמיד מבוצעת) |
 | `stopOffsetUsd` | `0.10` | StopLimit מגן: ליימיט = מחיר הסטופ - offset |
 | `stopTimeInForce` | `""` | ריק = אוטומטי: `Day_Plus` ב-Live (תקף 04:00–20:00), `Day` ב-Paper |

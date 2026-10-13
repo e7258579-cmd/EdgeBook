@@ -162,6 +162,6 @@ const stopSignal = (o = {}) => ({
   v: 2, event: "stop_update", symbol: "WHLR", barTime: NOW - 2000, sentAt: NOW - 1500, tf: "1",
   strategy: "V05", session: "pre", stop: 3.90, ...o,
 });
-const cfg = (o = {}) => mergeConfig({dryRun: false, ...o});
+const cfg = (o = {}) => mergeConfig({dryRun: false, stopRegularHoursOnly: false, ...o});
 
 module.exports = {memoryStore, simBroker, NOW, entrySignal, exitSignal, stopSignal, cfg};

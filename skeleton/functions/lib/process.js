@@ -24,7 +24,7 @@
 
 const {checkEntryLimits} = require("./limits");
 const {sizeEntry, roundPrice} = require("./sizing");
-const {statsKey} = require("./config");
+const {statsKey, isRegularHours} = require("./config");
 
 const FILLED = new Set(["Filled"]);
 // Terminal and not filled. (DoneForDay is effectively terminal for Day orders.)
@@ -191,6 +191,16 @@ async function alertOnce(ctx, type, symbol, detail) {
 // Places the protective StopLimit for the filled quantity at `level`.
 async function placeStop(ctx, pos, level) {
   const {store, broker, config, now} = ctx;
+  // Paper rejects StopLimit outside regular hours: do not send (and do not alert)
+  // until 09:30. The reconcile pass places it then.
+  if (config.stopRegularHoursOnly && config.environment === "paper" && !config.dryRun && !isRegularHours(now())) {
+    const patch = {stopClientOrderId: null, stopLevel: level, stopError: "waiting_regular_hours"};
+    if (pos.stopLevel !== level || pos.stopError !== patch.stopError || pos.stopClientOrderId) {
+      await store.updatePosition(pos.symbol, patch);
+    }
+    Object.assign(pos, patch);
+    return {ok: false, deferred: true, detail: patch.stopError};
+  }
   const id = await nextId(ctx, pos);
   const stopPrice = roundPrice(level);
   const limitPrice = Math.max(0.0001, roundPrice(level - config.stopOffsetUsd));
@@ -363,6 +373,7 @@ async function processStopUpdate(ctx, signal) {
     if (!(pos.filledQty > 0)) return {status: "ignored", reason: "stop_already_filled"};
   }
   const r = await placeStop(ctx, pos, signal.stop);
+  if (r.deferred) return {status: "accepted", reason: "stop_deferred_until_regular_hours"};
   if (!r.ok) return {status: "error", reason: "stop_not_placed", detail: r.detail, kind: r.kind};
   return {status: "accepted", order: r.order};
 }
@@ -518,6 +529,7 @@ async function reconcileOne(ctx, symbol) {
   // open
   if (!pos.stopClientOrderId) {
     const r = await placeStop(ctx, pos, pos.stopLevel);
+    if (r.deferred) return {status: "ignored", symbol, reason: "stop_waiting_regular_hours"};
     return {status: r.ok ? "accepted" : "error", symbol, action: "stop_replaced"};
   }
   const o = await broker.getOrder(pos.stopClientOrderId);

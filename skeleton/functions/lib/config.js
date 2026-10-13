@@ -18,6 +18,7 @@ const DEFAULTS = {
   timeInForce: "Day", // unverified for extended hours, see README
   stopOffsetUsd: 0.10, // protective StopLimit: limit price = stop price - offset
   stopTimeInForce: "", // "" = auto: Day_Plus on live (valid 04:00-20:00), Day on paper
+  stopRegularHoursOnly: true, // paper only: StopLimit is rejected outside 09:30-16:00 NY, so do not send it then
   entryWaitMs: 4000, // after sending an entry, wait this long for the fill before leaving it pending
   entryTimeoutSec: 30, // an entry still unfilled after this long is cancelled (price ran away)
   sellWaitMs: 3000, // wait this long for a sell to fill before cancelling and re-pricing
@@ -53,4 +54,15 @@ function statsKey(ms, dry) {
   return dry ? `${nyDateKey(ms)}-dry` : nyDateKey(ms);
 }
 
-module.exports = {DEFAULTS, mergeConfig, nyDateKey, statsKey};
+// True during the regular US session (Mon-Fri 09:30-16:00 New York).
+function isRegularHours(ms) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(new Date(ms));
+  const get = (t) => parts.find((p) => p.type === t).value;
+  if (get("weekday") === "Sat" || get("weekday") === "Sun") return false;
+  const min = Number(get("hour")) * 60 + Number(get("minute"));
+  return min >= 570 && min < 960;
+}
+
+module.exports = {DEFAULTS, mergeConfig, nyDateKey, statsKey, isRegularHours};
