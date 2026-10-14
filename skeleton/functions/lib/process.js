@@ -242,6 +242,14 @@ async function placeEntry(ctx, signal) {
     return {status: "rejected", reason: "chase_too_far", detail: {price: signal.price, last: signal.last}};
   }
 
+  // Safety net against a wrong stop in the signal (e.g. an alert running old chart settings).
+  if (config.maxStopDistancePct > 0 && signal.price > 0) {
+    const distPct = (signal.price - signal.stop) / signal.price * 100;
+    if (distPct > config.maxStopDistancePct) {
+      return {status: "rejected", reason: "stop_too_far", detail: {price: signal.price, stop: signal.stop, distancePct: Math.round(distPct * 10) / 10}};
+    }
+  }
+
   // Size from the freshest price the signal carries.
   const size = sizeEntry({price: signal.last || signal.price, stop: signal.stop, config});
   if (size.reject) return {status: "rejected", reason: size.reject};

@@ -511,3 +511,19 @@ test("paper, before 09:30: no StopLimit is sent and no alert; the reconcile pass
   assert.equal(stop.stopPrice, 3.90);
   assert.equal((await store.getPosition("WHLR")).stopError, null);
 });
+
+test("entry: a stop farther than maxStopDistancePct below the price is rejected, nothing sent or reserved", async () => {
+  const store = memoryStore();
+  const broker = simBroker({bid: 8.07, ask: 8.07});
+  // PFAI 13 Oct: price 8.39, stop 0.5818 (93% below)
+  const r = await run(entrySignal({price: 8.39, last: 8.07, stop: 0.5818}), store, broker);
+  assert.equal(r.status, "rejected");
+  assert.equal(r.reason, "stop_too_far");
+  assert.equal(r.detail.distancePct, 93.1);
+  assert.equal(placed(broker).length, 0);
+  assert.equal(await store.getPosition("WHLR"), null);
+  // 7% away is fine; the net can be switched off
+  assert.equal((await run(entrySignal(), memoryStore(), simBroker({bid: 4.10, ask: 4.10}))).status, "accepted");
+  const off = await run(entrySignal({price: 8.39, last: 8.07, stop: 0.5818}), memoryStore(), simBroker({bid: 8.07, ask: 8.07}), cfg({maxStopDistancePct: 0}));
+  assert.notEqual(off.reason, "stop_too_far");
+});

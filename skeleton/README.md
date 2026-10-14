@@ -38,6 +38,7 @@ npm test
 | `maxTradesPerDay` | `10` | כניסות ליום |
 | `maxOrdersPerMinute` | `6` | הזמנות ב-60 השניות האחרונות |
 | `limitOffsetUsd` | `0.10` | קנייה: מחיר + offset. מכירה: מחיר - offset |
+| `maxStopDistancePct` | `50` | רשת ביטחון: דוחה כניסה (`stop_too_far`) אם הסטופ באות רחוק מהמחיר ביותר מהאחוז הזה. `0` = כבוי |
 | `maxChaseUsd` | `0.20` | דוחה כניסה (`chase_too_far`) אם `last` גבוה מהטריגר `price` ביותר מהסכום הזה |
 | `minShares` | `5` | כניסה שהסיכון קובע לה פחות ממניות אלה מועלית לכמות הזו, בתנאי שלא עוברים את `maxRiskPerTradeUsd`. `0` = כבוי |
 | `maxRiskPerTradeUsd` | `10` | תקרת סיכון קשיחה לעסקה: (Limit פחות סטופ) כפול כמות. כניסה שלא נכנסת בתקרה נדחית (`risk_too_high`). `0` = כבוי |
