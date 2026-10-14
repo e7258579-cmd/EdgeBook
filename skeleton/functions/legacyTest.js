@@ -1,3 +1,4 @@
+// LEGACY connectivity test (kept so the existing test alert keeps working).
 // EdgeBook — SKELETON connectivity test, not the real strategy.
 // Goal: prove every link in the chain works — TradingView webhook ->
 // Firebase -> Firestore -> TradeZero — before investing more in the
@@ -21,8 +22,7 @@ const {logger} = require("firebase-functions");
 const admin = require("firebase-admin");
 const {createClient} = require("./tradezero");
 
-admin.initializeApp();
-const db = admin.firestore();
+const db = admin.firestore(); // initializeApp() is called once in index.js
 
 const WEBHOOK_SECRET = defineSecret("WEBHOOK_SECRET");
 const TZ_API_KEY_ID = defineSecret("TZ_API_KEY_ID");
@@ -30,7 +30,8 @@ const TZ_API_SECRET_KEY = defineSecret("TZ_API_SECRET_KEY");
 const TZ_ACCOUNT_ID = defineSecret("TZ_ACCOUNT_ID");
 
 exports.tzWebhookTest = onRequest(
-    {secrets: [WEBHOOK_SECRET, TZ_API_KEY_ID, TZ_API_SECRET_KEY, TZ_ACCOUNT_ID]},
+    // Stays where it was first deployed, so the old test URL keeps working.
+    {region: "us-central1", secrets: [WEBHOOK_SECRET, TZ_API_KEY_ID, TZ_API_SECRET_KEY, TZ_ACCOUNT_ID]},
     async (req, res) => {
       const body = req.body || {};
 

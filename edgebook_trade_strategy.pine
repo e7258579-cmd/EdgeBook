@@ -1,6 +1,6 @@
 //@version=5
 // ============================================================
-// EdgeBook Strategy — V04
+// EdgeBook Strategy — V05
 // The indicator "DEBUG 6" V18, as a strategy.
 //
 // THE RULE OF THIS FILE
@@ -10,10 +10,19 @@
 //   of a signal. So the strategy and the indicator must mark the same
 //   bars; if they ever don't, that is a bug, not a setting.
 //
-// V04 vs V03: the four "stale reclaim levels" lines were removed from the
-// breakout block, so the signals match the indicator copy that does not
-// have them. It is the ONLY signal-logic difference between V03 and that
-// indicator, verified line by line.
+// V05 vs V04 (built on V03 logic):
+//   - The four "stale reclaim levels" lines are back in the breakout block
+//     (V03 behavior). The matching indicator is V18 (518 lines).
+//   - Inputs cleaned: everything not being calibrated right now is a
+//     constant in the code (same default values, same logic), not a setting.
+//   - One flexible "Trading hours" field (several ranges allowed) replaces
+//     the old "regular hours" input. It ONLY limits when trades may open
+//     and forces an exit outside it. keyLevel still uses the highs of the
+//     fixed pre-market / regular / first-5-min windows, including highs
+//     made outside the trading hours.
+//   - EMA9 consolidation entry is now ON by default (still a toggle, to
+//     compare both paths). NOTE: the indicator still defaults to OFF, so
+//     set it the same way in both when comparing signals.
 //
 // ORDER LAYER (the only things added on top of V18)
 //   - Entry signal  -> buy 25 shares (input), capped by what the account
@@ -37,6 +46,15 @@
 // tiers by itself: set Properties > Commission > "Cash per contract" =
 // 0.005 if you raise the size to 100+.
 //
+// REAL TIME = BACKTEST: the script runs on every tick (calc_on_every_tick),
+// but the state machine and every order are gated to the bar close
+// (barstate.isconfirmed). A per-tick run rolls the script's variables back
+// while orders already sent do not, which once produced repeated
+// entry/"sync" pairs on one bar. The ONLY thing evaluated intrabar is the
+// INTRABAR ENTRY alert (a webhook message, no state change, one `varip`
+// flag). Stop orders (the peak trail) are still filled intrabar by the
+// broker emulator.
+//
 // FILLS: process_orders_on_close = true - orders fill at the CLOSE of the
 // bar that produced the signal, the same bar/price the arrows use.
 // ============================================================
@@ -57,22 +75,95 @@ strategy("EdgeBook Strategy",
 // No averages, no pacing math, no hidden layers — what you see is
 // what triggers it. Defaults below are placeholders, same as every
 // other parameter — calibrate against real examples.
-input_5min_vol_threshold = input.int(50000, "5-min rolling volume threshold (shares)", minval = 0)
-input_daily_vol_threshold = input.int(200000, "Daily cumulative volume threshold (shares)", minval = 0)
-input_entry_trigger_ref       = input.string("Open", "Entry trigger: break of pullback candle's...", options = ["High", "Open", "Close"])
+// Not being calibrated right now: fixed constants (same values as before).
+// Move one back to an input.* line when it is its turn to be calibrated.
+input_5min_vol_threshold  = 50000      // 5-min rolling volume threshold (shares)
+input_daily_vol_threshold = 200000     // daily cumulative volume threshold (shares)
+input_entry_trigger_ref   = "Open"     // entry trigger: "High" / "Open" / "Close" of the last red candle
 // NOTE: the old flat "invalidation buffer below keyLevel" parameter was
 // removed here — replaced entirely by input_retracement_pct below,
 // which is a more precise, leg-relative invalidation test.
 input_hold_seconds            = input.float(1.0, "Hold confirmation (seconds)", minval = 0, step = 0.5)
-input_gap_threshold_pct       = input.float(10.0, "Gap day threshold (%)", minval = 0, step = 1)
-input_regular_hours_session   = input.session("0930-1600", "Regular hours session window")
+input_gap_threshold_pct       = 10.0   // gap day threshold (%); gap days double the hold time
+input_trading_hours = input.string("0400-1600", "Trading hours (New York time)",
+     tooltip = "When new trades may OPEN, and when an open trade is force-closed. Several ranges allowed, separated by commas, e.g. 0400-0930,1300-1500. Format HHMM-HHMM. Does NOT change keyLevel: highs made outside these hours still count.")
+input_trail_mode = input.string("Tiered (EMA9 / EMA20)", "Trail mode", options = ["Tiered (EMA9 / EMA20)", "Single EMA"], group = "Exit", tooltip = "Tiered: EMA9 below 10% / above 30% profit, EMA20 in between. Single EMA: always trail on the one EMA length below. The stall detector is not affected by this choice.")
+input_trail_ema_len = input.int(9, "Single EMA length (used only in Single EMA mode)", minval = 2, maxval = 200, group = "Exit")
+input_tier1_ema_len = input.int(9, "Tiered: EMA length, stage 1 (profit below tier 1)", minval = 2, maxval = 200, group = "Exit", tooltip = "Tiered mode trails on a different EMA at each stage of the position. The stage boundaries are the two tier percentages in the Stall group (default 10% and 30%).")
+input_tier2_ema_len = input.int(20, "Tiered: EMA length, stage 2 (between tier 1 and tier 2)", minval = 2, maxval = 200, group = "Exit")
+input_tier3_ema_len = input.int(9, "Tiered: EMA length, stage 3 (profit above tier 2)", minval = 2, maxval = 200, group = "Exit")
+input_intrabar_trail = input.bool(true, "EMA trail exit on every tick (live only)", group = "Exit", tooltip = "Live only; the backtest always uses the bar close. When on, the exit alert is sent the moment price falls below the active trail EMA, instead of at the bar close. Once sent it is final: the bar-close logic then exits as well, even if price has recovered above the EMA by the close. This makes live results differ from the backtest: a dip below the EMA that recovers within the same bar now exits you.")
+input_atr_trail_enabled = input.bool(true, "Peak trail: ATR from the peak", group = "Peak trail", tooltip = "Exit floor = highest high since entry minus N x ATR. Becomes active only after the trade is up by the minimum profit below. Computed from CLOSED bars only and used like a stop order: if a bar's low touches it, the exit is at the floor price (or the open, if the bar gaps below it).")
+input_atr_len = input.int(14, "ATR length", minval = 2, maxval = 100, group = "Peak trail")
+input_atr_mult = input.float(3.0, "ATR multiple (distance below the peak)", minval = 0.5, step = 0.5, group = "Peak trail")
+input_climax_enabled = input.bool(true, "Climax exit: blow-off bar", group = "Climax exit", tooltip = "Exit at the CLOSE of a bar that looks like a blow-off top. All four must hold on the same closed bar: (1) its high is far above EMA9, (2) its range is large vs the previous ATR, (3) its volume is a spike vs the recent average, (4) it rejected the high: a long upper wick, or it closed red.")
+input_climax_min_profit = input.float(20.0, "Climax exit active only after profit of (%)", minval = 0.0, step = 5.0, group = "Climax exit", tooltip = "Measured at the bar's high vs the entry price.")
+input_climax_ext_pct = input.float(15.0, "(1) High above EMA9 by at least (%)", minval = 1.0, step = 1.0, group = "Climax exit")
+input_climax_range_atr = input.float(2.5, "(2) Bar range at least N x previous ATR", minval = 0.5, step = 0.5, group = "Climax exit")
+input_climax_vol_mult = input.float(3.0, "(3) Volume at least N x average volume", minval = 1.0, step = 0.5, group = "Climax exit")
+input_climax_vol_len = input.int(20, "Average volume length (bars)", minval = 5, maxval = 100, group = "Climax exit")
+input_climax_wick_pct = input.float(50.0, "(4) Upper wick at least (% of the bar range), or a red bar", minval = 10.0, maxval = 95.0, step = 5.0, group = "Climax exit")
+input_peak_trail_min_profit = input.float(20.0, "Peak trail active only after profit of (%)", minval = 0.0, step = 5.0, group = "Peak trail", tooltip = "Below this profit (measured at the peak) the peak trail is off and the EMA trail / stall / stop work as before.")
+input_preopen_exit_enabled = input.bool(true, "Close any position before the regular open", group = "Pre-open protection", tooltip = "Safety net against being in a position when the regular session starts (09:30 New York). From the exit time until 09:30 an open position is closed, at the close of the bar that ends at the exit time, and no new entry is allowed. Entries are allowed again from 09:30.")
+input_preopen_exit_time = input.int(925, "Exit time (HHMM, New York)", minval = 400, maxval = 929, group = "Pre-open protection", tooltip = "For example 925 = 09:25. The exit is made at the close of the bar that ENDS at this time (on a 1-minute chart: the 09:24 bar, i.e. at 09:25:00).")
+input_entry_stopbuy = input.bool(true, "Entry as stop-buy at the trigger level", group = "Entry guard", tooltip = "On: a stop-buy order sits at the trigger level (the last red candle's level) and fills when a bar's high reaches it, at the trigger price, or at the open if the bar gaps above it. This is how the entry works live, and it fixes the late/expensive backtest entries. The hold-seconds setting does not apply in this mode (a backtest has no ticks). Off: the old behavior, entry at the close of the bar that holds above the trigger.")
+input_webhook_enabled = input.bool(false, "Send webhook alerts (alert() calls)", group = "Webhook", tooltip = "Off by default. When on, the script calls alert() with a JSON message at every ENTRY and EXIT, at the bar close, on realtime bars only (never on history). Create ONE alert per chart on this strategy, condition: alert() function calls only, with the webhook URL. Contract: docs/WEBHOOK_CONTRACT_V02.md.")
+input_webhook_secret = input.string("", "Webhook secret", group = "Webhook", tooltip = "The same value as WEBHOOK_SECRET in Firebase. It is part of every message, so never publish or share this script with the secret filled in.")
+input_intrabar_entry = input.bool(true, "Send the entry the moment the trigger is crossed", group = "Webhook", tooltip = "Stop-buy mode, live only. The script runs on every tick and sends the entry alert as soon as price reaches the trigger, instead of at the bar close. If a tick is missed, the entry is still sent at the close.")
+input_webhook_max_msgs = input.int(12, "Webhook budget: max messages per 3 minutes", minval = 4, maxval = 14, group = "Webhook", tooltip = "TradingView stops an alert that fires more than 15 times in 3 minutes. This script never sends more than this many (heartbeats stop 4 messages earlier, so trades always have room). A blocked message shows a red BUDGET label.")
+input_webhook_heartbeat_bars = input.int(5, "Heartbeat every N bars", minval = 1, maxval = 60, group = "Webhook", tooltip = "A small message from the SAME alert as the trades. If it stops arriving while a position is open, the backend warns (the alert may have been stopped).")
+input_webhook_debug = input.bool(false, "Show each webhook message as a chart label (nothing is sent)", group = "Webhook", tooltip = "Hover a label to read the exact JSON (secret hidden). Works on history too, so the messages can be checked in the backtest.")
+input_cooldown_bars = input.int(1, "Cooldown after an exit (bars)", minval = 0, maxval = 30, group = "Entry guard", tooltip = "After an exit, no new entry until more than this many bars have passed. Protects against repeated entry/exit pairs around the same trigger.")
+input_use_date_range = input.bool(false, "Limit trading to a date range", group = "Date range")
+input_date_from = input.time(timestamp("01 Jan 2026 00:00 -0500"), "From date (included)", group = "Date range")
+input_date_to   = input.time(timestamp("31 Dec 2026 00:00 -0500"), "To date (included)", group = "Date range", tooltip = "Works together with Trading hours: a trade may open only on a day inside the range AND inside the hours. Days outside the range are skipped entirely (keyLevel is still measured). Dates are New York days.")
 input_position_shares         = input.int(25, "Position size (shares)", minval = 1, tooltip = "Commission in this file assumes under 100 shares ($0.49 per order). For 100+ shares set Properties > Commission to Cash per contract = 0.005.")
 
 // ─── Session windows ─────────────────────────────────────────
+nyHM(t) => hour(t, "America/New_York") * 100 + minute(t, "America/New_York")
+// Pre-open protection zone: from the exit time (bar END time) until 09:30.
+preOpenZone = input_preopen_exit_enabled and nyHM(time_close) >= input_preopen_exit_time and nyHM(time) < 930
+// Fixed windows: used ONLY to measure the highs that build keyLevel.
 inPreMarket    = time(timeframe.period, "0400-0929", "America/New_York")
-inRegularHours = time(timeframe.period, input_regular_hours_session, "America/New_York")
+inRegularHours = time(timeframe.period, "0930-1600", "America/New_York")
 inFirst5min    = not na(time(timeframe.period, "0930-0935", "America/New_York"))
-inActiveWindow = not na(inPreMarket) or not na(inRegularHours)
+// Your window (hours + optional date range): the ONLY thing that limits trading.
+inDateRange    = not input_use_date_range or (time >= input_date_from and time < input_date_to + 86400000)
+inActiveWindow = inDateRange and not na(time(timeframe.period, input_trading_hours, "America/New_York"))
+
+// ─── Webhook messages (contract: docs/WEBHOOK_CONTRACT_V02.md) ──────────
+STRATEGY_VERSION = "V05"
+sessionTag = not na(inPreMarket) ? "pre" : (not na(inRegularHours) ? "regular" : "post")
+
+// Times (ms) of the messages sent in the last 3 minutes: the rate budget.
+varip array<int> sentTimes = array.new<int>()
+// Bar of the last heartbeat sent (varip: survives re-execution within the same bar).
+varip int lastHeartbeatBar = na
+
+webhookMsg(string event, string extra, string secretText) =>
+    '{"secret":"' + secretText + '","v":2,"event":"' + event + '","symbol":"' + syminfo.ticker + '","barTime":' + str.tostring(time_close, "#") + ',"sentAt":' + str.tostring(timenow, "#") + ',"tf":"' + timeframe.period + '","strategy":"' + STRATEGY_VERSION + '","session":"' + sessionTag + '"' + extra + '}'
+
+emitWebhook(string event, string extra) =>
+    // Real bars only: alert() never fires on history, and history must not
+    // fill the budget.
+    if input_webhook_enabled and str.length(input_webhook_secret) > 0 and barstate.isrealtime
+        // Pine v5 evaluates both sides of `and`, so the empty-array case needs its own guard.
+        staleSent = true
+        while staleSent
+            staleSent := false
+            if array.size(sentTimes) > 0
+                if timenow - array.get(sentTimes, 0) > 180000
+                    array.shift(sentTimes)
+                    staleSent := true
+        // Heartbeats stop 4 messages before the limit so trades always have room.
+        limitNow = event == "heartbeat" ? input_webhook_max_msgs - 4 : input_webhook_max_msgs
+        if array.size(sentTimes) < limitNow
+            alert(webhookMsg(event, extra, input_webhook_secret), alert.freq_all) // each message is guarded once per bar by its own logic; the backend also drops duplicates
+            array.push(sentTimes, timenow)
+        else
+            label.new(bar_index, high, text = "BUDGET", style = label.style_label_left, color = color.red, textcolor = color.white, size = size.tiny, tooltip = "Webhook budget reached: " + event + " NOT sent")
+    if input_webhook_debug and event != "heartbeat"
+        label.new(bar_index, high, text = event, style = label.style_label_left, color = color.new(color.gray, 20), textcolor = color.white, size = size.tiny, tooltip = webhookMsg(event, extra, "***"))
 
 // ─── State ───────────────────────────────────────────────────
 var string STATE_SEARCHING       = "SEARCHING"
@@ -88,6 +179,16 @@ var float keyLevel = na   // FIXED — was missing var, reset to NaN every bar
 var float entryPrice           = na
 var float stopPrice             = na
 var float highestSinceEntry      = na
+var int   lastExitBar            = na   // bar of the last exit (cooldown)
+var float stopBuyLevel            = na   // stop-buy entry level, set at a bar close, used from the next bar
+var float stopBuyRedLow           = na   // red-candle low belonging to that level (the stop price)
+var float lastSentStop           = na   // last protective level reported to the backend
+varip int liveExitSentBar        = na   // bar for which an INTRABAR exit alert was already sent
+varip string liveExitReason      = ""
+varip int liveEntrySentBar       = na   // bar for which the INTRABAR entry alert was already sent (survives ticks)
+var float peakHigh               = na   // highest bar high since entry (peak trail)
+var float peakFloor              = na   // peak-trail exit level, set at the close of a bar, used from the next bar
+var float stallHigh              = na   // reference high for the stall detector (close- or High-based)
 var int   stallRangeStartTime     = na
 var int   entryBar                = na   // bar where the entry signal fired
 var bool  closeSentThisBar        = false   // order layer: a close order was already sent on this bar
@@ -96,12 +197,20 @@ var bool  closeSentThisBar        = false   // order layer: a close order was al
 // trade (unproven) and very late (possible exhaustion), be strict —
 // tight range, short wait. In the middle (already-proven move,
 // healthy consolidation likely), be loose — give it room.
-input_stall_tier1_pct           = input.float(10.0, "Stall tiers: strict below this % move", minval = 1.0, step = 1.0)
-input_stall_tier2_pct           = input.float(30.0, "Stall tiers: strict again above this % move", minval = 5.0, step = 1.0)
-input_stall_range_tight_pct    = input.float(0.2, "Stall range — strict tier (%)", minval = 0.05, step = 0.05) / 100
-input_stall_range_loose_pct    = input.float(0.6, "Stall range — loose tier (%)", minval = 0.1, step = 0.1) / 100
-input_stall_duration_tight_min = input.float(1.0, "Stall duration — strict tier (min)", minval = 0.25, step = 0.25)
-input_stall_duration_loose_min = input.float(5.0, "Stall duration — loose tier (min)", minval = 0.5, step = 0.5)
+// Stall detector — being calibrated, so these are visible inputs.
+// A trade is "stalled" when price makes no new high and stays within the
+// range below the high for the whole duration. Strict tier = early (< tier 1)
+// and late (>= tier 2) in the trade; loose tier = the proven middle zone.
+// The tier boundaries also drive the tiered EMA trail.
+input_stall_tier1_pct          = input.float(10.0, "Strict tier below this % move", minval = 1.0, step = 1.0, group = "Stall")
+input_stall_tier2_pct          = input.float(30.0, "Strict tier again above this % move", minval = 5.0, step = 1.0, group = "Stall")
+input_stall_range_tight_pct    = input.float(0.5, "Range - strict tier (%)", minval = 0.05, step = 0.05, group = "Stall") / 100
+input_stall_range_loose_pct    = input.float(1.0, "Range - loose tier (%)", minval = 0.1, step = 0.1, group = "Stall") / 100
+input_stall_range_floor        = input.float(0.02, "Minimum range ($), floor under the % range", minval = 0.0, step = 0.01, group = "Stall", tooltip = "On cheap stocks a % range can be smaller than one cent. The range used is the larger of the % range and this floor.")
+input_stall_duration_tight_min = input.float(3.0, "Duration - strict tier (min)", minval = 0.25, step = 0.25, group = "Stall")
+input_stall_duration_loose_min = input.float(5.0, "Duration - loose tier (min)", minval = 0.5, step = 0.5, group = "Stall")
+input_stall_skip_entry_bar     = input.bool(true, "Stall clock starts after the entry bar", group = "Stall", tooltip = "On: the bar of the entry itself never counts toward the stall duration.")
+input_stall_use_bar_high       = input.bool(false, "Measure the high by bar High (off = by Close)", group = "Stall", tooltip = "Off: the reference high is the highest CLOSE since entry (previous behavior). On: the highest bar HIGH since entry.")
 
 // NEW — refined pullback validity, replacing the old "close < keyLevel"
 // invalidation with two more precise tests against the actual breakout
@@ -120,7 +229,7 @@ input_retracement_pct = input.float(50.0, "Max pullback retracement of breakout 
 // as a breakout, regardless of whether it broke a prior high. keyLevel
 // still PLOTS as normal for visual comparison — it's just not enforced
 // as a condition. Off by default; this is a test, not a new default.
-input_disable_keylevel_check = input.bool(false, "TEST: disable keyLevel check entirely")
+input_disable_keylevel_check = false   // TEST switch, fixed off
 
 // NEW — alternate entry path: EMA9 consolidation. When enabled, this
 // REPLACES the keyLevel-based breakout condition (a toggle/choice, not
@@ -131,7 +240,7 @@ input_disable_keylevel_check = input.bool(false, "TEST: disable keyLevel check e
 // EMA9 instead of a fixed price level — this is deliberately NOT a
 // separate rebuild, per your steer to avoid extra
 // state-machine complexity.
-input_ema9_consolidation_enabled = input.bool(false, "Use EMA9 consolidation entry (instead of keyLevel)")
+input_ema9_consolidation_enabled = input.bool(true, "Use EMA9 consolidation entry (off = keyLevel breakout)")
 input_ema9_tolerance_pct          = input.float(3.0, "EMA9 floor tolerance (%)", minval = 0.5, maxval = 10.0, step = 0.5)
 
 // NEW — per your point #2: lock EMA9 mode (same lock/unlock mechanism
@@ -139,18 +248,18 @@ input_ema9_tolerance_pct          = input.float(3.0, "EMA9 floor tolerance (%)",
 // declined significantly vs. a longer baseline, even without a failed
 // trade. Compares the same rollingVol5min against a longer (20-bar)
 // average, scaled the same way, so it's an apples-to-apples ratio.
-input_vol_decline_lookback = input.int(20, "Volume decline: longer average lookback (bars)", minval = 10, maxval = 60)
-input_vol_decline_pct       = input.float(50.0, "Lock EMA9 if 5-min volume falls below this % of the longer average", minval = 10.0, maxval = 90.0, step = 5.0)
+input_vol_decline_lookback = 20   // volume decline: longer average lookback (bars)
+input_vol_decline_pct       = 50.0   // lock EMA9 if 5-min volume falls below this % of the longer average
 // ★ FIX — per real-world test: a SINGLE quiet bar was locking EMA9
 // mode almost immediately in any normal trend (volume naturally
 // oscillates bar-to-bar), making it nearly as restrictive as pure
 // keyLevel — defeating the whole point. Now requires a SUSTAINED
 // decline (consecutive bars), not one bar, before locking.
-input_vol_decline_bars      = input.int(3, "Volume decline: consecutive bars required before locking", minval = 1, maxval = 10)
+input_vol_decline_bars      = 3   // consecutive bars required before locking
 // NEW — kill switch for JUST this mechanism (point #2), since it's
 // currently locking far more than intended and the root cause isn't
 // pinned down yet. Point #1 (failure-lock) is untouched and stays on.
-input_vol_decline_lock_enabled = input.bool(false, "Enable volume-decline auto-lock (currently buggy — off by default)")
+input_vol_decline_lock_enabled = false   // volume-decline auto-lock: fixed off (known buggy)
 var int volDeclineCount = 0
 var string armedVia = ""   // "keyLevel" or "ema9" — which path armed the current setup
 // NEW — per your point #1: after an EMA9-armed setup FAILS, don't allow
@@ -174,20 +283,23 @@ var float lastGreenLegVolume = na   // NEW — volume of just the single, most r
 // idea deferred twice earlier in this project — now built). Fires
 // BEFORE the stall detector when active, since it's meant to be more
 // aggressive/faster in weak markets, not a replacement for it.
-input_weak_market_mode = input.bool(false, "Weak market mode (enables Scalp Exit)")
-input_scalp_exit_bars  = input.int(2, "Scalp Exit: consecutive bars without new high", minval = 1, maxval = 10)
+input_weak_market_mode = false   // weak market mode / Scalp Exit: fixed off
+input_scalp_exit_bars  = 2   // Scalp Exit: consecutive bars without new high
 
 // NEW — visibility toggles, one per category, so the chart can be
 // decluttered without losing any of the underlying logic. All default
 // to true (current behavior unchanged until you turn one off).
-input_show_pbstart    = input.bool(true, "Show: PB start labels", group = "Visibility")
-input_show_reclaim    = input.bool(true, "Show: reclaim@ labels", group = "Visibility")
-input_show_invalid    = input.bool(true, "Show: INVALID labels", group = "Visibility")
-input_show_vw_diag    = input.bool(true, "Show: V/W diagnostic markers", group = "Visibility")
-input_show_keylevel_plot = input.bool(true, "Show: keyLevel line", group = "Visibility")
+input_show_pbstart    = input.bool(false, "Show: PB start labels", group = "Visibility")
+input_show_reclaim    = input.bool(false, "Show: reclaim@ labels", group = "Visibility")
+input_show_invalid    = input.bool(false, "Show: INVALID labels", group = "Visibility")
+input_show_vw_diag    = input.bool(false, "Show: V/W diagnostic markers", group = "Visibility")
+input_show_keylevel_plot = input.bool(false, "Show: keyLevel line", group = "Visibility")
 input_show_vwap_plot    = input.bool(true, "Show: VWAP line", group = "Visibility")
 input_show_ema9_plot    = input.bool(true, "Show: EMA9 line", group = "Visibility")
+input_show_ema20_plot   = input.bool(true, "Show: EMA20 line", group = "Visibility")
+input_show_trail_line   = input.bool(true, "Show: active trail EMA (Tiered mode, while in a position)", group = "Visibility")
 input_show_bgcolor     = input.bool(true, "Show: state background color", group = "Visibility")
+input_show_climax      = input.bool(true, "Show: climax bar markers (C)", group = "Visibility")
 var int noNewHighCount = 0
 var float barCloseHighest = na   // separate from highestSinceEntry (tick-based) — this one only updates on bar close, so the "did THIS bar make a new high" check compares against the value as it stood BEFORE this bar (same fix pattern as keyLevel's order-of-operations bug)
 
@@ -214,6 +326,20 @@ rollingVol5min = ta.sma(volume, 5) * 5   // sum of last 5 bars' volume (1-min ch
 longerAvgVol5min = ta.sma(volume, input_vol_decline_lookback) * 5   // NEW — "what a normal 5-bar sum looks like" based on a longer baseline, same units as rollingVol5min
 ema9 = ta.ema(close, 9)   // NEW — DEBUG 6, called unconditionally (required for correct recursive calc)
 ema20 = ta.ema(close, 20)   // NEW — for the tiered exit trail ladder
+atrVal = ta.atr(input_atr_len)   // peak trail, called unconditionally
+volAvg = ta.sma(volume, input_climax_vol_len)   // climax detection, called unconditionally
+// Climax (blow-off) bar: evaluated on every bar for the markers; the exit also
+// requires being in a position. Uses the PREVIOUS bar's ATR and average volume.
+climaxRange = high - low
+climaxBar = not na(atrVal[1]) and not na(volAvg[1]) and ema9 > 0 and climaxRange > 0 and (high - ema9) / ema9 * 100 >= input_climax_ext_pct and climaxRange >= input_climax_range_atr * atrVal[1] and volume >= input_climax_vol_mult * volAvg[1] and ((high - math.max(open, close)) / climaxRange * 100 >= input_climax_wick_pct or close < open)
+emaSingle = ta.ema(close, input_trail_ema_len)   // single-EMA trail mode, called unconditionally
+emaT1 = ta.ema(close, input_tier1_ema_len)   // tiered trail: one EMA per stage, all called unconditionally
+emaT2 = ta.ema(close, input_tier2_ema_len)
+emaT3 = ta.ema(close, input_tier3_ema_len)
+// Stage of the position by profit (1 = early, 2 = proven middle zone, 3 = late) and the trail EMA it uses.
+trailStageOf(float prog) => prog < input_stall_tier1_pct ? 1 : (prog >= input_stall_tier2_pct ? 3 : 2)
+trailLenOf(int stage) => input_trail_mode == "Single EMA" ? input_trail_ema_len : (stage == 1 ? input_tier1_ema_len : (stage == 2 ? input_tier2_ema_len : input_tier3_ema_len))
+trailEmaOf(int stage) => input_trail_mode == "Single EMA" ? emaSingle : (stage == 1 ? emaT1 : (stage == 2 ? emaT2 : emaT3))
 newDay = ta.change(time("D")) != 0   // once per bar, outside any block (same result as before)
 
 if barstate.isconfirmed
@@ -278,14 +404,12 @@ if barstate.isconfirmed
         ema9LockLevel := na   // any successful breakout clears a prior lock, if there was one
         volDeclineCount := 0
         aboveSince := na
-        // V04 NOTE: the red-candle levels are deliberately NOT cleared here,
-        // to match the indicator copy that does not have the "stale reclaim
-        // levels" fix. Effect: a breakout that follows a finished trade
-        // inherits that trade's trigger/stop until a new red pullback bar
-        // replaces them. To add the fix back (and update the indicator the
-        // same way), insert here:
-        //     lastRedHigh := na, lastRedLow := na, lastRedClose := na, lastRedOpen := na
-        // (one assignment per line).
+        // FIX (stale reclaim levels): a new breakout must not inherit the
+        // trigger/stop of a previous, finished trade.
+        lastRedHigh  := na
+        lastRedLow   := na
+        lastRedClose := na
+        lastRedOpen  := na
         // NEW — measure the breakout LEG: walk backward through the
         // consecutive run of green candles ending at (and including)
         // this breakout bar, capped at 15 bars as a safety bound.
@@ -410,138 +534,288 @@ if barstate.isconfirmed
             noNewHighCount := noNewHighCount + 1
         barCloseHighest := na(barCloseHighest) ? high : math.max(barCloseHighest, high)
 
-// ─── Per-tick — entry trigger, hold timer, VWAP gate ───────────
-// NEW — per your instruction: the EMA9 path always triggers on a break
-// of the last red candle's HIGH specifically, regardless of the
-// High/Open/Close toggle (that toggle only applies to the keyLevel path).
-entryTriggerLevel = armedVia == "ema9" ? lastRedHigh : (input_entry_trigger_ref == "Close" ? lastRedClose : input_entry_trigger_ref == "Open" ? lastRedOpen : lastRedHigh)
+// ─── INTRABAR ENTRY (live) ──────────────────────────────────────
+// The stop-buy level was fixed at the previous bar close (stopBuyLevel). The
+// moment price reaches it, tell the backend, at once. No state change here:
+// `state` and `stopBuyLevel` are the values committed at the last close, and the
+// only thing remembered across ticks is the varip flag. At the bar close the
+// state machine reaches the same conclusion (high >= level) on its own.
+intrabarEntryReady = barstate.isrealtime and not barstate.isconfirmed and input_intrabar_entry and input_entry_stopbuy and state == STATE_PULLBACK_ACTIVE and not na(stopBuyLevel) and not na(stopBuyRedLow) and nz(liveEntrySentBar, -1) != bar_index and inActiveWindow and not preOpenZone and (na(lastExitBar) or bar_index - lastExitBar > input_cooldown_bars)
+if intrabarEntryReady and high >= stopBuyLevel
+    liveEntrySentBar := bar_index
+    emitWebhook("entry", ',"price":' + str.tostring(math.max(open, stopBuyLevel), "0.####") + ',"stop":' + str.tostring(stopBuyRedLow, "0.####") + ',"trigger":' + str.tostring(stopBuyLevel, "0.####") + ',"mode":"stopbuy","qtyHint":' + str.tostring(input_position_shares) + ',"last":' + str.tostring(close, "0.####"))
 
-if state == STATE_PULLBACK_ACTIVE and not na(entryTriggerLevel) and inActiveWindow
-    if close > entryTriggerLevel
-        if na(aboveSince)
-            aboveSince := time
-        holdMs = input_hold_seconds * 1000 * (isGapDay ? 2 : 1)
-        if (time - aboveSince) >= holdMs and close > vwapValue
-            // ─── ENTRY FIRES ───
-            // SIGNAL - identical to the indicator. Thin arrow (the indicator
-            // uses a boxed label) with the same tooltip values.
-            tt = "keyLevel: " + str.tostring(keyLevel, "#.##") +
-                 "\nentryTriggerLevel: " + str.tostring(entryTriggerLevel, "#.##") +
-                 "\nentry price: " + str.tostring(close, "#.##")
-            label.new(bar_index, low, text = "", style = label.style_arrowup, color = color.lime, size = size.normal, tooltip = tt)
-            // ORDER - a side effect only. Never changes the state machine.
+// ─── INTRABAR TRAIL EXIT (live) ─────────────────────────────────
+// Same test as at the bar close (price below the active trail EMA, and the EMA
+// above the stop), but on every tick, so the exit is sent the moment it happens.
+// `state`, `entryPrice`, `highestSinceEntry` are the values committed at the last
+// close; only the varip flag is remembered across ticks.
+liveProg = state == STATE_IN_POSITION and entryPrice > 0 ? (math.max(highestSinceEntry, close) - entryPrice) / entryPrice * 100 : 0.0
+liveStage = trailStageOf(liveProg)
+liveTrailEma = trailEmaOf(liveStage)
+intrabarTrailReady = barstate.isrealtime and not barstate.isconfirmed and input_intrabar_trail and state == STATE_IN_POSITION and nz(liveExitSentBar, -1) != bar_index and bar_index > nz(entryBar, bar_index)
+if intrabarTrailReady and not na(liveTrailEma) and liveTrailEma > stopPrice and close < liveTrailEma
+    liveExitSentBar := bar_index
+    liveExitReason := "ema" + str.tostring(trailLenOf(liveStage)) + "_trail"
+    emitWebhook("exit", ',"reason":"' + liveExitReason + '","price":' + str.tostring(close, "0.####") + ',"last":' + str.tostring(close, "0.####"))
+
+// ─── BAR-CLOSE LOGIC ─────────────────────────────────────────────
+// calc_on_every_tick is true (so the INTRABAR ENTRY below can fire the moment
+// the trigger is crossed), which means the script also runs on every tick.
+// Everything that changes the state machine or places an order is gated to
+// the bar close, so history, the backtest and live behave identically and
+// the per-tick rollback of variables cannot cause repeated entries.
+if barstate.isconfirmed
+    // ─── Per-tick — entry trigger, hold timer, VWAP gate ───────────
+    // NEW — per your instruction: the EMA9 path always triggers on a break
+    // of the last red candle's HIGH specifically, regardless of the
+    // High/Open/Close toggle (that toggle only applies to the keyLevel path).
+    entryTriggerLevel = armedVia == "ema9" ? lastRedHigh : (input_entry_trigger_ref == "Close" ? lastRedClose : input_entry_trigger_ref == "Open" ? lastRedOpen : lastRedHigh)
+
+    cooldownOK = na(lastExitBar) or (bar_index - lastExitBar > input_cooldown_bars)
+    entryFires   = false
+    entryAlertExtra = ""   // webhook entry message, sent at the end of the bar if still in position
+    entryFillPx  = close
+    entryRedLow  = lastRedLow
+    if input_entry_stopbuy
+        // STOP-BUY mode. The order was placed at the close of the PREVIOUS bar at
+        // the trigger level (see the end of this block). If this bar's high
+        // reached it, the order filled during this bar: at the trigger, or at the
+        // open if the bar gapped above it. The hold timer does not apply here.
+        if state == STATE_PULLBACK_ACTIVE and not na(stopBuyLevel) and high >= stopBuyLevel and inActiveWindow and not preOpenZone and cooldownOK
+            entryFires  := true
+            entryFillPx := math.max(open, stopBuyLevel)
+            entryRedLow := stopBuyRedLow
+    else
+        // CLOSE mode (previous behavior): entry at the close of the bar that
+        // holds above the trigger for the hold time and above VWAP.
+        if state == STATE_PULLBACK_ACTIVE and not na(entryTriggerLevel) and inActiveWindow and not preOpenZone and cooldownOK
+            if close > entryTriggerLevel
+                if na(aboveSince)
+                    aboveSince := time
+                holdMs = input_hold_seconds * 1000 * (isGapDay ? 2 : 1)
+                if (time - aboveSince) >= holdMs and close > vwapValue
+                    entryFires := true
+            else
+                aboveSince := na
+
+    if entryFires
+        // ─── ENTRY FIRES ───
+        // SIGNAL - identical to the indicator. Thin arrow (the indicator
+        // uses a boxed label) with the same tooltip values.
+        tt = "keyLevel: " + str.tostring(keyLevel, "#.##") +
+             "\nentryTriggerLevel: " + str.tostring(entryTriggerLevel, "#.##") +
+             "\nentry price: " + str.tostring(entryFillPx, "#.##") + (input_entry_stopbuy ? " (stop-buy)" : " (bar close)")
+        label.new(bar_index, low, text = "", style = label.style_arrowup, color = color.lime, size = size.normal, tooltip = tt)
+        // ORDER - a side effect only. Never changes the state machine.
+        // (In stop-buy mode the order already exists and has already filled.)
+        if not input_entry_stopbuy
             qty = math.min(input_position_shares, math.floor(strategy.equity / close))
             if qty > 0
                 strategy.entry("Long", strategy.long, qty = qty)
-            entryBar               := bar_index
-            entryPrice             := close
-            stopPrice              := lastRedLow
-            highestSinceEntry      := entryPrice
-            stallRangeStartTime    := na
-            noNewHighCount         := 0
-            barCloseHighest        := na
-            state                  := STATE_IN_POSITION
-    else
-        aboveSince := na
+        entryBar               := bar_index
+        entryPrice             := entryFillPx
+        stopPrice              := entryRedLow
+        highestSinceEntry      := entryPrice
+        stallHigh              := entryPrice
+        peakHigh               := high
+        peakFloor              := na
+        stallRangeStartTime    := na
+        noNewHighCount         := 0
+        barCloseHighest        := na
+        state                  := STATE_IN_POSITION
+        lastSentStop := entryRedLow
+        entryTrigForMsg = input_entry_stopbuy ? stopBuyLevel : entryTriggerLevel
+        if not na(entryFillPx) and not na(entryRedLow) and not na(entryTrigForMsg)
+            entryAlertExtra := ',"price":' + str.tostring(entryFillPx, "0.####") + ',"stop":' + str.tostring(entryRedLow, "0.####") + ',"trigger":' + str.tostring(entryTrigForMsg, "0.####") + ',"mode":"' + (input_entry_stopbuy ? "stopbuy" : "close") + '","qtyHint":' + str.tostring(input_position_shares) + ',"last":' + str.tostring(close, "0.####")
 
-// NEW — DEBUG 6: per-tick exit logic, only while IN_POSITION.
-// Order matters — first match wins, mirrors v10/main spec §4 exactly:
-// (1) protective stop, (2) EMA9 trail, (3) stall detector.
-// ORDER-LAYER SAFETY NET (never touches the state machine): the state
-// machine is the truth. If it says "not in a position" but one exists
-// (e.g. a same-bar entry that was cancelled still got filled), close it.
-if state != STATE_IN_POSITION and strategy.position_size > 0 and bar_index > entryBar
-    strategy.close("Long", comment = "sync")
+    if input_entry_stopbuy
+        // Place (or refresh) the stop-buy for the NEXT bar, from closed-bar data.
+        // Only while a setup is waiting, the trigger is above VWAP, and trading
+        // is allowed. Otherwise any pending order is cancelled.
+        stopBuyLevel   := na
+        stopBuyRedLow  := na
+        if state == STATE_PULLBACK_ACTIVE and not na(entryTriggerLevel) and entryTriggerLevel > vwapValue and inActiveWindow and not preOpenZone and cooldownOK
+            stopBuyLevel  := entryTriggerLevel
+            stopBuyRedLow := lastRedLow
+            sbQty = math.min(input_position_shares, math.floor(strategy.equity / stopBuyLevel))
+            if sbQty > 0
+                strategy.entry("Long", strategy.long, qty = sbQty, stop = stopBuyLevel)
+        else if state != STATE_IN_POSITION
+            strategy.cancel("Long")
 
-// EXIT SIGNALS - identical to the indicator: evaluated whenever the state
-// machine is IN_POSITION, whether or not an order exists.
-closeSentThisBar := false
-if state == STATE_IN_POSITION
-    // ★ FIX (stall detector — same order-of-operations family as the
-    // keyLevel bug): the range check below used to run AFTER this line
-    // had already folded the current price into highestSinceEntry, so a
-    // bar making a NEW HIGH satisfied `close <= highestSinceEntry` and
-    // counted as "hesitation". The stall clock never reset during a
-    // rally and fired at the top (exitPrice == highestSinceEntry).
-    // Now: snapshot the high first, and treat "closed above the previous
-    // high" as NOT a stall.
-    prevHighestSinceEntry = highestSinceEntry
-    highestSinceEntry := math.max(highestSinceEntry, close)
-    madeNewHigh = close > prevHighestSinceEntry
-    progressPct = entryPrice > 0 ? (highestSinceEntry - entryPrice) / entryPrice * 100 : 0   // moved up — needed by the tooltip regardless of which exit reason fires
+    // NEW — DEBUG 6: per-tick exit logic, only while IN_POSITION.
+    // Order matters — first match wins, mirrors v10/main spec §4 exactly:
+    // (1) protective stop, (2) EMA9 trail, (3) stall detector.
+    // ORDER-LAYER SAFETY NET (never touches the state machine): the state
+    // machine is the truth. If it says "not in a position" but one exists
+    // (e.g. a same-bar entry that was cancelled still got filled), close it.
+    if state != STATE_IN_POSITION and strategy.position_size > 0 and bar_index > entryBar
+        strategy.close("Long", comment = "sync")
+        strategy.cancel("PT")
 
-    exitReason = ""
-    // (1) Protective stop
-    if close <= stopPrice
-        exitReason := not na(inPreMarket) ? "stop_hit_premarket" : "stop_hit_regular_hours_backend_handles"
-    // (1.5) NEW — Scalp Exit (weak-market mode only): faster/more
-    // aggressive than EMA9 trail or the stall detector — fires after
-    // N consecutive bars with no new high. Checked BEFORE EMA9 trail
-    // on purpose: the whole point is to exit before EMA9 trail would
-    // have caught it, on days when momentum fades faster than usual.
-    else if input_weak_market_mode and noNewHighCount >= input_scalp_exit_bars
-        exitReason := "scalp_exit"
-    // (2) NEW — tiered EMA trail: same strict/loose zones as the stall
-    // detector (reuses input_stall_tier1_pct/tier2_pct so both ladders
-    // stay in sync) — EMA9 (tight) in the strict zones, EMA20 (looser,
-    // gives room) in the 10–30% "already proven" middle zone. Guard:
-    // only once the active EMA has climbed past stopPrice.
-    else
-        trailInStrictTier = progressPct < input_stall_tier1_pct or progressPct >= input_stall_tier2_pct
-        activeTrailEMA = trailInStrictTier ? ema9 : ema20
-        trailFired = not na(activeTrailEMA) and activeTrailEMA > stopPrice and close < activeTrailEMA
-        if trailFired
-            exitReason := trailInStrictTier ? "ema9_trail" : "ema20_trail"
-        // (3) Stall detector — tiered: strict early, loose mid, strict
-        // late — nested here so it's only checked when the trail above
-        // did NOT fire (correct priority: stop > scalp > trail > stall).
+    // EXIT SIGNALS - identical to the indicator: evaluated whenever the state
+    // machine is IN_POSITION, whether or not an order exists.
+    closeSentThisBar := false
+    if state == STATE_IN_POSITION
+        // ★ FIX (stall detector — same order-of-operations family as the
+        // keyLevel bug): the range check below used to run AFTER this line
+        // had already folded the current price into highestSinceEntry, so a
+        // bar making a NEW HIGH satisfied `close <= highestSinceEntry` and
+        // counted as "hesitation". The stall clock never reset during a
+        // rally and fired at the top (exitPrice == highestSinceEntry).
+        // Now: snapshot the high first, and treat "closed above the previous
+        // high" as NOT a stall.
+        prevHighestSinceEntry = highestSinceEntry
+        highestSinceEntry := math.max(highestSinceEntry, close)
+        // Stall reference high: by Close (default) or by bar High, per input.
+        stallSrc = input_stall_use_bar_high ? high : close
+        prevStallHigh = stallHigh
+        stallHigh := math.max(stallHigh, stallSrc)
+        madeNewHigh = stallSrc > prevStallHigh
+        progressPct = entryPrice > 0 ? (highestSinceEntry - entryPrice) / entryPrice * 100 : 0   // moved up — needed by the tooltip regardless of which exit reason fires
+
+        exitReason = ""
+        // (0) Peak trail: the floor was fixed at the close of an earlier bar and
+        // acts like a stop order, so a touch by this bar's low is an exit.
+        peakTouched = not na(peakFloor) and low <= peakFloor
+        exitPx = peakTouched ? math.min(open, peakFloor) : close
+        if peakTouched
+            exitReason := "peak_trail"
+        // (0.5) Pre-open protection: flat before the regular open. Evaluated on the
+        // closed bar only, so it behaves the same live and in the backtest.
+        else if preOpenZone and barstate.isconfirmed
+            exitReason := "pre_open_exit"
+        // (0.6) Climax exit: blow-off bar, exit at its close (closed bar only).
+        else if input_climax_enabled and climaxBar and barstate.isconfirmed and bar_index > entryBar and (high - entryPrice) / entryPrice * 100 >= input_climax_min_profit
+            exitReason := "climax_exit"
+        // (1) Protective stop
+        else if close <= stopPrice
+            exitReason := not na(inPreMarket) ? "stop_hit_premarket" : "stop_hit_regular_hours_backend_handles"
+        // (1.5) NEW — Scalp Exit (weak-market mode only): faster/more
+        // aggressive than EMA9 trail or the stall detector — fires after
+        // N consecutive bars with no new high. Checked BEFORE EMA9 trail
+        // on purpose: the whole point is to exit before EMA9 trail would
+        // have caught it, on days when momentum fades faster than usual.
+        else if input_weak_market_mode and noNewHighCount >= input_scalp_exit_bars
+            exitReason := "scalp_exit"
+        // (2) NEW — tiered EMA trail: same strict/loose zones as the stall
+        // detector (reuses input_stall_tier1_pct/tier2_pct so both ladders
+        // stay in sync) — EMA9 (tight) in the strict zones, EMA20 (looser,
+        // gives room) in the 10–30% "already proven" middle zone. Guard:
+        // only once the active EMA has climbed past stopPrice.
         else
-            inStrictTier = trailInStrictTier   // same tier boundaries, reused
-            activeStallRangePct = inStrictTier ? input_stall_range_tight_pct : input_stall_range_loose_pct
-            activeStallDurationMin = inStrictTier ? input_stall_duration_tight_min : input_stall_duration_loose_min
-            rangeLow = highestSinceEntry * (1 - activeStallRangePct)
-            inRange   = not madeNewHigh and close >= rangeLow
-            if inRange
-                if na(stallRangeStartTime)
-                    stallRangeStartTime := time
-                else if (time - stallRangeStartTime) >= activeStallDurationMin * 60000
-                    exitReason := "stall_detected"
+            trailInStrictTier = progressPct < input_stall_tier1_pct or progressPct >= input_stall_tier2_pct
+            trailStage = trailStageOf(progressPct)
+            activeTrailEMA = trailEmaOf(trailStage)
+            trailFired = not na(activeTrailEMA) and activeTrailEMA > stopPrice and close < activeTrailEMA
+            if trailFired
+                exitReason := "ema" + str.tostring(trailLenOf(trailStage)) + "_trail"
+            // (3) Stall detector — tiered: strict early, loose mid, strict
+            // late — nested here so it's only checked when the trail above
+            // did NOT fire (correct priority: stop > scalp > trail > stall).
             else
-                stallRangeStartTime := na
+                inStrictTier = trailInStrictTier   // same tier boundaries, reused
+                activeStallRangePct = inStrictTier ? input_stall_range_tight_pct : input_stall_range_loose_pct
+                activeStallDurationMin = inStrictTier ? input_stall_duration_tight_min : input_stall_duration_loose_min
+                activeRange = math.max(stallHigh * activeStallRangePct, input_stall_range_floor)
+                rangeLow = stallHigh - activeRange
+                inRange   = not madeNewHigh and close >= rangeLow and (not input_stall_skip_entry_bar or bar_index > entryBar)
+                if inRange
+                    if na(stallRangeStartTime)
+                        stallRangeStartTime := time
+                    else if (time - stallRangeStartTime) >= activeStallDurationMin * 60000
+                        exitReason := "stall_detected"
+                else
+                    stallRangeStartTime := na
 
-    if exitReason != ""
-        exitColor = exitReason == "stall_detected" ? color.orange : exitReason == "ema9_trail" ? color.blue : exitReason == "ema20_trail" ? color.aqua : exitReason == "scalp_exit" ? color.fuchsia : color.red
-        exitTt = "reason: " + exitReason +
-                 "\nentryPrice: " + str.tostring(entryPrice, "#.##") +
-                 "\nstopPrice: " + str.tostring(stopPrice, "#.##") +
-                 "\nhighestSinceEntry: " + str.tostring(highestSinceEntry, "#.##") +
-                 "\nema9: " + str.tostring(ema9, "#.##") +
-                 "\nema20: " + str.tostring(ema20, "#.##") +
-                 "\nnoNewHighCount: " + str.tostring(noNewHighCount) + " (weak_market_mode: " + str.tostring(input_weak_market_mode) + ")" +
-                 "\nprogressPct: " + str.tostring(progressPct, "#.#") + "% (stall tier: " + (progressPct < input_stall_tier1_pct or progressPct >= input_stall_tier2_pct ? "strict" : "loose") + ")" +
-                 "\nexitPrice: " + str.tostring(close, "#.##") +
-                 "\nP&L (pre-fees, per share): " + str.tostring(close - entryPrice, "#.##")
-        label.new(bar_index, high, text = "", style = label.style_arrowdown, color = color.new(exitColor, 0), size = size.normal, tooltip = exitTt)
-        // ORDER - a side effect only.
-        if bar_index == entryBar
-            strategy.cancel("Long")   // entry and exit on the SAME bar: nothing was ever held
-        else if strategy.position_size > 0
-            strategy.close("Long", comment = exitReason)
-        closeSentThisBar := true
-        state := STATE_SEARCHING
+        // An exit already reported INTRABAR is final, even if price recovered by the close.
+        if exitReason == "" and nz(liveExitSentBar, -1) == bar_index
+            exitReason := liveExitReason
 
-// ─── END OF WINDOW (order layer only) ──────────────────────────
-// Nothing is held outside the trading window. This closes the ORDER only;
-// the state machine is untouched, so the signals stay identical.
-if strategy.position_size > 0 and not inActiveWindow and not closeSentThisBar
-    strategy.close("Long", comment = "end_of_window")
-    label.new(bar_index, high, text = "", style = label.style_arrowdown, color = color.gray, size = size.normal, tooltip = "reason: end_of_window\nexitPrice: " + str.tostring(close, "#.##"))
+        if exitReason != ""
+            exitColor = exitReason == "peak_trail" ? color.yellow : exitReason == "pre_open_exit" ? color.silver : exitReason == "climax_exit" ? color.maroon : exitReason == "stall_detected" ? color.orange : str.startswith(exitReason, "ema") ? color.blue : exitReason == "scalp_exit" ? color.fuchsia : color.red
+            exitTt = "reason: " + exitReason +
+                     "\nentryPrice: " + str.tostring(entryPrice, "#.##") +
+                     "\nstopPrice: " + str.tostring(stopPrice, "#.##") +
+                     "\nhighestSinceEntry: " + str.tostring(highestSinceEntry, "#.##") +
+                     "\nema9: " + str.tostring(ema9, "#.##") +
+                     "\nema20: " + str.tostring(ema20, "#.##") +
+                     "\ntrail: " + input_trail_mode + " (stage " + str.tostring(trailStageOf(progressPct)) + ", EMA" + str.tostring(trailLenOf(trailStageOf(progressPct))) + " = " + str.tostring(trailEmaOf(trailStageOf(progressPct)), "#.##") + ")" +
+                     "\nnoNewHighCount: " + str.tostring(noNewHighCount) + " (weak_market_mode: " + str.tostring(input_weak_market_mode) + ")" +
+                     "\nprogressPct: " + str.tostring(progressPct, "#.#") + "% (stall tier: " + (progressPct < input_stall_tier1_pct or progressPct >= input_stall_tier2_pct ? "strict" : "loose") + ")" +
+                     "\npeakHigh: " + str.tostring(peakHigh, "#.##") + " | peakFloor: " + str.tostring(peakFloor, "#.##") +
+                     "\nexitPrice: " + str.tostring(exitPx, "#.##") +
+                     "\nP&L (pre-fees, per share): " + str.tostring(exitPx - entryPrice, "#.##")
+            label.new(bar_index, high, text = "", style = label.style_arrowdown, color = color.new(exitColor, 0), size = size.normal, tooltip = exitTt)
+            // Webhook: skipped when entry and exit are on the SAME bar (neither was sent).
+            if (bar_index != entryBar or nz(liveEntrySentBar, -1) == bar_index) and nz(liveExitSentBar, -1) != bar_index
+                emitWebhook("exit", ',"reason":"' + exitReason + '","price":' + str.tostring(exitPx, "0.####") + ',"last":' + str.tostring(close, "0.####"))
+            // ORDER - a side effect only.
+            if bar_index == entryBar and not input_entry_stopbuy
+                strategy.cancel("Long")   // entry and exit on the SAME bar: nothing was ever held
+            else if strategy.position_size > 0
+                strategy.close("Long", comment = exitReason)
+            strategy.cancel("PT")
+            peakFloor := na
+            lastExitBar := bar_index
+            closeSentThisBar := true
+            state := STATE_SEARCHING
+        else
+            // No exit on this bar: update the peak and the floor for the NEXT bar,
+            // from closed-bar data only, and (re)place it as a stop order.
+            if barstate.isconfirmed
+                peakHigh := math.max(peakHigh, high)
+                peakProfitPct = entryPrice > 0 ? (peakHigh - entryPrice) / entryPrice * 100 : 0
+                newFloor = float(na)
+                if peakProfitPct >= input_peak_trail_min_profit
+                    atrFloor = input_atr_trail_enabled and not na(atrVal) ? peakHigh - input_atr_mult * atrVal : na
+                    newFloor := atrFloor
+                peakFloor := newFloor
+                if not na(peakFloor) and strategy.position_size > 0
+                    strategy.exit("PT", "Long", stop = peakFloor, comment = "peak_trail")
+                // Webhook: the protective level (the higher of the red-candle low and
+                // the peak floor) only ever moves up. Report it once per bar, so the
+                // backend can move the stop that sits at the broker.
+                effStop = math.max(stopPrice, nz(peakFloor, 0))
+                if not na(lastSentStop) and effStop > lastSentStop and bar_index > entryBar
+                    emitWebhook("stop_update", ',"stop":' + str.tostring(effStop, "0.####") + ',"last":' + str.tostring(close, "0.####"))
+                    lastSentStop := effStop
+
+    // ─── END OF WINDOW (order layer only) ──────────────────────────
+    // Nothing is held outside the trading window. This closes the ORDER only;
+    // the state machine is untouched, so the signals stay identical.
+    if strategy.position_size > 0 and not inActiveWindow and not closeSentThisBar
+        strategy.close("Long", comment = "end_of_window")
+        strategy.cancel("PT")
+        label.new(bar_index, high, text = "", style = label.style_arrowdown, color = color.gray, size = size.normal, tooltip = "reason: end_of_window\nexitPrice: " + str.tostring(close, "#.##"))
+        emitWebhook("exit", ',"reason":"end_of_window","price":' + str.tostring(close, "0.####") + ',"last":' + str.tostring(close, "0.####"))
+
+    // ─── WEBHOOK: ENTRY (sent last, so an entry and exit on the same bar send nothing) ───
+    // Fallback: the entry was not already reported intrabar (missed tick, or not live).
+    if entryAlertExtra != "" and state == STATE_IN_POSITION and nz(liveEntrySentBar, -1) != bar_index
+        emitWebhook("entry", entryAlertExtra)
+    // An intrabar entry was reported but the state machine did not enter on this bar
+    // (for example the setup was invalidated within the same bar): flatten at once.
+    if nz(liveEntrySentBar, -1) == bar_index and nz(entryBar, -1) != bar_index
+        emitWebhook("exit", ',"reason":"entry_not_confirmed","price":' + str.tostring(close, "0.####") + ',"last":' + str.tostring(close, "0.####"))
+
+    // ─── WEBHOOK: HEARTBEAT (same alert as the trades, so a stopped alert is noticed) ───
+    // Once per bar: the same heartbeat was seen arriving twice for one bar.
+    if bar_index % input_webhook_heartbeat_bars == 0 and nz(lastHeartbeatBar, -1) != bar_index
+        lastHeartbeatBar := bar_index
+        emitWebhook("heartbeat", "")
 
 // ─── Plots — minimal, just enough spatial context ──────────────
 plot(input_show_keylevel_plot and state == STATE_SEARCHING ? keyLevel : na, title = "keyLevel", color = color.fuchsia, style = plot.style_stepline, linewidth = 3)
 plot(input_show_vwap_plot ? vwapValue : na, title = "VWAP", color = color.new(color.blue, 40), linewidth = 1)
-plot(input_show_ema9_plot ? ema9 : na, title = "EMA9", color = color.new(color.aqua, 20), linewidth = 1)
+plot(input_show_ema9_plot ? ema9 : na, title = "EMA9", color = color.orange, linewidth = 2)
+plot(input_show_ema20_plot ? ema20 : na, title = "EMA20", color = color.purple, linewidth = 2)
+plot(input_trail_mode == "Single EMA" ? emaSingle : na, title = "Trail EMA (single)", color = color.green, linewidth = 2)
+plot(input_show_trail_line and input_trail_mode != "Single EMA" and state == STATE_IN_POSITION ? trailEmaOf(liveStage) : na, title = "Active trail EMA (tiered)", color = color.teal, linewidth = 2)
 bgcolor(input_show_bgcolor and state == STATE_PULLBACK_ACTIVE ? color.new(color.orange, 90) : input_show_bgcolor and state == STATE_IN_POSITION ? color.new(color.teal, 85) : na)
+
+plotchar(input_show_climax and climaxBar, title = "Climax bar", char = "C", location = location.abovebar, color = color.fuchsia, size = size.tiny)
 
 // NEW — diagnostic: shows exactly when/why EMA9 mode is locked, so
 // this doesn't need to be inferred from "why aren't there entries"

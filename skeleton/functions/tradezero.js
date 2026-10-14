@@ -1,9 +1,18 @@
 // Minimal TradeZero REST client — built from developer.tradezero.com docs
 // (Authentication + Equity Trading pages), fetched and verified today.
 // Deliberately small: only what the connectivity skeleton needs.
-// NOT yet built: cancel, positions, routes, WebSocket. Add when needed.
+// Orders endpoints (incl. cancel, today's orders, routes) follow the path table
+// on TradeZero's Orders page. NOT yet built: positions, WebSocket stream.
 
 const BASE_URL = "https://webapi.tradezero.com";
+
+// Error that keeps the HTTP status, so callers can tell "the request was
+// refused" (4xx: the order does not exist) from "unknown outcome" (5xx).
+async function httpError(label, res) {
+  const err = new Error(`${label} HTTP ${res.status}: ${await res.text()}`);
+  err.status = res.status;
+  return err;
+}
 
 function createClient({apiKeyId, apiSecretKey, accountId}) {
   const headers = {
@@ -20,7 +29,7 @@ function createClient({apiKeyId, apiSecretKey, accountId}) {
   async function getAccount() {
     const res = await fetch(`${BASE_URL}/v1/api/account/${accountId}`, {headers});
     if (!res.ok) {
-      throw new Error(`getAccount HTTP ${res.status}: ${await res.text()}`);
+      throw await httpError("getAccount", res);
     }
     return res.json();
   }
@@ -38,7 +47,7 @@ function createClient({apiKeyId, apiSecretKey, accountId}) {
       // This is a transport/schema-level failure (400/404/405) — not a
       // trading rejection. Trading rejections come back as HTTP 200 with
       // orderStatus: "Rejected" instead, and are NOT thrown here.
-      throw new Error(`placeOrder HTTP ${res.status}: ${await res.text()}`);
+      throw await httpError("placeOrder", res);
     }
     return res.json();
   }
@@ -54,7 +63,7 @@ function createClient({apiKeyId, apiSecretKey, accountId}) {
     );
     if (res.status === 404) return null;
     if (!res.ok) {
-      throw new Error(`getOrder HTTP ${res.status}: ${await res.text()}`);
+      throw await httpError("getOrder", res);
     }
     return res.json();
   }
@@ -74,7 +83,45 @@ function createClient({apiKeyId, apiSecretKey, accountId}) {
     );
   }
 
-  return {getAccount, placeOrder, getOrder, awaitTerminal};
+  // DELETE /v1/api/accounts/{accountId}/orders/{clientOrderId}
+  // Note the PLURAL "orders" here, while GET of a single order is the
+  // singular "order". Per TradeZero's Orders page. Do not call this for an
+  // order that is already Rejected.
+  async function cancelOrder(clientOrderId) {
+    const res = await fetch(
+        `${BASE_URL}/v1/api/accounts/${accountId}/orders/${encodeURIComponent(clientOrderId)}`,
+        {method: "DELETE", headers},
+    );
+    if (!res.ok) {
+      throw await httpError("cancelOrder", res);
+    }
+    const text = await res.text();
+    try {
+      return text ? JSON.parse(text) : {ok: true};
+    } catch (e) {
+      return {ok: true, raw: text};
+    }
+  }
+
+  // GET /v1/api/accounts/{accountId}/orders — today's orders.
+  async function getTodaysOrders() {
+    const res = await fetch(`${BASE_URL}/v1/api/accounts/${accountId}/orders`, {headers});
+    if (!res.ok) {
+      throw await httpError("getTodaysOrders", res);
+    }
+    return res.json();
+  }
+
+  // GET /v1/api/accounts/{accountId}/routes — valid routes and time in force.
+  async function getRoutes() {
+    const res = await fetch(`${BASE_URL}/v1/api/accounts/${accountId}/routes`, {headers});
+    if (!res.ok) {
+      throw await httpError("getRoutes", res);
+    }
+    return res.json();
+  }
+
+  return {getAccount, placeOrder, getOrder, awaitTerminal, cancelOrder, getTodaysOrders, getRoutes};
 }
 
 module.exports = {createClient};
