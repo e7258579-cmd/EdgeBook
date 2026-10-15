@@ -13,6 +13,7 @@ All changes are applied together at the end, only in a new Pine file
 | 2 | Volume filter (5-min >= 50,000; daily >= 200,000) | KEEP, fixed constants | Already constants in the code (not shown in Inputs). Keep default values for now. |
 | 3 | Trading hours | KEEP `0400-1600`, visible input | Many dead hours inside it; accepted for now (strategy does not yet filter them). |
 | 4 | Pre-open protection | CHANGE: no new entries 09:25-09:40; an open position may stay until the end of pre-market and is force-closed at the close of the 09:29 bar (09:30:00). No force-close at 09:25. | Never enter the regular session with an open position, even if it is rising. Replaces the old 09:25 exit. Paper backend places stops only from 09:30, consistent with this. |
+| 5 | Arming path | keyLevel ONLY. REMOVE the EMA9 path: `input_ema9_consolidation_enabled`, `input_ema9_tolerance_pct`, `ema9LockLevel` (the "L" lock), `armedVia`, the volume-decline constants/lock (`input_vol_decline_*`), and the test switch `input_disable_keylevel_check`. | EMA9 entry is to be re-tested later as a separate addition. |
 
 ## To remove together at the end (apply in one pass)
 - Close entry mode and its code path (stop-buy stays the only mode), if confirmed.
