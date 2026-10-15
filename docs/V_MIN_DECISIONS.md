@@ -22,6 +22,7 @@ All changes are applied together at the end, only in a new Pine file
 | 11 | Peak trail (ATR from the peak; `input_atr_*`, `input_peak_trail_min_profit`) | REMOVE | To be re-tested later as a separate addition (does it raise total profit or only cut winners?). The `stop_update` webhook then follows only the protective stop. |
 | 12 | Climax exit (`input_climax_*`, climax markers) | REMOVE | To be re-tested later as a separate addition. |
 | 13 | Stall detector (`input_stall_*`) | REMOVE | To be re-tested later as a separate addition. Note: Tiered EMA (already removed) used the same tier boundaries. |
+| 14 | Scalp Exit / weak market mode (`input_weak_market_mode`, `input_scalp_exit_bars`) | REMOVE | Was fixed off in the code, never ran. |
 
 ## To remove together at the end (apply in one pass)
 - Close entry mode and its code path (stop-buy stays the only mode), if confirmed.
