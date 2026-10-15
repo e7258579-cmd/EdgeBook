@@ -27,6 +27,7 @@ All changes are applied together at the end, only in a new Pine file
 | 16 | Position size in Pine | CHANGE: quantity computed like the backend (visible inputs: equity 500, risk % 1, min shares 5, max risk per trade 10 USD, max shares 10). Replaces the fixed 25 shares. | Commission stays 0.49 USD per order as an ASSUMPTION (real TradeZero Paper/Live commission not confirmed). |
 | 17 | Date range (`input_use_date_range`, from, to) | KEEP as is (visible, off by default) | Needed to run the fixed test sample (symbol + day). Off in live. |
 | 18 | Webhook settings | VISIBLE: master switch (`input_webhook_enabled`), secret, debug labels. HIDDEN CONSTANTS: intrabar entry always on, max messages 12 per 3 min, heartbeat every 5 bars. | Never publish the script with the secret filled in. |
+| 19 | Visibility toggles | KEEP 8, ALL ON by default: PB start, reclaim@, INVALID, keyLevel line, VWAP, EMA9, state background, diagnostics table (+ its position). REMOVE: EMA20, trail line, Climax markers, V/W diagnostics, Reload and Brake markers. ADD (not a parameter): export of every trade as one line to Pine Logs (symbol, time, entry, stop, stop %, qty, P&L, R, exit reason, active settings). | The in-chart table stays. |
 
 ## To remove together at the end (apply in one pass)
 - Close entry mode and its code path (stop-buy stays the only mode), if confirmed.
