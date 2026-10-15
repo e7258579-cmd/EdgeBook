@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Summarize Pine Logs lines (TRADE / SYNC / SETTINGS) from an .xlsx, .csv or .txt file.
 
-Usage:  python3 tools/analyze_pine_logs.py logs.xlsx [more files...]
+Usage:  python3 tools/analyze_pine_logs.py [--until HHMM] logs.xlsx [more files...]
+        --until 1600  ignore trades that were ENTERED at or after that New York time (e.g. to apply the 0400-1600 window
+                      to logs that were produced with wider hours).
 Every cell / line is scanned for lines starting with TRADE, SYNC or SETTINGS (a timestamp
 prefix such as "[2026-10-15T07:55:00.000-04:00]:" is ignored), duplicates are dropped.
 TRADE fields: symbol,entryTime,exitTime,entry,stop,stopPct,qty,exit,pnlUsd,pnlPct,R,reason,bars
@@ -51,8 +53,12 @@ def summary(trades, label="ALL"):
           f"avg win R {st.mean(t['R'] for t in wins) if wins else 0:.2f}, avg loss R {st.mean(t['R'] for t in losses) if losses else 0:.2f}, "
           f"profit factor {gp/gl if gl else float('inf'):.2f}")
 
-def main(paths):
+def main(paths, until=None):
     trades, sync, settings = parse(paths)
+    if until is not None:
+        before = len(trades)
+        trades = [t for t in trades if int(t["et"][11:13]) * 100 + int(t["et"][14:16]) < until]
+        print(f"--until {until}: kept {len(trades)} of {before} trades")
     print(len(trades), "trades,", len(sync), "SYNC lines;", len(settings), "different SETTINGS lines")
     for s in settings: print("  settings:", s)
     summary(trades)
@@ -74,6 +80,10 @@ def main(paths):
     for s in sync: print("SYNC:", s)
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
+    args = sys.argv[1:]
+    until = None
+    if args and args[0] == "--until":
+        until = int(args[1]); args = args[2:]
+    if not args:
         sys.exit(__doc__)
-    main(sys.argv[1:])
+    main(args, until)
