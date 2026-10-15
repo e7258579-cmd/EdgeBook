@@ -20,6 +20,7 @@ All changes are applied together at the end, only in a new Pine file
 | 9 | EMA trail exit | Single EMA9 (length fixed 9), NO Tiered, NO intrabar (live) exit; exit on bar CLOSE below `EMA9 x (1 - buffer%)`. New input `buffer %` (default 0 = baseline), to compare 0 / 1 / 2 / 3. | Fixes "price touches/crosses EMA9 by a few % in an uptrend". Same logic in backtest and live. EMA length 10/11 rejected (almost no effect). |
 | 10 | File policy | The V-min Pine file is CLEAN (no dead/hidden code). Everything removed stays in the debug file and in git history. A full parameter registry (in / out / default / calibrated value) is added to this document at the end. | |
 | 11 | Peak trail (ATR from the peak; `input_atr_*`, `input_peak_trail_min_profit`) | REMOVE | To be re-tested later as a separate addition (does it raise total profit or only cut winners?). The `stop_update` webhook then follows only the protective stop. |
+| 12 | Climax exit (`input_climax_*`, climax markers) | REMOVE | To be re-tested later as a separate addition. |
 
 ## To remove together at the end (apply in one pass)
 - Close entry mode and its code path (stop-buy stays the only mode), if confirmed.
