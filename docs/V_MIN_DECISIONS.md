@@ -17,6 +17,8 @@ All changes are applied together at the end, only in a new Pine file
 | 6 | Invalidation rules (retracement `input_retracement_pct` 50% + red candle volume above the last green leg candle) | KEEP both as is | Retracement value to be compared later (e.g. 40/50/60). |
 | 7 | Entry trigger reference | KEEP `Open` (constant) | High/Close to be compared later. |
 | 8 | Stop distance | Stop = low of the last red candle. KEEP only `Maximum stop distance %` with action `Tighten the stop to the maximum` (visible input, default 0 = off). REMOVE the Minimum options (`input_min_stop_pct`, `input_min_stop_atr`) from the Inputs: keep them hidden as constants, off (0). Remove the `Skip entry` action. | Backend still has its own safety net: min 5 shares, 10 USD risk ceiling, reject if stop > 50% away. |
+| 9 | EMA trail exit | Single EMA9 (length fixed 9), NO Tiered, NO intrabar (live) exit; exit on bar CLOSE below `EMA9 x (1 - buffer%)`. New input `buffer %` (default 0 = baseline), to compare 0 / 1 / 2 / 3. | Fixes "price touches/crosses EMA9 by a few % in an uptrend". Same logic in backtest and live. EMA length 10/11 rejected (almost no effect). |
+| 10 | File policy | The V-min Pine file is CLEAN (no dead/hidden code). Everything removed stays in the debug file and in git history. A full parameter registry (in / out / default / calibrated value) is added to this document at the end. | |
 
 ## To remove together at the end (apply in one pass)
 - Close entry mode and its code path (stop-buy stays the only mode), if confirmed.
