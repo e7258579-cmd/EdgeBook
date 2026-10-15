@@ -91,3 +91,6 @@ pre-open), cooldown, reload, brakes, position sizing, webhook settings.
 `TRADE,symbol,entryTime,exitTime,entry,stop,stopPct,qty,exit,pnlUsd,pnlPct,R,reason,bars`
 `SETTINGS,version,symbol,hours=...,maxStopPct=...,emaBufferPct=...,...` (one line at the last historical bar)
 `SYNC,symbol,time,price` (the order layer held a position the state machine did not know)
+
+## Baseline run 1 (2026-10-15, m1 defaults, hours were 0400-2000 in the log)
+12 trades on 10 symbols (list in `docs/V_MIN_SAMPLE.csv`): win rate 42%, sum R +16.0, avg R +1.33, median R -0.74, total +27 USD, profit factor 1.91. Without the best trade (SAIQ): -6.5 USD, profit factor 0.78. All 6 stop exits lost (avg -1.82 R: close-based stop overshoots); 5 of 6 EMA9 exits won (avg +4.49 R). Two winners were after 16:00 (outside the decided 0400-1600 window). Small, hand-picked sample: not a basis for decisions yet. Decision: window stays 0400-1600; more trades will be added.
