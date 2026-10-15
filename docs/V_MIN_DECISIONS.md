@@ -11,6 +11,8 @@ All changes are applied together at the end, only in a new Pine file
 | 1 | Hold confirmation (`input_hold_seconds`) | REMOVE | Only used in the old Close entry mode. Stop-buy mode (the live mode) ignores it. |
 | 1b | Gap day threshold (`input_gap_threshold_pct`, `isGapDay`) | REMOVE (follows #1) | Only used to double the hold time. |
 | 2 | Volume filter (5-min >= 50,000; daily >= 200,000) | KEEP, fixed constants | Already constants in the code (not shown in Inputs). Keep default values for now. |
+| 3 | Trading hours | KEEP `0400-1600`, visible input | Many dead hours inside it; accepted for now (strategy does not yet filter them). |
+| 4 | Pre-open protection | CHANGE: no new entries 09:25-09:40; an open position may stay until the end of pre-market and is force-closed at the close of the 09:29 bar (09:30:00). No force-close at 09:25. | Never enter the regular session with an open position, even if it is rising. Replaces the old 09:25 exit. Paper backend places stops only from 09:30, consistent with this. |
 
 ## To remove together at the end (apply in one pass)
 - Close entry mode and its code path (stop-buy stays the only mode), if confirmed.
