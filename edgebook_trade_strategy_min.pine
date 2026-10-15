@@ -1,0 +1,534 @@
+//@version=5
+// ============================================================
+// EdgeBook Strategy MIN  (V-min, version m1)
+//
+// A minimal core of the strategy. Every decision is logged in
+// docs/V_MIN_DECISIONS.md. Anything removed from the core is still in
+// edgebook_trade_strategy_debug.pine and in git history, to be re-added and
+// tested ONE AT A TIME against a fixed sample (same symbols, days and metrics).
+//
+// FLOW
+//   SEARCHING  -> a green candle CLOSES above keyLevel (pre-market high / last
+//                 regular-session high / first-5-min high), the volume filter is OK,
+//                 the bar is inside the trading hours and today's trade count is below
+//                 the limit.
+//   PULLBACK   -> the breakout leg is measured (consecutive green candles). The setup is
+//                 cancelled (INVALID) when a pullback bar's low gives back more than 50% of
+//                 the leg, or a RED candle trades more volume than the last green leg candle.
+//                 Every red pullback candle sets the trigger (its OPEN) and the stop (its LOW).
+//   ENTRY      -> a stop-buy at the trigger, only while the trigger is above VWAP, and only
+//                 if the position sizing (same formula as the backend) accepts it.
+//   EXITS      -> (1) end of pre-market (the 09:29 bar) or the end of the trading hours,
+//                 (2) protective stop: a bar CLOSES at or below the stop,
+//                 (3) EMA9 trail: a bar closes below EMA9 x (1 - buffer %).
+//   No new entry between 09:25 and 09:40 New York. One trade per symbol per day (input).
+//
+// SIZING mirrors skeleton/functions/lib/sizing.js (shares from the risk budget, at least
+// minShares, never more than the risk ceiling per trade). The backend's own checks that
+// reject an entry are applied here as "no stop-buy placed", so the backtest does not count
+// trades the backend would refuse. The size uses the trigger level as the price (the backend
+// uses the last price at the crossing), so it is an approximation.
+//
+// PINE LOGS: one line per closed trade, starting with "TRADE," and one "SETTINGS," line (at the
+// last historical bar). Open the Pine Logs panel, copy the lines and send them for analysis.
+//
+// REAL TIME = BACKTEST: the script runs on every tick (calc_on_every_tick), but the state
+// machine, every order and every log line are gated to the bar close (barstate.isconfirmed).
+// The only thing evaluated intrabar is the entry webhook alert (no state change, one varip flag).
+//
+// COMMISSION: 0.49 USD per order (assumption, under 100 shares). The real TradeZero value is
+// not confirmed.
+//
+// NEVER publish or share this script with the webhook secret filled in.
+// ============================================================
+
+strategy("EdgeBook Strategy MIN",
+     overlay                 = true,
+     max_labels_count        = 500,
+     initial_capital         = 500,
+     commission_type         = strategy.commission.cash_per_order,
+     commission_value        = 0.49,
+     calc_on_every_tick      = true,
+     process_orders_on_close = true)
+
+// ─── Inputs (visible) ──────────────────────────────────────────
+input_trading_hours = input.string("0400-1600", "Trading hours (New York time)", group = "Hours and dates",
+     tooltip = "When new trades may OPEN, and when an open trade is force-closed. Several ranges allowed, separated by commas, e.g. 0400-0930,1300-1500. Format HHMM-HHMM. Does NOT change keyLevel: highs made outside these hours still count.")
+input_use_date_range = input.bool(false, "Limit trading to a date range", group = "Hours and dates")
+input_date_from = input.time(timestamp("01 Jan 2026 00:00 -0500"), "From date (included)", group = "Hours and dates")
+input_date_to   = input.time(timestamp("31 Dec 2026 00:00 -0500"), "To date (included)", group = "Hours and dates", tooltip = "Works together with Trading hours. Days outside the range are skipped entirely (keyLevel is still measured). Dates are New York days.")
+
+input_max_stop_pct = input.float(0.0, "Maximum stop distance (% of the entry level, 0 = off)", minval = 0.0, maxval = 90.0, step = 1.0, group = "Stop and exit",
+     tooltip = "If the low of the last red candle is farther than this below the entry level, the stop is RAISED to exactly this distance (the entry is still taken). 0 = off.")
+input_ema_buffer_pct = input.float(0.0, "EMA9 exit buffer (%)", minval = 0.0, maxval = 20.0, step = 0.5, group = "Stop and exit",
+     tooltip = "Exit when a bar CLOSES below EMA9 x (1 - buffer/100). 0 = the plain EMA9 exit (baseline). To compare: 0 / 1 / 2 / 3.")
+input_max_trades_day = input.int(1, "Maximum trades per symbol per day (New York day)", minval = 1, maxval = 20, group = "Frame",
+     tooltip = "Entries are counted when they fire. When the count reaches this number, no new setup is armed that day.")
+
+input_equity     = input.float(500.0, "Account equity for sizing (USD)", minval = 1.0, group = "Position size (mirrors the backend)")
+input_risk_pct   = input.float(1.0, "Risk per trade (% of equity)", minval = 0.1, step = 0.1, group = "Position size (mirrors the backend)")
+input_min_shares = input.int(5, "Minimum shares (0 = off)", minval = 0, group = "Position size (mirrors the backend)", tooltip = "A risk-sized entry below this is lifted to it, unless that breaks the risk ceiling.")
+input_max_risk   = input.float(10.0, "Maximum risk per trade (USD, 0 = off)", minval = 0.0, step = 1.0, group = "Position size (mirrors the backend)", tooltip = "(limit price - stop) x shares may not exceed this. An entry that cannot fit is not placed.")
+input_max_shares = input.int(10, "Maximum shares", minval = 1, group = "Position size (mirrors the backend)")
+
+input_webhook_enabled = input.bool(false, "Send webhook alerts (alert() calls)", group = "Webhook", tooltip = "Off by default. When on, the script calls alert() with a JSON message at every entry and exit, on realtime bars only (never on history), and a heartbeat every few bars. Create ONE alert per chart on this strategy, condition: alert() function calls only, with the webhook URL. Contract: docs/WEBHOOK_CONTRACT_V02.md.")
+input_webhook_secret  = input.string("", "Webhook secret", group = "Webhook", tooltip = "The same value as WEBHOOK_SECRET in Firebase. It is part of every message, so never publish or share this script with the secret filled in.")
+input_webhook_debug   = input.bool(false, "Show each webhook message as a chart label (nothing is sent)", group = "Webhook", tooltip = "Hover a label to read the exact JSON (secret hidden). Works on history too.")
+
+input_show_pbstart       = input.bool(true, "Show: PB start labels", group = "Visibility")
+input_show_reclaim       = input.bool(true, "Show: reclaim@ labels (the trigger set by each red candle)", group = "Visibility")
+input_show_invalid       = input.bool(true, "Show: INVALID labels", group = "Visibility")
+input_show_keylevel_plot = input.bool(true, "Show: keyLevel line", group = "Visibility")
+input_show_vwap_plot     = input.bool(true, "Show: VWAP line", group = "Visibility")
+input_show_ema9_plot     = input.bool(true, "Show: EMA9 line", group = "Visibility")
+input_show_bgcolor       = input.bool(true, "Show: state background color", group = "Visibility")
+input_show_diag_table    = input.bool(true, "Show: trades table (last 15 trades)", group = "Visibility")
+input_diag_table_pos     = input.string("Bottom left", "Trades table position", options = ["Top left", "Bottom left", "Bottom center", "Bottom right"], group = "Visibility")
+
+// ─── Constants (hidden on purpose, see docs/V_MIN_DECISIONS.md) ──
+vol5minThreshold   = 50000   // 5-min rolling volume threshold (shares)
+volDailyThreshold  = 200000  // daily cumulative volume threshold (shares)
+retracePct         = 50.0    // max pullback retracement of the breakout leg (%)
+emaLen             = 9       // trail EMA length
+cooldownBars       = 1       // after an exit, no new entry until more than this many bars have passed
+limitOffsetUsd     = 0.10    // backend: buy limit = price + offset (used only to size)
+maxStopNetPct      = 50.0    // backend safety net: reject an entry whose stop is farther than this %
+pauseFrom          = 925     // no new entries from this time (New York HHMM) ...
+pauseTo            = 940     // ... until this time
+regularOpen        = 930     // positions are closed on the bar that ends at the regular open
+webhookMaxMsgs     = 12      // max messages per 3 minutes (heartbeats stop 4 earlier)
+heartbeatBars      = 5       // heartbeat every N bars
+commissionPerOrder = 0.49    // same as the strategy() commission, used for the P&L in the log
+
+// ─── Session windows ───────────────────────────────────────────
+nyHM(t) => hour(t, "America/New_York") * 100 + minute(t, "America/New_York")
+// Fixed windows: used ONLY to measure the highs that build keyLevel.
+inPreMarket    = time(timeframe.period, "0400-0929", "America/New_York")
+inRegularHours = time(timeframe.period, "0930-1600", "America/New_York")
+inFirst5min    = not na(time(timeframe.period, "0930-0935", "America/New_York"))
+// Your window (hours + optional date range): the ONLY thing that limits arming and entries.
+inDateRange    = not input_use_date_range or (time >= input_date_from and time < input_date_to + 86400000)
+inActiveWindow = inDateRange and not na(time(timeframe.period, input_trading_hours, "America/New_York"))
+// Entry pause: tested on the bar START (a stop-buy fills DURING the bar).
+entryPauseNow  = nyHM(time) >= pauseFrom and nyHM(time) < pauseTo
+// The bar that ENDS at the regular open (the 09:29 bar on a 1-minute chart).
+preMarketEndBar = nyHM(time) < regularOpen and nyHM(time_close) >= regularOpen
+
+// ─── Next-bar permission (fix for the "sync" phantom trades) ────
+// A stop-buy order is placed at the CLOSE of a bar and fills DURING the next bar, but the
+// script only runs again at that bar's close. If the next bar is outside the trading window or
+// inside the entry pause, the order layer could fill while the state machine (rightly) refuses
+// the entry. So the order is placed only if the NEXT bar is allowed too.
+// The trading-hours text is parsed here ("0400-0500,0600-1600"; a ":days" suffix is ignored).
+// If it cannot be parsed, everything is allowed.
+nextBarInWindow(int hhmm) =>
+    allowed = false
+    parsedAny = false
+    parts = str.split(input_trading_hours, ",")
+    for i = 0 to array.size(parts) - 1
+        spec = array.get(str.split(array.get(parts, i), ":"), 0)
+        rng = str.split(str.trim(spec), "-")
+        if array.size(rng) == 2
+            a = str.tonumber(array.get(rng, 0))
+            b = str.tonumber(array.get(rng, 1))
+            if not na(a) and not na(b)
+                parsedAny := true
+                if hhmm >= a and hhmm < b
+                    allowed := true
+    not parsedAny or allowed
+inDateRangeNext = not input_use_date_range or (time_close >= input_date_from and time_close < input_date_to + 86400000)
+pauseNext       = nyHM(time_close) >= pauseFrom and nyHM(time_close) < pauseTo
+nextBarAllowed  = inDateRangeNext and nextBarInWindow(nyHM(time_close)) and not pauseNext
+
+// ─── Position sizing: mirrors skeleton/functions/lib/sizing.js ────
+// Returns the number of shares, or 0 = do not place the stop-buy (the backend would reject it:
+// invalid_stop / stop_too_far / qty_below_min / risk_too_high / qty_zero).
+roundPx(float x) => x >= 1 ? math.round(x * 100) / 100 : math.round(x * 10000) / 10000
+sizeEntry(float level, float stp) =>
+    limitPx = roundPx(level + limitOffsetUsd)
+    riskPerShare = limitPx - stp
+    int result = 0
+    if riskPerShare > 0 and (level - stp) / level * 100 <= maxStopNetPct
+        riskQty = math.floor(input_equity * (input_risk_pct / 100) / riskPerShare)
+        caps = math.min(input_max_shares, math.floor(input_equity / limitPx))
+        qty = math.min(math.max(riskQty, input_min_shares), caps)
+        ok = true
+        if qty < input_min_shares and riskQty < input_min_shares
+            ok := false
+        if ok and input_max_risk > 0
+            riskCap = math.floor(input_max_risk / riskPerShare)
+            if qty > riskCap
+                if riskCap < math.max(1, input_min_shares)
+                    ok := false
+                else
+                    qty := riskCap
+        if ok and qty >= 1
+            result := int(qty)
+    result
+
+// ─── Webhook messages (contract: docs/WEBHOOK_CONTRACT_V02.md) ──
+STRATEGY_VERSION = "V-min-m1"
+sessionTag = not na(inPreMarket) ? "pre" : (not na(inRegularHours) ? "regular" : "post")
+
+// Times (ms) of the messages sent in the last 3 minutes: the rate budget.
+varip array<int> sentTimes = array.new<int>()
+// Bar of the last heartbeat sent (varip: survives re-execution within the same bar).
+varip int lastHeartbeatBar = na
+
+webhookMsg(string event, string extra, string secretText) =>
+    '{"secret":"' + secretText + '","v":2,"event":"' + event + '","symbol":"' + syminfo.ticker + '","barTime":' + str.tostring(time_close, "#") + ',"sentAt":' + str.tostring(timenow, "#") + ',"tf":"' + timeframe.period + '","strategy":"' + STRATEGY_VERSION + '","session":"' + sessionTag + '"' + extra + '}'
+
+emitWebhook(string event, string extra) =>
+    // Real bars only: alert() never fires on history, and history must not fill the budget.
+    if input_webhook_enabled and str.length(input_webhook_secret) > 0 and barstate.isrealtime
+        // Pine v5 evaluates both sides of `and`, so the empty-array case needs its own guard.
+        staleSent = true
+        while staleSent
+            staleSent := false
+            if array.size(sentTimes) > 0
+                if timenow - array.get(sentTimes, 0) > 180000
+                    array.shift(sentTimes)
+                    staleSent := true
+        // Heartbeats stop 4 messages before the limit so trades always have room.
+        limitNow = event == "heartbeat" ? webhookMaxMsgs - 4 : webhookMaxMsgs
+        if array.size(sentTimes) < limitNow
+            alert(webhookMsg(event, extra, input_webhook_secret), alert.freq_all) // each message is guarded once per bar by its own logic; the backend also drops duplicates
+            array.push(sentTimes, timenow)
+        else
+            label.new(bar_index, high, text = "BUDGET", style = label.style_label_left, color = color.red, textcolor = color.white, size = size.tiny, tooltip = "Webhook budget reached: " + event + " NOT sent")
+    if input_webhook_debug and event != "heartbeat"
+        label.new(bar_index, high, text = event, style = label.style_label_left, color = color.new(color.gray, 20), textcolor = color.white, size = size.tiny, tooltip = webhookMsg(event, extra, "***"))
+
+// ─── State ─────────────────────────────────────────────────────
+var string STATE_SEARCHING       = "SEARCHING"
+var string STATE_PULLBACK_ACTIVE = "PULLBACK_ACTIVE"
+var string STATE_IN_POSITION     = "IN_POSITION"
+var string state          = STATE_SEARCHING
+var float  premarketHigh   = na
+var float  sessionHigh     = na
+var float  first5minHigh   = na
+var float  keyLevel        = na
+
+var float entryPrice       = na
+var float stopPrice        = na
+var int   entryQty         = 0
+var string entryTimeStr    = ""
+var int   entryBar         = na   // bar where the entry signal fired
+var int   lastExitBar      = na   // bar of the last exit (cooldown)
+var int   tradesToday      = 0    // entries fired today (New York day)
+var float stopBuyLevel     = na   // stop-buy entry level, set at a bar close, used from the next bar
+var float stopBuyRedLow    = na   // the stop that belongs to that level
+var int   stopBuyQty       = 0    // the size that belongs to that level
+varip int liveEntrySentBar = na   // bar for which the INTRABAR entry alert was already sent (survives ticks)
+
+var float legLow             = na
+var float legHigh            = na
+var float lastGreenLegVolume = na   // volume of the single, most recent green candle in the leg
+var float lastRedOpen        = na
+var float lastRedLow         = na
+
+var float cumVolToday = 0.0
+var bool  dailyVolOK  = false
+var bool  vol5minOK   = false
+
+// Trades table: one row of DIAG_COLS strings per closed trade, flattened. Only the last 15 are kept.
+DIAG_COLS = 9
+DIAG_MAX_ROWS = 15
+var array<string> diagTbl = array.new<string>()
+diagPushRow(string pnlPctTxt, string reasonTxt, string rTxt, string pnlUsdTxt, string barsTxt) =>
+    array.push(diagTbl, entryTimeStr)
+    array.push(diagTbl, str.tostring(entryPrice, "#.##"))
+    array.push(diagTbl, str.tostring(entryQty))
+    array.push(diagTbl, str.tostring((entryPrice - stopPrice) / entryPrice * 100, "#.#"))
+    array.push(diagTbl, pnlPctTxt)
+    array.push(diagTbl, rTxt)
+    array.push(diagTbl, pnlUsdTxt)
+    array.push(diagTbl, reasonTxt)
+    array.push(diagTbl, barsTxt)
+    if array.size(diagTbl) > DIAG_COLS * DIAG_MAX_ROWS
+        for i = 1 to DIAG_COLS
+            array.shift(diagTbl)
+    true
+
+// ─── Indicators (called unconditionally, per Pine convention) ────
+vwapValue      = ta.vwap(hlc3)   // resets per session automatically
+rollingVol5min = ta.sma(volume, 5) * 5   // sum of the last 5 bars' volume (1-min chart = 5 min)
+ema9           = ta.ema(close, emaLen)
+newDay         = ta.change(time("D")) != 0
+
+// ─── Bar-close logic ─────────────────────────────────────────────
+// calc_on_every_tick is true (so the INTRABAR ENTRY below can fire the moment the trigger is
+// crossed), which means the script also runs on every tick. Everything that changes the state
+// machine, places an order or writes a log line is gated to the bar close, so history, the
+// backtest and live behave identically and the per-tick rollback of variables cannot cause
+// repeated entries.
+if barstate.isconfirmed
+    if newDay
+        cumVolToday := volume
+        tradesToday := 0
+    else
+        cumVolToday := cumVolToday + volume
+
+    // Volume filter: two absolute thresholds.
+    dailyVolOK := cumVolToday >= volDailyThreshold
+    vol5minOK  := rollingVol5min >= vol5minThreshold
+    volumeOK    = dailyVolOK and vol5minOK
+
+    // keyLevel snapshot — PRIOR bars' highs only (a breakout candle cannot eat its own high).
+    if state == STATE_SEARCHING
+        keyLevel := not na(inPreMarket) ? math.max(nz(premarketHigh), nz(sessionHigh)) : math.max(nz(first5minHigh), nz(premarketHigh), nz(sessionHigh))
+
+    is_green = close > open
+    is_red   = close < open
+
+    // ─── ARMING: a green candle closes above keyLevel ───
+    if state == STATE_SEARCHING and is_green and not na(keyLevel) and close > keyLevel and volumeOK and inActiveWindow and tradesToday < input_max_trades_day
+        state := STATE_PULLBACK_ACTIVE
+        // A new breakout must not inherit the trigger/stop of a previous, finished trade.
+        lastRedOpen := na
+        lastRedLow  := na
+        // Measure the breakout LEG: walk backward through the consecutive run of green candles
+        // ending at (and including) this breakout bar, capped at 15 bars as a safety bound.
+        legLowTmp  = high
+        legHighTmp = high
+        li = 0
+        while li < 15 and close[li] > open[li]
+            legLowTmp  := math.min(legLowTmp, low[li])
+            legHighTmp := math.max(legHighTmp, high[li])
+            li := li + 1
+        legLow  := legLowTmp
+        legHigh := legHighTmp
+        lastGreenLegVolume := volume   // this bar IS the breakout candle
+        if input_show_pbstart
+            label.new(bar_index, high, text = "PB start\nkL=" + str.tostring(keyLevel, "#.##"), style = label.style_label_down, color = color.orange, textcolor = color.white, size = size.small)
+
+    else if state == STATE_PULLBACK_ACTIVE
+        // A candle that makes a NEW HIGH extends the breakout leg; it is not pullback material.
+        if high > legHigh
+            legHigh := high
+            legLow  := math.min(legLow, low)
+            lastGreenLegVolume := volume   // this bar is now the "most recent green candle" benchmark
+        else
+            // Every bar that did NOT make a new high is checked against the invalidation rules.
+            strongSellVolume     = is_red and volume > lastGreenLegVolume
+            invalidByRetracement = low < (legHigh - (legHigh - legLow) * (retracePct / 100))
+            invalidByVolume      = strongSellVolume
+
+            if is_red
+                lastRedOpen := open
+                lastRedLow  := low
+                if input_show_reclaim
+                    label.new(bar_index, low, text = "reclaim@" + str.tostring(open, "#.##"), style = label.style_label_up, color = color.gray, textcolor = color.white, size = size.tiny)
+
+            if invalidByRetracement or invalidByVolume
+                invalidReason = invalidByRetracement ? "50%+ retrace" : "sell vol > buy vol"
+                state       := STATE_SEARCHING
+                keyLevel    := na
+                lastRedOpen := na
+                lastRedLow  := na
+                legLow      := na
+                legHigh     := na
+                lastGreenLegVolume := na
+                if input_show_invalid
+                    label.new(bar_index, low, text = "INVALID\n" + invalidReason, style = label.style_label_up, color = color.red, textcolor = color.white, size = size.small)
+
+    // running highs — updated AFTER this bar's own check (production order)
+    if not na(inPreMarket) and na(inPreMarket[1])
+        premarketHigh := high
+    else if not na(inPreMarket)
+        premarketHigh := math.max(nz(premarketHigh), high)
+
+    if not na(inRegularHours) and na(inRegularHours[1])
+        sessionHigh := high
+    else if not na(inRegularHours)
+        sessionHigh := math.max(nz(sessionHigh), high)
+
+    if inFirst5min and not inFirst5min[1]
+        first5minHigh := high
+    else if inFirst5min
+        first5minHigh := math.max(nz(first5minHigh), high)
+
+// ─── INTRABAR ENTRY (live) ──────────────────────────────────────
+// The stop-buy level was fixed at the previous bar close (stopBuyLevel). The moment price
+// reaches it, tell the backend, at once. No state change here: `state` and `stopBuyLevel` are
+// the values committed at the last close, and the only thing remembered across ticks is the
+// varip flag. At the bar close the state machine reaches the same conclusion (high >= level).
+intrabarEntryReady = barstate.isrealtime and not barstate.isconfirmed and state == STATE_PULLBACK_ACTIVE and not na(stopBuyLevel) and not na(stopBuyRedLow) and nz(liveEntrySentBar, -1) != bar_index and inActiveWindow and not entryPauseNow and tradesToday < input_max_trades_day and (na(lastExitBar) or bar_index - lastExitBar > cooldownBars)
+if intrabarEntryReady and high >= stopBuyLevel
+    liveEntrySentBar := bar_index
+    emitWebhook("entry", ',"price":' + str.tostring(math.max(open, stopBuyLevel), "0.####") + ',"stop":' + str.tostring(stopBuyRedLow, "0.####") + ',"trigger":' + str.tostring(stopBuyLevel, "0.####") + ',"mode":"stopbuy","qtyHint":' + str.tostring(stopBuyQty) + ',"last":' + str.tostring(close, "0.####"))
+
+if barstate.isconfirmed
+    // The trigger is the OPEN of the last red pullback candle.
+    entryTriggerLevel = lastRedOpen
+
+    cooldownOK = na(lastExitBar) or (bar_index - lastExitBar > cooldownBars)
+    entryFires   = false
+    entryAlertExtra = ""   // webhook entry message, sent at the end of the bar if still in position
+    entryFillPx  = close
+    entryRedLow  = lastRedLow
+    // STOP-BUY. The order was placed at the close of the PREVIOUS bar at the trigger level (see
+    // below). If this bar's high reached it, the order filled during this bar: at the trigger, or
+    // at the open if the bar gapped above it.
+    if state == STATE_PULLBACK_ACTIVE and not na(stopBuyLevel) and high >= stopBuyLevel and inActiveWindow and not entryPauseNow and cooldownOK and tradesToday < input_max_trades_day
+        entryFires  := true
+        entryFillPx := math.max(open, stopBuyLevel)
+        entryRedLow := stopBuyRedLow
+
+    if entryFires
+        // ─── ENTRY FIRES ───
+        tt = "keyLevel: " + str.tostring(keyLevel, "#.##") +
+             "\ntrigger (open of the last red candle): " + str.tostring(stopBuyLevel, "#.##") +
+             "\nentry price: " + str.tostring(entryFillPx, "#.##") + " (stop-buy)" +
+             "\nstop: " + str.tostring(entryRedLow, "#.##") + " (" + str.tostring((entryFillPx - entryRedLow) / entryFillPx * 100, "#.#") + "% below)" +
+             "\nshares: " + str.tostring(stopBuyQty)
+        label.new(bar_index, low, text = "", style = label.style_arrowup, color = color.lime, size = size.normal, tooltip = tt)
+        entryBar        := bar_index
+        entryPrice      := entryFillPx
+        stopPrice       := entryRedLow
+        entryQty        := stopBuyQty
+        entryTimeStr    := str.format_time(time, "yyyy-MM-dd HH:mm", "America/New_York")
+        tradesToday     := tradesToday + 1
+        state           := STATE_IN_POSITION
+        if not na(entryFillPx) and not na(entryRedLow) and not na(stopBuyLevel)
+            entryAlertExtra := ',"price":' + str.tostring(entryFillPx, "0.####") + ',"stop":' + str.tostring(entryRedLow, "0.####") + ',"trigger":' + str.tostring(stopBuyLevel, "0.####") + ',"mode":"stopbuy","qtyHint":' + str.tostring(stopBuyQty) + ',"last":' + str.tostring(close, "0.####")
+
+    // Place (or refresh) the stop-buy for the NEXT bar, from closed-bar data. Only while a setup is
+    // waiting, the trigger is above VWAP, trading is allowed, the sizing accepts it and today's
+    // trade limit is not reached. Otherwise any pending order is cancelled.
+    stopBuyLevel  := na
+    stopBuyRedLow := na
+    stopBuyQty    := 0
+    adjStop = lastRedLow
+    if not na(adjStop) and not na(entryTriggerLevel) and input_max_stop_pct > 0
+        // Tighten: raise the stop to the maximum distance below the entry level.
+        adjStop := math.max(adjStop, entryTriggerLevel * (1 - input_max_stop_pct / 100))
+    sizedQty = (not na(adjStop) and not na(entryTriggerLevel)) ? sizeEntry(entryTriggerLevel, adjStop) : 0
+    if state == STATE_PULLBACK_ACTIVE and not na(entryTriggerLevel) and entryTriggerLevel > vwapValue and inActiveWindow and not entryPauseNow and cooldownOK and nextBarAllowed and tradesToday < input_max_trades_day and sizedQty > 0
+        // The strategy account may be smaller than the sizing equity after losses: never ask for more than it can buy.
+        orderQty = math.min(sizedQty, math.floor(strategy.equity / entryTriggerLevel))
+        if orderQty > 0
+            stopBuyLevel  := entryTriggerLevel
+            stopBuyRedLow := adjStop
+            stopBuyQty    := int(orderQty)
+            strategy.entry("Long", strategy.long, qty = orderQty, stop = stopBuyLevel)
+        else if state != STATE_IN_POSITION
+            strategy.cancel("Long")
+    else if state != STATE_IN_POSITION
+        strategy.cancel("Long")
+
+    // ORDER-LAYER SAFETY NET (never touches the state machine): the state machine is the truth.
+    // If it says "not in a position" but one exists (e.g. a stop-buy that filled during a bar that
+    // then invalidated the setup), close it. Live, that case is an intrabar entry followed by an
+    // "entry_not_confirmed" exit below, so it is a real trade.
+    if state != STATE_IN_POSITION and strategy.position_size > 0 and bar_index > entryBar
+        syncEntryPx = strategy.opentrades.entry_price(0)
+        label.new(bar_index, low, text = "SYNC", style = label.style_label_up, color = color.new(color.purple, 20), textcolor = color.white, size = size.tiny,
+                  tooltip = "order layer held a position the state machine does not know" +
+                  "\nstate: " + state +
+                  "\nthis bar: open " + str.tostring(open, "#.##") + " high " + str.tostring(high, "#.##") + " low " + str.tostring(low, "#.##") + " close " + str.tostring(close, "#.##") +
+                  "\nentry fill (order layer): " + str.tostring(syncEntryPx, "#.##") +
+                  "\nbar NY time: " + str.format_time(time, "HH:mm", "America/New_York") +
+                  "\ninActiveWindow: " + str.tostring(inActiveWindow) + " | entryPauseNow: " + str.tostring(entryPauseNow) + " | cooldownOK: " + str.tostring(cooldownOK))
+        log.info("SYNC,{0},{1},{2}", syminfo.ticker, str.format_time(time, "yyyy-MM-dd HH:mm", "America/New_York"), str.tostring(syncEntryPx, "#.##"))
+        strategy.close("Long", comment = "sync")
+
+    // ─── EXITS: evaluated whenever the state machine is IN_POSITION; first match wins ───
+    if state == STATE_IN_POSITION
+        exitReason = ""
+        exitPx = close
+        // (1) Flat before the regular open (the bar that ends at 09:30), or outside the trading hours.
+        if preMarketEndBar
+            exitReason := "premarket_end_exit"
+        else if not inActiveWindow
+            exitReason := "end_of_window"
+        // (2) Protective stop: a bar CLOSES at or below the stop.
+        else if close <= stopPrice
+            exitReason := not na(inPreMarket) ? "stop_hit_premarket" : "stop_hit_regular_hours_backend_handles"
+        // (3) EMA9 trail with a buffer. Guard: only once the buffered level is above the stop.
+        else
+            emaExitLevel = ema9 * (1 - input_ema_buffer_pct / 100)
+            if not na(emaExitLevel) and emaExitLevel > stopPrice and close < emaExitLevel
+                exitReason := "ema9_trail"
+
+        if exitReason != ""
+            exitColor = exitReason == "premarket_end_exit" ? color.silver : exitReason == "end_of_window" ? color.gray : exitReason == "ema9_trail" ? color.blue : color.red
+            pnlPct   = (exitPx - entryPrice) / entryPrice * 100
+            riskPS   = entryPrice - stopPrice
+            rMult    = riskPS > 0 ? (exitPx - entryPrice) / riskPS : na
+            pnlUsd   = (exitPx - entryPrice) * entryQty - 2 * commissionPerOrder
+            barsHeld = bar_index - entryBar
+            exitTt = "reason: " + exitReason +
+                     "\nentryPrice: " + str.tostring(entryPrice, "#.##") +
+                     "\nstopPrice: " + str.tostring(stopPrice, "#.##") +
+                     "\nema9: " + str.tostring(ema9, "#.##") +
+                     "\nexitPrice: " + str.tostring(exitPx, "#.##") +
+                     "\nshares: " + str.tostring(entryQty) +
+                     "\nP&L %: " + str.tostring(pnlPct, "#.#") + "%  |  R: " + str.tostring(rMult, "#.##") + "  |  P&L USD (after fees): " + str.tostring(pnlUsd, "#.##")
+            label.new(bar_index, high, text = "", style = label.style_arrowdown, color = color.new(exitColor, 0), size = size.normal, tooltip = exitTt)
+            diagPushRow(str.tostring(pnlPct, "#.#"), exitReason, str.tostring(rMult, "#.##"), str.tostring(pnlUsd, "#.##"), str.tostring(barsHeld))
+            log.info("TRADE,{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12}",
+                 syminfo.ticker, entryTimeStr, str.format_time(time_close, "yyyy-MM-dd HH:mm", "America/New_York"),
+                 str.tostring(entryPrice, "#.####"), str.tostring(stopPrice, "#.####"), str.tostring((entryPrice - stopPrice) / entryPrice * 100, "#.##"),
+                 str.tostring(entryQty), str.tostring(exitPx, "#.####"), str.tostring(pnlUsd, "#.##"), str.tostring(pnlPct, "#.##"),
+                 str.tostring(rMult, "#.##"), exitReason, str.tostring(barsHeld))
+            // Webhook: skipped when entry and exit are on the SAME bar (neither was sent).
+            if bar_index != entryBar or nz(liveEntrySentBar, -1) == bar_index
+                emitWebhook("exit", ',"reason":"' + exitReason + '","price":' + str.tostring(exitPx, "0.####") + ',"last":' + str.tostring(close, "0.####"))
+            // ORDER - a side effect only.
+            if strategy.position_size > 0
+                strategy.close("Long", comment = exitReason)
+            else
+                strategy.cancel("Long")   // entry and exit on the SAME bar: nothing was ever held
+            lastExitBar := bar_index
+            state := STATE_SEARCHING
+
+    // ─── WEBHOOK: ENTRY (sent last, so an entry and exit on the same bar send nothing) ───
+    // Fallback: the entry was not already reported intrabar (missed tick, or not live).
+    if entryAlertExtra != "" and state == STATE_IN_POSITION and nz(liveEntrySentBar, -1) != bar_index
+        emitWebhook("entry", entryAlertExtra)
+    // An intrabar entry was reported but the state machine did not enter on this bar
+    // (for example the setup was invalidated within the same bar): flatten at once.
+    if nz(liveEntrySentBar, -1) == bar_index and nz(entryBar, -1) != bar_index
+        emitWebhook("exit", ',"reason":"entry_not_confirmed","price":' + str.tostring(close, "0.####") + ',"last":' + str.tostring(close, "0.####"))
+
+    // ─── WEBHOOK: HEARTBEAT (same alert as the trades, so a stopped alert is noticed) ───
+    // Once per bar: the same heartbeat was seen arriving twice for one bar.
+    if bar_index % heartbeatBars == 0 and nz(lastHeartbeatBar, -1) != bar_index
+        lastHeartbeatBar := bar_index
+        emitWebhook("heartbeat", "")
+
+// ─── SETTINGS line for Pine Logs (once, at the last historical bar) ───
+if barstate.islastconfirmedhistory
+    log.info("SETTINGS,{0},{1},hours={2},maxStopPct={3},emaBufferPct={4},maxTradesDay={5},equity={6},riskPct={7},minShares={8},maxRiskUsd={9},maxShares={10},dateRange={11},fee={12}",
+         STRATEGY_VERSION, syminfo.ticker, input_trading_hours, str.tostring(input_max_stop_pct), str.tostring(input_ema_buffer_pct),
+         str.tostring(input_max_trades_day), str.tostring(input_equity), str.tostring(input_risk_pct), str.tostring(input_min_shares),
+         str.tostring(input_max_risk), str.tostring(input_max_shares), str.tostring(input_use_date_range), str.tostring(commissionPerOrder))
+
+// ─── Plots ───────────────────────────────────────────────────────
+plot(input_show_keylevel_plot and state == STATE_SEARCHING ? keyLevel : na, title = "keyLevel", color = color.fuchsia, style = plot.style_stepline, linewidth = 3)
+plot(input_show_vwap_plot ? vwapValue : na, title = "VWAP", color = color.new(color.blue, 40), linewidth = 1)
+plot(input_show_ema9_plot ? ema9 : na, title = "EMA9", color = color.orange, linewidth = 2)
+bgcolor(input_show_bgcolor and state == STATE_PULLBACK_ACTIVE ? color.new(color.orange, 90) : input_show_bgcolor and state == STATE_IN_POSITION ? color.new(color.teal, 85) : na)
+// Invisible on the chart itself (Data Window only): raw numbers at any bar.
+plot(cumVolToday, title = "cumVolToday", display = display.data_window)
+plot(rollingVol5min, title = "rollingVol5min", display = display.data_window)
+
+// ─── TRADES TABLE ───────────────────────────────────────────────
+// One row per closed trade (the last 15), newest at the bottom. No effect on any decision.
+diagTablePosition = input_diag_table_pos == "Top left" ? position.top_left : input_diag_table_pos == "Bottom center" ? position.bottom_center : input_diag_table_pos == "Bottom right" ? position.bottom_right : position.bottom_left
+var table diagTable = table.new(diagTablePosition, DIAG_COLS, DIAG_MAX_ROWS + 1, bgcolor = color.new(color.black, 10), frame_color = color.gray, frame_width = 1, border_color = color.gray, border_width = 1)
+if barstate.islast and input_show_diag_table
+    diagHeaders = array.from("Entry NY (m1)", "Px", "Qty", "Stop %", "P&L %", "R", "P&L $", "Exit", "Bars")
+    for c = 0 to DIAG_COLS - 1
+        table.cell(diagTable, c, 0, array.get(diagHeaders, c), text_color = color.white, bgcolor = color.new(color.gray, 40), text_size = size.small)
+    diagRows = int(array.size(diagTbl) / DIAG_COLS)
+    for r = 0 to DIAG_MAX_ROWS - 1
+        for c = 0 to DIAG_COLS - 1
+            cellTxt = ""
+            if r < diagRows
+                cellTxt := array.get(diagTbl, r * DIAG_COLS + c)
+            cellColor = color.white
+            if (c == 4 or c == 5 or c == 6) and r < diagRows
+                cellColor := str.startswith(cellTxt, "-") ? color.red : color.lime
+            table.cell(diagTable, c, r + 1, cellTxt, text_color = cellColor, text_size = size.small)

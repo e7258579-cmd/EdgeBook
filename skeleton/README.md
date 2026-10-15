@@ -88,3 +88,8 @@ npm test
 5. ⚠️ **סטופ בפרה-מרקט:** ב-Live, StopLimit עם `Day_Plus` תקף מ-04:00 (לפי התיעוד). ב-Paper לא ניתן לבדוק (שם StopLimit עם Day תקף רק 09:30–16:00). StopLimit עלול לא להתמלא אם המחיר קופץ מתחת לליימיט.
 6. ✅ **אזור:** מסד ה-Firestore של הפרויקט נמצא ב-`europe-west1` (כך הפריסה זיהתה). כל הפונקציות החדשות מוגדרות לאותו אזור (`setGlobalOptions` ב-`index.js`), כי המקלט עושה כמה קריאות ל-Firestore לכל אות והן איטיות מעבר לאוקיינוס. `tzWebhookTest` הישנה נשארה ב-`us-central1`. כתובת ה-Webhook: `https://europe-west1-edgebook-55d06.cloudfunctions.net/tzWebhook`.
 7. ⚠️ **גודל החשבון קבוע** בהגדרות (`accountEquityUsd`). שם השדה של ההון ב-`GET /account/{id}` (לפי הדף: `bp` לכוח קנייה בתשובת הפירוט) לא נבדק על תשובה אמיתית.
+
+## Strategy files (Pine)
+- `edgebook_trade_strategy.pine` (V05): unchanged, can be returned to.
+- `edgebook_trade_strategy_debug.pine`: all the experiments.
+- `edgebook_trade_strategy_min.pine` (V-min, m1): the minimal core, built from the decisions in `docs/V_MIN_DECISIONS.md` (spec, parameter registry and Pine Logs format are there).
