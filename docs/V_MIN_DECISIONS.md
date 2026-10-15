@@ -23,6 +23,7 @@ All changes are applied together at the end, only in a new Pine file
 | 12 | Climax exit (`input_climax_*`, climax markers) | REMOVE | To be re-tested later as a separate addition. |
 | 13 | Stall detector (`input_stall_*`) | REMOVE | To be re-tested later as a separate addition. Note: Tiered EMA (already removed) used the same tier boundaries. |
 | 14 | Scalp Exit / weak market mode (`input_weak_market_mode`, `input_scalp_exit_bars`) | REMOVE | Was fixed off in the code, never ran. |
+| 15 | Trades per day | NEW visible input `max trades per symbol per day`, default 1 (to compare 1 / 2 / 3). Cooldown after exit (`input_cooldown_bars` = 1) stays as a hidden constant. | New York calendar day. Overtrading brakes and Reload are REMOVED from the core (tested later as separate additions). |
 
 ## To remove together at the end (apply in one pass)
 - Close entry mode and its code path (stop-buy stays the only mode), if confirmed.
