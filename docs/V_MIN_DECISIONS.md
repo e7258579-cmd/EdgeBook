@@ -25,6 +25,7 @@ All changes are applied together at the end, only in a new Pine file
 | 14 | Scalp Exit / weak market mode (`input_weak_market_mode`, `input_scalp_exit_bars`) | REMOVE | Was fixed off in the code, never ran. |
 | 15 | Trades per day | NEW visible input `max trades per symbol per day`, default 1 (to compare 1 / 2 / 3). Cooldown after exit (`input_cooldown_bars` = 1) stays as a hidden constant. | New York calendar day. Overtrading brakes and Reload are REMOVED from the core (tested later as separate additions). |
 | 16 | Position size in Pine | CHANGE: quantity computed like the backend (visible inputs: equity 500, risk % 1, min shares 5, max risk per trade 10 USD, max shares 10). Replaces the fixed 25 shares. | Commission stays 0.49 USD per order as an ASSUMPTION (real TradeZero Paper/Live commission not confirmed). |
+| 17 | Date range (`input_use_date_range`, from, to) | KEEP as is (visible, off by default) | Needed to run the fixed test sample (symbol + day). Off in live. |
 
 ## To remove together at the end (apply in one pass)
 - Close entry mode and its code path (stop-buy stays the only mode), if confirmed.
