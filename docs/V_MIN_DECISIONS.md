@@ -28,6 +28,7 @@ All changes are applied together at the end, only in a new Pine file
 | 17 | Date range (`input_use_date_range`, from, to) | KEEP as is (visible, off by default) | Needed to run the fixed test sample (symbol + day). Off in live. |
 | 18 | Webhook settings | VISIBLE: master switch (`input_webhook_enabled`), secret, debug labels. HIDDEN CONSTANTS: intrabar entry always on, max messages 12 per 3 min, heartbeat every 5 bars. | Never publish the script with the secret filled in. |
 | 19 | Visibility toggles | KEEP 8, ALL ON by default: PB start, reclaim@, INVALID, keyLevel line, VWAP, EMA9, state background, diagnostics table (+ its position). REMOVE: EMA20, trail line, Climax markers, V/W diagnostics, Reload and Brake markers. ADD (not a parameter): export of every trade as one line to Pine Logs (symbol, time, entry, stop, stop %, qty, P&L, R, exit reason, active settings). | The in-chart table stays. |
+| 20 | keyLevel definition | KEEP as is (pre-market: max of today's pre-market high and the last regular-session high, i.e. yesterday's until today's regular session starts; after 09:30 also the first-5-minute high). | Variant "today only" to be compared later. Verify the keyLevel line on a chart. |
 
 ## To remove together at the end (apply in one pass)
 - Close entry mode and its code path (stop-buy stays the only mode), if confirmed.
