@@ -54,3 +54,40 @@ pre-open), cooldown, reload, brakes, position sizing, webhook settings.
 **Removed from the core (kept in the debug file and in git):** Hold confirmation and gap threshold, EMA9 arming path with the L lock and EMA tolerance and volume-decline lock, Tiered EMA (and EMA20), intrabar EMA exit, Peak trail, Climax exit, Stall detector, Scalp Exit, Brakes, Reload, Minimum stop options (hidden), Close entry mode, old 09:25 force exit.
 
 **Open items:** real commission (assumed 0.49 USD per order); decide about the real broker stop before going Live; compare variants one at a time on the fixed sample (buffer 0/1/2/3 %, max stop 20/15/10 %, max trades 1/2/3, retracement 40/50/60, trigger Open/High/Close, then re-add removed components one at a time).
+
+## Parameter registry (file: edgebook_trade_strategy_min.pine, version m1)
+
+| Parameter | Status | Default | Notes |
+|-----------|--------|---------|-------|
+| Trading hours | visible input | `0400-1600` | NY time; also forces the exit at the end of the hours |
+| Date range (use / from / to) | visible input | off | for running the fixed test sample |
+| Maximum stop distance % | visible input | 0 (off) | Tighten only; compare 20 / 15 / 10 |
+| EMA9 exit buffer % | visible input | 0 | compare 0 / 1 / 2 / 3 |
+| Max trades per symbol per day | visible input | 1 | compare 1 / 2 / 3 |
+| Equity / risk % / min shares / max risk USD / max shares | visible inputs | 500 / 1 / 5 / 10 / 10 | mirror skeleton/functions/lib/sizing.js |
+| Webhook: enabled / secret / debug labels | visible inputs | off / empty / off | never publish with the secret |
+| Visibility toggles (8) + table position | visible inputs | all on | PB start, reclaim@, INVALID, keyLevel line, VWAP, EMA9, background, trades table |
+| Volume filter | hidden constant | 5-min 50,000; daily 200,000 | |
+| Retracement | hidden constant | 50 % | compare 40 / 50 / 60 |
+| Trigger | hidden constant | Open of the last red candle | compare High / Close |
+| EMA length | hidden constant | 9 | |
+| Cooldown after exit | hidden constant | 1 bar | |
+| Entry pause | hidden constant | 09:25-09:40 NY | tested on the bar start |
+| Close before the regular open | hidden constant | the bar that ends at 09:30 (the 09:29 bar) | |
+| Backend safety net replicated | hidden constant | stop farther than 50 % = no entry | plus min 5 shares, 10 USD risk ceiling |
+| Webhook budget / heartbeat | hidden constants | 12 messages per 3 min / every 5 bars | |
+| Commission | hidden constant | 0.49 USD per order | ASSUMPTION, not confirmed |
+
+### Notes on this build
+- The size uses the TRIGGER level as the price (the backend uses the last price at the crossing): an approximation.
+- `end_of_window` is now part of the exit chain (the state machine leaves the position at the same time as the order), instead of closing only the order as in the debug file.
+- With no Peak trail there are no `stop_update` messages: the stop at the broker stays at the initial level.
+- The EMA exit guard compares the BUFFERED level (EMA9 x (1 - buffer)) with the stop.
+- keyLevel only: expect far fewer setups than with the EMA9 path (zero-trade days are normal).
+- All labels are on by default and `reclaim@` fires on every red pullback candle: on long backtests the 500-label cap pushes older entry/exit arrows off the chart. Turn `reclaim@` / `PB start` off when needed.
+- The table shows: Entry NY, Px, Qty, Stop %, P&L %, R, P&L $, Exit, Bars.
+
+### Pine Logs format (open the Pine Logs panel, copy, paste)
+`TRADE,symbol,entryTime,exitTime,entry,stop,stopPct,qty,exit,pnlUsd,pnlPct,R,reason,bars`
+`SETTINGS,version,symbol,hours=...,maxStopPct=...,emaBufferPct=...,...` (one line at the last historical bar)
+`SYNC,symbol,time,price` (the order layer held a position the state machine did not know)
