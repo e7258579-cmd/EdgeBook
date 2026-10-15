@@ -15,6 +15,8 @@ All changes are applied together at the end, only in a new Pine file
 | 4 | Pre-open protection | CHANGE: no new entries 09:25-09:40; an open position may stay until the end of pre-market and is force-closed at the close of the 09:29 bar (09:30:00). No force-close at 09:25. | Never enter the regular session with an open position, even if it is rising. Replaces the old 09:25 exit. Paper backend places stops only from 09:30, consistent with this. |
 | 5 | Arming path | keyLevel ONLY. REMOVE the EMA9 path: `input_ema9_consolidation_enabled`, `input_ema9_tolerance_pct`, `ema9LockLevel` (the "L" lock), `armedVia`, the volume-decline constants/lock (`input_vol_decline_*`), and the test switch `input_disable_keylevel_check`. | EMA9 entry is to be re-tested later as a separate addition. |
 | 6 | Invalidation rules (retracement `input_retracement_pct` 50% + red candle volume above the last green leg candle) | KEEP both as is | Retracement value to be compared later (e.g. 40/50/60). |
+| 7 | Entry trigger reference | KEEP `Open` (constant) | High/Close to be compared later. |
+| 8 | Stop distance | Stop = low of the last red candle. KEEP only `Maximum stop distance %` with action `Tighten the stop to the maximum` (visible input, default 0 = off). REMOVE the Minimum options (`input_min_stop_pct`, `input_min_stop_atr`) from the Inputs: keep them hidden as constants, off (0). Remove the `Skip entry` action. | Backend still has its own safety net: min 5 shares, 10 USD risk ceiling, reject if stop > 50% away. |
 
 ## To remove together at the end (apply in one pass)
 - Close entry mode and its code path (stop-buy stays the only mode), if confirmed.
