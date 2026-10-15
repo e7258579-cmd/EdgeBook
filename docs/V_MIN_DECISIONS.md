@@ -30,6 +30,7 @@ All changes are applied together at the end, only in a new Pine file
 | 19 | Visibility toggles | KEEP 8, ALL ON by default: PB start, reclaim@, INVALID, keyLevel line, VWAP, EMA9, state background, diagnostics table (+ its position). REMOVE: EMA20, trail line, Climax markers, V/W diagnostics, Reload and Brake markers. ADD (not a parameter): export of every trade as one line to Pine Logs (symbol, time, entry, stop, stop %, qty, P&L, R, exit reason, active settings). | The in-chart table stays. |
 | 20 | keyLevel definition | KEEP as is (pre-market: max of today's pre-market high and the last regular-session high, i.e. yesterday's until today's regular session starts; after 09:30 also the first-5-minute high). | Variant "today only" to be compared later. Verify the keyLevel line on a chart. |
 | 21 | Protective stop evaluation | KEEP bar-close based (`close <= stop`): exit at the close of a bar that closes at or below the stop. | Conservative baseline. "Touch-based" (like a broker stop) to be tested separately; decide about the real broker stop before going Live. |
+| 22 | VWAP condition on entry | KEEP: the stop-buy is placed only when the trigger level is above VWAP (fixed rule, no parameter). | |
 
 ## To remove together at the end (apply in one pass)
 - Close entry mode and its code path (stop-buy stays the only mode), if confirmed.
@@ -38,3 +39,18 @@ All changes are applied together at the end, only in a new Pine file
 Volume thresholds (5-min and daily), trading hours, trigger reference, retracement %,
 EMA9 entry path, stop distance cap, exits (trail mode / tiers / peak trail / climax / stall /
 pre-open), cooldown, reload, brakes, position sizing, webhook settings.
+
+
+## V-min spec (summary of the decisions above)
+
+**Flow:** SEARCHING -> (green candle closes above keyLevel, volume filter OK, inside trading hours, no entry pause, trades today < max) -> PULLBACK_ACTIVE -> stop-buy at the OPEN of the last red candle (only if above VWAP), stop = that candle's low (optionally tightened to max stop %) -> IN_POSITION -> exit.
+
+**Exits (only these):** (1) protective stop: bar CLOSE at or below the stop; (2) EMA9 trail: bar CLOSE below `EMA9 x (1 - buffer%)`; (3) end of pre-market: force close at the close of the 09:29 bar.
+**No new entries:** outside 04:00-16:00 NY, and 09:25-09:40 NY. One trade per symbol per day (input).
+
+**Visible inputs:** trading hours (0400-1600), max stop distance % (0 = off) with action Tighten, EMA buffer % (0 = baseline), max trades per symbol per day (1), date range (off), position sizing (equity 500, risk % 1, min shares 5, max risk per trade 10 USD, max shares 10), webhook (master switch, secret, debug labels), 8 visibility toggles (all on).
+**Hidden constants:** volume filter (5-min >= 50,000; daily >= 200,000), entry trigger = Open of the last red candle, retracement 50%, sell-volume invalidation, EMA length 9, cooldown 1 bar, minimum stop options (off), webhook intrabar entry (on), max 12 messages per 3 min, heartbeat every 5 bars, pre-open pause 09:25-09:40, end-of-pre-market close at the 09:29 bar.
+**Added:** Pine Logs export (one line per trade, with the active settings).
+**Removed from the core (kept in the debug file and in git):** Hold confirmation and gap threshold, EMA9 arming path with the L lock and EMA tolerance and volume-decline lock, Tiered EMA (and EMA20), intrabar EMA exit, Peak trail, Climax exit, Stall detector, Scalp Exit, Brakes, Reload, Minimum stop options (hidden), Close entry mode, old 09:25 force exit.
+
+**Open items:** real commission (assumed 0.49 USD per order); decide about the real broker stop before going Live; compare variants one at a time on the fixed sample (buffer 0/1/2/3 %, max stop 20/15/10 %, max trades 1/2/3, retracement 40/50/60, trigger Open/High/Close, then re-add removed components one at a time).
