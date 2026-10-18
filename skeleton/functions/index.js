@@ -209,8 +209,10 @@ exports.tzWebhook = onRequest(
 
       // FAST PATH: send the entry order now, then answer.
       let outcome;
+      let envTag = null;
       try {
         const config = await loadConfig(5000);
+        envTag = config.environment;
         outcome = await placeSignal({
           signal, store: createFirestoreStore(db, FieldValue), broker: makeBroker(config), config,
         });
@@ -222,6 +224,7 @@ exports.tzWebhook = onRequest(
       await ref.update({
         status: outcome.followUp ? "entry_placed" : outcome.status,
         outcome: JSON.parse(JSON.stringify(outcome)),
+        env: envTag,
         placedAtMs: Date.now(),
       });
       res.status(200).json({ok: true, status: outcome.status});
@@ -303,6 +306,7 @@ exports.tzProcessSignal = onDocumentCreated(
         status: outcome.status,
         outcome: JSON.parse(JSON.stringify(outcome)),
         dryRun: config.dryRun,
+        env: config.environment,
         queueDelayMs,
         completedAt: FieldValue.serverTimestamp(),
       });
@@ -334,7 +338,7 @@ exports.tzReconcile = onSchedule(
         if (age > config.heartbeatMaxAgeSec) {
           const slot = Math.floor(now / 600000); // at most one warning per 10 minutes
           await db.collection("alerts").doc(`heartbeat_${pos.symbol}_${slot}`).set({
-            type: "heartbeat_missing", symbol: pos.symbol, ageSec: Number.isFinite(age) ? Math.round(age) : null, at: now,
+            type: "heartbeat_missing", symbol: pos.symbol, ageSec: Number.isFinite(age) ? Math.round(age) : null, at: now, env: config.environment,
           });
           logger.error("heartbeat missing for a symbol with a position", {symbol: pos.symbol, ageSec: age});
         }

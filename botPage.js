@@ -21,8 +21,12 @@
 const _bot = {
   unsubs: [],
   timer: null,
+  view: null,
   data: {config: null, statsReal: null, statsDry: null, positions: [], signals: [], trades: [], alerts: [], heartbeats: [], errors: {}},
 };
+function _botResetData() {
+  _bot.data = {config: null, statsReal: null, statsDry: null, positions: [], signals: [], trades: [], alerts: [], heartbeats: [], errors: {}};
+}
 
 const _botEsc = (s) => String(s === undefined || s === null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -38,6 +42,15 @@ const _botPx = (x) => {
   return n === null ? '–' : n.toFixed(n < 1 ? 4 : 2);
 };
 const _botClass = (n) => (n > 0 ? 'bot-pos' : n < 0 ? 'bot-neg' : '');
+
+// The account switch of the app (Live / Demo) also selects what the bot page shows:
+// Demo = Paper (and simulated) activity, Live = real-money activity. Documents written
+// before the backend tagged them with `env` are Paper.
+function _botView() {
+  const a = (typeof activeAccount !== 'undefined') ? activeAccount : (localStorage.getItem('edgebook_active_account') || 'live');
+  return a === 'live' ? 'live' : 'paper';
+}
+const _botEnvOf = (d) => (d && d.env) || 'paper';
 
 function _botNyDay(ms) {
   return new Intl.DateTimeFormat('en-CA', {timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit'}).format(new Date(ms));
@@ -72,12 +85,14 @@ function _botListen(key, query, mapFn) {
 function _botStart() {
   if (_bot.unsubs.length || typeof _db === 'undefined') return;
   const day = _botNyDay(Date.now());
+  const view = _botView();
+  _bot.view = view;
   const docData = (snap) => (snap.exists ? snap.data() : null);
   const list = (snap) => snap.docs.map((d) => ({id: d.id, ...d.data()}));
 
   _botListen('config', _db.collection('control').doc('config'), docData);
-  _botListen('statsReal', _db.collection('stats').doc(day), docData);
-  _botListen('statsDry', _db.collection('stats').doc(day + '-dry'), docData);
+  _botListen('statsReal', _db.collection('stats').doc(view === 'live' ? day + '-live' : day), docData);
+  if (view !== 'live') _botListen('statsDry', _db.collection('stats').doc(day + '-dry'), docData);
   _botListen('positions', _db.collection('positions'), list);
   _botListen('signals', _db.collection('signals').orderBy('receivedAt', 'desc').limit(30), list);
   _botListen('trades', _db.collection('trades').orderBy('closedAt', 'desc').limit(40), list);
@@ -98,6 +113,10 @@ function stopBotPage() {
 function renderBotPage() {
   const root = document.getElementById('tab-bot');
   if (!root) return;
+  if (_bot.view && _bot.view !== _botView()) { // the account switch changed: listen to the other counters
+    stopBotPage();
+    _botResetData();
+  }
   if (!document.getElementById('bot-style')) {
     const st = document.createElement('style');
     st.id = 'bot-style';
@@ -139,6 +158,12 @@ function _botDraw() {
   if (!root || root.style.display === 'none') return;
   const d = _bot.data;
   const cfg = d.config || {};
+  const view = _botView();
+  const posV = d.positions.filter((p) => _botEnvOf(p) === view);
+  const sigV = d.signals.filter((x) => _botEnvOf(x) === view);
+  const trV = d.trades.filter((x) => _botEnvOf(x) === view);
+  const alV = d.alerts.filter((x) => _botEnvOf(x) === view);
+  const cfgEnv = cfg.environment || 'paper';
   const errKeys = Object.keys(d.errors);
 
   // mode pills
@@ -157,15 +182,15 @@ function _botDraw() {
   const maxTrades = _botNum(cfg.maxTradesPerDay) || 10;
   const room = maxLoss + pnl;
   const kpis = [
-    ['Today P&L (real)', `<span class="${_botClass(pnl)}">${_botMoney(pnl)}</span>`, dry ? 'DRY RUN is on: no real orders' : 'Paper account'],
+    ['Today P&L (real)', `<span class="${_botClass(pnl)}">${_botMoney(pnl)}</span>`, dry ? 'DRY RUN is on: no real orders' : (cfgEnv === 'live' ? 'Live account' : 'Paper account')],
     ['Trades today', `${_botNum(sr.tradesToday) || 0} / ${maxTrades}`, 'entries sent to the broker'],
     ['Room to daily loss limit', `<span class="${room <= maxLoss * 0.25 ? 'bot-neg' : ''}">${_botMoney(Math.max(0, room))}</span>`, 'limit ' + _botMoney(maxLoss)],
-    ['Open positions', String(d.positions.length), d.positions.filter((p) => p.state === 'entry_pending').length + ' pending'],
+    ['Open positions', String(posV.length), posV.filter((p) => p.state === 'entry_pending').length + ' pending'],
     ['Simulated today', `<span class="${_botClass(_botNum(sd.realizedPnl) || 0)}">${_botMoney(_botNum(sd.realizedPnl) || 0)}</span>`, (_botNum(sd.tradesToday) || 0) + ' dry-run entries'],
   ].map(([l, v, s]) => `<div class="bot-kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${_botEsc(s)}</div></div>`).join('');
 
   // positions
-  const posRows = d.positions.slice().sort((a, b) => (b.openedAt || 0) - (a.openedAt || 0)).map((p) => {
+  const posRows = posV.slice().sort((a, b) => (b.openedAt || 0) - (a.openedAt || 0)).map((p) => {
     const waiting = p.stopError === 'waiting_regular_hours';
     const stopState = p.stopClientOrderId ? 'at broker' : (waiting ? 'waits for 09:30 NY' : (p.stopError ? p.stopError : 'none'));
     const stopCls = p.stopClientOrderId ? 'bot-pos' : (waiting ? 'bot-mut' : (p.state === 'open' ? 'bot-neg' : 'bot-mut'));
@@ -176,7 +201,7 @@ function _botDraw() {
   });
 
   // signals
-  const sigRows = d.signals.map((s) => {
+  const sigRows = sigV.map((s) => {
     const sig = s.signal || {};
     const out = s.outcome || {};
     const ms = _botTsMs(s.receivedAt);
@@ -192,7 +217,7 @@ function _botDraw() {
 
   // trades (today first; show all of the last 40 with the day visible)
   const today = _botNyDay(Date.now());
-  const tradeRows = d.trades.map((t) => {
+  const tradeRows = trV.map((t) => {
     const ms = _botNum(t.closedAt);
     const pn = _botNum(t.pnl);
     const isToday = ms && _botNyDay(ms) === today;
@@ -201,7 +226,7 @@ function _botDraw() {
   });
 
   // alerts
-  const alertRows = d.alerts.map((a) => `<tr><td>${_botNyTime(_botNum(a.at))}</td><td class="bot-neg">${_botEsc(a.type)}</td>
+  const alertRows = alV.map((a) => `<tr><td>${_botNyTime(_botNum(a.at))}</td><td class="bot-neg">${_botEsc(a.type)}</td>
     <td><b>${_botEsc(a.symbol)}</b></td><td class="wrap">${_botEsc(typeof a.detail === 'object' ? JSON.stringify(a.detail) : a.detail)}</td></tr>`);
 
   // heartbeats
@@ -215,7 +240,10 @@ function _botDraw() {
   root.innerHTML = `
     <div class="bot-head">
       <div class="page-title">Live Bot</div>
-      <span class="bot-pill ${dry ? 'warn' : 'ok'}">${dry ? 'DRY RUN' : 'PAPER'}</span>
+      <span class="bot-pill">${view === 'live' ? 'Live account' : 'Demo account (Paper)'}</span>
+      <span class="bot-pill ${dry ? 'warn' : 'ok'}">${dry ? 'DRY RUN' : _botEsc(cfgEnv.toUpperCase())}</span>
+      ${view === 'live' && cfgEnv !== 'live' ? '<span class="bot-pill warn">live trading not active</span>' : ''}
+      ${view !== 'live' && cfgEnv === 'live' ? '<span class="bot-pill bad">bot is configured for LIVE</span>' : ''}
       <span class="bot-pill ${killed ? 'bad' : 'ok'}">${killed ? 'KILL SWITCH ON' : 'entries enabled'}</span>
       <span class="bot-pill ${hbPill[0]}">${_botEsc(hbPill[1])}</span>
       <span class="bot-mut" style="font-size:12px;margin-left:auto">NY time &middot; read-only</span>

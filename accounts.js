@@ -265,6 +265,9 @@ async function switchAccount(acct) {
   if (typeof refreshAll       === 'function') refreshAll();
   if (typeof updateAcctButtons === 'function') updateAcctButtons();
   if (typeof updateAcctBadge   === 'function') updateAcctBadge();
+  // The bot page follows the account switch (Demo = Paper, Live = real money).
+  const botTab = document.getElementById('tab-bot');
+  if (botTab && botTab.style.display !== 'none' && typeof renderBotPage === 'function') renderBotPage();
 }
 
 // ─── MIGRATION: old structure → new per-document structure ──

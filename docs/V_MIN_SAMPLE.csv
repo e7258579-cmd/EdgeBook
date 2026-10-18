@@ -1,0 +1,15 @@
+symbol,date,source,watchlist_time,day_type,note
+CLRO,2026-08-05,,,,fill source / watchlist_time / day_type (source: AH_gapper or intraday_alert; time: HH:MM New York; day_type: hot or cold, optional)
+CLRO,2026-08-06,,,,
+CLRO,2026-08-10,,,,
+GRML,2026-09-21,,,,
+GRML,2026-09-22,,,,
+BENF,2026-09-23,,,,
+GCTK,2026-09-23,,,,trade was at 16:30 (outside 0400-1600)
+PFSA,2026-09-24,,,,
+APUS,2026-09-24,,,,
+SAIQ,2026-10-05,,,,
+VEEA,2026-10-05,,,,
+ALEC,2026-10-05,,,,
+BIAF,2026-09-04,,,,no trade
+DCOY,2026-09-22,,,,no trade
