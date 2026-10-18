@@ -527,3 +527,24 @@ test("entry: a stop farther than maxStopDistancePct below the price is rejected,
   const off = await run(entrySignal({price: 8.39, last: 8.07, stop: 0.5818}), memoryStore(), simBroker({bid: 8.07, ask: 8.07}), cfg({maxStopDistancePct: 0}));
   assert.notEqual(off.reason, "stop_too_far");
 });
+
+test("stats key: Paper keeps the plain day key, Live and DRY_RUN get their own", () => {
+  const {statsKey} = require("../lib/config");
+  const ms = NOW;
+  const day = nyDateKey(ms);
+  assert.equal(statsKey(ms, false, "paper"), day);
+  assert.equal(statsKey(ms, false, undefined), day); // older positions have no env
+  assert.equal(statsKey(ms, false, "live"), `${day}-live`);
+  assert.equal(statsKey(ms, true, "live"), `${day}-dry`);
+});
+
+test("a new position carries its environment, and a closed live position books to the live counters", async () => {
+  const store = memoryStore();
+  const broker = simBroker({bid: 4.10, ask: 4.10, accountType: "Live"});
+  const config = cfg({environment: "live", route: "LIVE"});
+  const r = await run(entrySignal(), store, broker, config);
+  assert.equal(r.status, "accepted");
+  assert.equal((await store.getPosition("WHLR")).env, "live");
+  assert.equal((await store.getStats(`${nyDateKey(NOW)}-live`)).tradesToday, 1);
+  assert.equal((await store.getStats(nyDateKey(NOW))).tradesToday, 0);
+});

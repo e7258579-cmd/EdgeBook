@@ -183,7 +183,7 @@ async function cancelAndSettle(ctx, id) {
 }
 
 async function alertOnce(ctx, type, symbol, detail) {
-  await ctx.store.recordAlert({type, symbol, detail, at: ctx.now()});
+  await ctx.store.recordAlert({type, symbol, detail, at: ctx.now(), env: ctx.config.environment});
 }
 
 // ─── protective stop ────────────────────────────────────────────
@@ -232,7 +232,7 @@ async function placeStop(ctx, pos, level) {
 async function placeEntry(ctx, signal) {
   const {store, broker, config, now} = ctx;
   const t = now();
-  const day = statsKey(t, config.dryRun);
+  const day = statsKey(t, config.dryRun, config.environment);
   const [stats, ordersLastMinute] = await Promise.all([store.getStats(day), store.countOrdersSince(t - 60000)]);
   const blocked = checkEntryLimits({config, stats, ordersLastMinute});
   if (blocked) return {status: "rejected", reason: blocked};
@@ -261,7 +261,7 @@ async function placeEntry(ctx, signal) {
     symbol: signal.symbol, state: "entry_pending", qty: size.qty, filledQty: 0,
     entryPrice: signal.price, entryFillPrice: null, limitPrice: size.limitPrice,
     stopLevel: signal.stop, entryClientOrderId: id, entryBarTime: signal.barTime,
-    seq: 0, stopClientOrderId: null, realized: 0, openedAt: t, dryRun: config.dryRun,
+    seq: 0, stopClientOrderId: null, realized: 0, openedAt: t, dryRun: config.dryRun, env: config.environment,
   });
   if (!reserved) return {status: "rejected", reason: "already_in_position"};
 
@@ -423,7 +423,7 @@ async function processExit(ctx, signal) {
       const ex = num(c.order && c.order.executed);
       if (ex > 0) await consumeFill(ctx, pos, ex, num(c.order.priceAvg) || pos.stopLevel);
       if (!(pos.filledQty > 0)) {
-        await store.closePosition(pos.symbol, {day: statsKey(t, pos.dryRun), pnl: pos.realized || 0, exitReason: "stop_filled_before_exit", closedAt: t, qty: 0});
+        await store.closePosition(pos.symbol, {day: statsKey(t, pos.dryRun, pos.env), pnl: pos.realized || 0, exitReason: "stop_filled_before_exit", closedAt: t, qty: 0});
         return {status: "ignored", reason: "stop_already_filled"};
       }
     }
@@ -512,7 +512,7 @@ async function consumeFill(ctx, pos, qty, px) {
 async function bookClosed(ctx, pos, {exitPrice, qty, reason}) {
   const entry = pos.entryFillPrice || pos.entryPrice;
   const pnl = (exitPrice - entry) * qty + (pos.realized || 0);
-  await ctx.store.closePosition(pos.symbol, {day: statsKey(ctx.now(), pos.dryRun), pnl, exitReason: reason, closedAt: ctx.now(), qty});
+  await ctx.store.closePosition(pos.symbol, {day: statsKey(ctx.now(), pos.dryRun, pos.env), pnl, exitReason: reason, closedAt: ctx.now(), qty});
 }
 
 async function bookStopFilled(ctx, pos, order) {

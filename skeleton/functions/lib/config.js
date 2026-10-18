@@ -51,10 +51,12 @@ function nyDateKey(ms) {
   }).format(new Date(ms));
 }
 
-// Daily counters are kept apart for DRY_RUN and real (Paper/Live) trading, so simulated
-// trades never use up the real daily loss limit or the trade cap.
-function statsKey(ms, dry) {
-  return dry ? `${nyDateKey(ms)}-dry` : nyDateKey(ms);
+// Daily counters are kept apart for DRY_RUN, Paper and Live trading, so simulated trades never
+// use up the real daily loss limit or the trade cap, and Live has its own counters.
+// (Paper keeps the original key, so existing documents stay valid.)
+function statsKey(ms, dry, env) {
+  if (dry) return `${nyDateKey(ms)}-dry`;
+  return env === "live" ? `${nyDateKey(ms)}-live` : nyDateKey(ms);
 }
 
 // True during the regular US session (Mon-Fri 09:30-16:00 New York).

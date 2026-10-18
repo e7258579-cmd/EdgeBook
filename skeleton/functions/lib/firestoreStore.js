@@ -76,6 +76,8 @@ function createFirestoreStore(db, FieldValue) {
       const pos = await this.getPosition(symbol);
       await db.collection("trades").add({
         symbol, pnl, exitReason, closedAt, qty,
+        env: (pos && pos.env) || "paper",
+        dryRun: !!(pos && pos.dryRun),
         entryPrice: pos && (pos.entryFillPrice || pos.entryPrice),
       });
       await db.collection("stats").doc(day).set(
