@@ -15,7 +15,49 @@ service cloud.firestore {
     match /stats/{id}      { allow read: if isOwner(); }
     match /alerts/{id}     { allow read: if isOwner(); }
     match /heartbeats/{id} { allow read: if isOwner(); }
-    match /control/{id}    { allow read: if isOwner(); }
+
+    // The dashboard (version 2) may change ONLY these fields of control/config, within safe ranges.
+    // It can never change `environment`, and DRY_RUN can be switched off only while the
+    // environment is "paper". Every change is logged to control_log (create-only).
+    function cfgKeysOk() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'killSwitch', 'dryRun', 'maxDailyLossUsd', 'maxTradesPerDay', 'maxShares', 'minShares',
+        'maxRiskPerTradeUsd', 'riskPct', 'maxStopDistancePct', 'maxChaseUsd']);
+    }
+    // Only the fields that CHANGE in this write are validated, so an old out-of-range value
+    // never blocks an unrelated change (for example the kill switch).
+    function changed(k) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([k]);
+    }
+    function numIn(k, lo, hi) {
+      return !changed(k)
+          || (request.resource.data[k] is number && request.resource.data[k] >= lo && request.resource.data[k] <= hi);
+    }
+    function boolOk(k) {
+      return !changed(k) || request.resource.data[k] is bool;
+    }
+    function cfgValuesOk() {
+      return boolOk('killSwitch') && boolOk('dryRun')
+          && numIn('maxDailyLossUsd', 1, 100) && numIn('maxTradesPerDay', 1, 20)
+          && numIn('maxShares', 1, 100) && numIn('minShares', 0, 50)
+          && numIn('maxRiskPerTradeUsd', 0, 50) && numIn('riskPct', 0.1, 5)
+          && numIn('maxStopDistancePct', 0, 90) && numIn('maxChaseUsd', 0, 1);
+    }
+    // Switching DRY_RUN off is allowed only while the environment is "paper". The kill switch and
+    // the limits can always be changed, also when the bot runs on a live account.
+    function realModeOk() {
+      return !changed('dryRun')
+          || request.resource.data.dryRun == true
+          || request.resource.data.get('environment', 'paper') == 'paper';
+    }
+    match /control/{id} {
+      allow read: if isOwner();
+      allow update: if isOwner() && id == 'config' && cfgKeysOk() && cfgValuesOk() && realModeOk();
+    }
+    match /control_log/{id} {
+      allow read: if isOwner();
+      allow create: if isOwner() && request.resource.data.keys().hasOnly(['at', 'by', 'changes', 'view']);
+    }
 
     // ── Journal app (unchanged) ──
     // New structure: per-trade documents
