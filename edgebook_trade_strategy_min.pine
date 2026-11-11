@@ -1,6 +1,6 @@
 //@version=5
 // ============================================================
-// EdgeBook Strategy MIN  (V-min, version m1)
+// EdgeBook Strategy MIN  (V-min, version m2)
 //
 // A minimal core of the strategy. Every decision is logged in
 // docs/V_MIN_DECISIONS.md. Anything removed from the core is still in
@@ -19,7 +19,8 @@
 //   ENTRY      -> a stop-buy at the trigger, only while the trigger is above VWAP, and only
 //                 if the position sizing (same formula as the backend) accepts it.
 //   EXITS      -> (1) end of pre-market (the 09:29 bar) or the end of the trading hours,
-//                 (2) protective stop: a bar CLOSES at or below the stop,
+//                 (2) protective stop: a bar CLOSES at or below the stop (baseline), or, with
+//                     the input "Stop evaluation" = Touch, the price TOUCHES the stop,
 //                 (3) EMA9 trail: a bar closes below EMA9 x (1 - buffer %).
 //   No new entry between 09:25 and 09:40 New York. One trade per symbol per day (input).
 //
@@ -60,6 +61,8 @@ input_date_to   = input.time(timestamp("31 Dec 2026 00:00 -0500"), "To date (inc
 
 input_max_stop_pct = input.float(0.0, "Maximum stop distance (% of the entry level, 0 = off)", minval = 0.0, maxval = 90.0, step = 1.0, group = "Stop and exit",
      tooltip = "If the low of the last red candle is farther than this below the entry level, the stop is RAISED to exactly this distance (the entry is still taken). 0 = off.")
+input_stop_mode = input.string("Close", "Stop evaluation", options = ["Close", "Touch"], group = "Stop and exit",
+     tooltip = "Close (baseline): exit at the CLOSE of a bar that closes at or below the stop. Touch: exit when a bar's LOW reaches the stop, at the stop price (or at the bar's open if it opened below the stop), like a resting stop order at the broker. On the entry bar itself the Close rule is always used (the order of prices inside one bar is unknown). BACKTEST ONLY: live, exits are still sent at the bar close. The Pine Logs and the table use the Touch price; the Strategy Tester summary still fills at the bar close.")
 input_ema_buffer_pct = input.float(0.0, "EMA9 exit buffer (%)", minval = 0.0, maxval = 20.0, step = 0.5, group = "Stop and exit",
      tooltip = "Exit when a bar CLOSES below EMA9 x (1 - buffer/100). 0 = the plain EMA9 exit (baseline). To compare: 0 / 1 / 2 / 3.")
 input_max_trades_day = input.int(1, "Maximum trades per symbol per day (New York day)", minval = 1, maxval = 20, group = "Frame",
@@ -167,7 +170,7 @@ sizeEntry(float level, float stp) =>
     result
 
 // ─── Webhook messages (contract: docs/WEBHOOK_CONTRACT_V02.md) ──
-STRATEGY_VERSION = "V-min-m1"
+STRATEGY_VERSION = "V-min-m2"
 sessionTag = not na(inPreMarket) ? "pre" : (not na(inRegularHours) ? "regular" : "post")
 
 // Times (ms) of the messages sent in the last 3 minutes: the rate budget.
@@ -437,8 +440,16 @@ if barstate.isconfirmed
     if state == STATE_IN_POSITION
         exitReason = ""
         exitPx = close
+        // Touch mode (backtest): a resting stop is hit as soon as the low reaches it. It fills at
+        // the stop, or at the open when the bar opened below it. Not on the entry bar (the order
+        // of prices inside one bar is unknown), and it comes before the timed exits because it
+        // happens during the bar, they happen at its close.
+        stopTouched = input_stop_mode == "Touch" and bar_index > entryBar and low <= stopPrice
+        if stopTouched
+            exitPx := math.min(open, stopPrice)
+            exitReason := not na(inPreMarket) ? "stop_hit_premarket" : "stop_hit_regular_hours_backend_handles"
         // (1) Flat before the regular open (the bar that ends at 09:30), or outside the trading hours.
-        if preMarketEndBar
+        else if preMarketEndBar
             exitReason := "premarket_end_exit"
         else if not inActiveWindow
             exitReason := "end_of_window"
@@ -474,7 +485,7 @@ if barstate.isconfirmed
                  str.tostring(rMult, "#.##"), exitReason, str.tostring(barsHeld))
             // Webhook: skipped when entry and exit are on the SAME bar (neither was sent).
             if bar_index != entryBar or nz(liveEntrySentBar, -1) == bar_index
-                emitWebhook("exit", ',"reason":"' + exitReason + '","price":' + str.tostring(exitPx, "0.####") + ',"last":' + str.tostring(close, "0.####"))
+                emitWebhook("exit", ',"reason":"' + exitReason + '","price":' + str.tostring(close, "0.####") + ',"last":' + str.tostring(close, "0.####"))
             // ORDER - a side effect only.
             if strategy.position_size > 0
                 strategy.close("Long", comment = exitReason)
@@ -500,10 +511,10 @@ if barstate.isconfirmed
 
 // ─── SETTINGS line for Pine Logs (once, at the last historical bar) ───
 if barstate.islastconfirmedhistory
-    log.info("SETTINGS,{0},{1},hours={2},maxStopPct={3},emaBufferPct={4},maxTradesDay={5},equity={6},riskPct={7},minShares={8},maxRiskUsd={9},maxShares={10},dateRange={11},fee={12}",
+    log.info("SETTINGS,{0},{1},hours={2},maxStopPct={3},emaBufferPct={4},maxTradesDay={5},equity={6},riskPct={7},minShares={8},maxRiskUsd={9},maxShares={10},dateRange={11},fee={12},stopMode={13}",
          STRATEGY_VERSION, syminfo.ticker, input_trading_hours, str.tostring(input_max_stop_pct), str.tostring(input_ema_buffer_pct),
          str.tostring(input_max_trades_day), str.tostring(input_equity), str.tostring(input_risk_pct), str.tostring(input_min_shares),
-         str.tostring(input_max_risk), str.tostring(input_max_shares), str.tostring(input_use_date_range), str.tostring(commissionPerOrder))
+         str.tostring(input_max_risk), str.tostring(input_max_shares), str.tostring(input_use_date_range), str.tostring(commissionPerOrder), input_stop_mode)
 
 // ─── Plots ───────────────────────────────────────────────────────
 plot(input_show_keylevel_plot and state == STATE_SEARCHING ? keyLevel : na, title = "keyLevel", color = color.fuchsia, style = plot.style_stepline, linewidth = 3)
@@ -519,7 +530,7 @@ plot(rollingVol5min, title = "rollingVol5min", display = display.data_window)
 diagTablePosition = input_diag_table_pos == "Top left" ? position.top_left : input_diag_table_pos == "Bottom center" ? position.bottom_center : input_diag_table_pos == "Bottom right" ? position.bottom_right : position.bottom_left
 var table diagTable = table.new(diagTablePosition, DIAG_COLS, DIAG_MAX_ROWS + 1, bgcolor = color.new(color.black, 10), frame_color = color.gray, frame_width = 1, border_color = color.gray, border_width = 1)
 if barstate.islast and input_show_diag_table
-    diagHeaders = array.from("Entry NY (m1)", "Px", "Qty", "Stop %", "P&L %", "R", "P&L $", "Exit", "Bars")
+    diagHeaders = array.from("Entry NY (m2)", "Px", "Qty", "Stop %", "P&L %", "R", "P&L $", "Exit", "Bars")
     for c = 0 to DIAG_COLS - 1
         table.cell(diagTable, c, 0, array.get(diagHeaders, c), text_color = color.white, bgcolor = color.new(color.gray, 40), text_size = size.small)
     diagRows = int(array.size(diagTbl) / DIAG_COLS)

@@ -32,6 +32,7 @@ All changes are applied together at the end, only in a new Pine file
 | 21 | Protective stop evaluation | KEEP bar-close based (`close <= stop`): exit at the close of a bar that closes at or below the stop. | Conservative baseline. "Touch-based" (like a broker stop) to be tested separately; decide about the real broker stop before going Live. |
 | 22 | VWAP condition on entry | KEEP: the stop-buy is placed only when the trigger level is above VWAP (fixed rule, no parameter). | |
 | 23 | Entry pause end | KEEP 09:40 (do not extend to 10:00 for now) | Known risk: low-priced stocks (1-3 USD) between 09:30 and 10:00 can enter halt sequences; backtests cannot see halts (a stop may not execute, the price can reopen far below it). Decision for later, with live experience. |
+| 25 | Stop evaluation switch (m2) | NEW visible input `Stop evaluation`: Close (default, baseline) / Touch. Touch: exit when a bar's low reaches the stop, at the stop price (or at the open if the bar opened below it); never on the entry bar; checked before the timed exits. | Baseline run 1: all 6 stop exits lost on average -1.82 R (close-based overshoot). First comparison to run: the same sample, Close vs Touch. Backtest only: live exits are still sent at the bar close, and the Strategy Tester summary still fills at the close (Pine Logs and the table use the Touch price). |
 | 24 | Test sample | Built from the real process (AH gappers on the watchlist before 04:00; intraday adds 1-5 minutes after a ChartWatcher alert), not a random sample. `docs/V_MIN_SAMPLE.csv` has `source`, `watchlist_time`, `day_type`. The analysis ignores trades entered before the stock's `watchlist_time`, and summarizes by source, by day type and by time window (0400-0700, 0700-0800, 0800-0925, 0925-0940, 0940-1000, 1000-1600). | Every watchlist stock of a day should be listed, not only the ones that traded. Time windows chosen on part of the days, validated on the rest. |
 
 ## To remove together at the end (apply in one pass)
@@ -64,6 +65,7 @@ pre-open), cooldown, reload, brakes, position sizing, webhook settings.
 | Trading hours | visible input | `0400-1600` | NY time; also forces the exit at the end of the hours |
 | Date range (use / from / to) | visible input | off | for running the fixed test sample |
 | Maximum stop distance % | visible input | 0 (off) | Tighten only; compare 20 / 15 / 10 |
+| Stop evaluation | visible input | Close | Close / Touch (backtest only), added in m2 |
 | EMA9 exit buffer % | visible input | 0 | compare 0 / 1 / 2 / 3 |
 | Max trades per symbol per day | visible input | 1 | compare 1 / 2 / 3 |
 | Equity / risk % / min shares / max risk USD / max shares | visible inputs | 500 / 1 / 5 / 10 / 10 | mirror skeleton/functions/lib/sizing.js |
